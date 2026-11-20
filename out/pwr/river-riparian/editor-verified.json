@@ -1,0 +1,18 @@
+{
+  "assets": {
+    "M_PWR_SpringCascade": "/Game/MJOLNIR/GrassPilot/Playable/M_PWR_SpringCascade.M_PWR_SpringCascade",
+    "SM_PWR_SpringCascade": "/Game/MJOLNIR/GrassPilot/Playable/SM_PWR_SpringCascade.SM_PWR_SpringCascade",
+    "M_PWR_CutbankRoots": "/Game/MJOLNIR/GrassPilot/Playable/M_PWR_CutbankRoots.M_PWR_CutbankRoots",
+    "SM_PWR_CutbankRoots": "/Game/MJOLNIR/GrassPilot/Playable/SM_PWR_CutbankRoots.SM_PWR_CutbankRoots",
+    "M_PWR_RiparianSun": "/Game/MJOLNIR/GrassPilot/Playable/M_PWR_RiparianSun.M_PWR_RiparianSun",
+    "MI_PWR_RiparianCanyon": "/Game/MJOLNIR/GrassPilot/Playable/MI_PWR_RiparianCanyon.MI_PWR_RiparianCanyon",
+    "MI_PWR_RiparianWild": "/Game/MJOLNIR/GrassPilot/Playable/MI_PWR_RiparianWild.MI_PWR_RiparianWild",
+    "MI_PWR_RiparianWillow": "/Game/MJOLNIR/GrassPilot/Playable/MI_PWR_RiparianWillow.MI_PWR_RiparianWillow",
+    "T_PWR_RiparianWillow": "/Game/MJOLNIR/GrassPilot/Playable/T_PWR_RiparianWillow.T_PWR_RiparianWillow"
+  },
+  "modules": {
+    "apply_pwr_cutbank_roots": "1734b642eeb329cda1b04dc7a2905415d8c248cb533ef90a62c7446d5137d232",
+    "apply_pwr_riparian_canopy": "e308d15b467008f80db213f7d67d37efc0e1e3bd374f2eed722c499c11ff4b44",
+    "apply_pwr_spring_cascade": "1df543f98be3c78e5244b855f868d226c2fca4e740feb4c017f589abe04d870a"
+  }
+}

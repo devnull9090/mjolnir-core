@@ -1,0 +1,9 @@
+    // The signed road and duff fields coincide specifically at the rippled
+    // gravel/needle fans. Native bark, stones and fescue occupy these verges.
+    float vergeStain=finishScope*deposit*smoothstep(.24,.62,survey.y)*(1-smoothstep(.75,.95,survey.y));
+    float chipTip=smoothstep(.57,.80,stone.a)*smoothstep(.077,.17,gravelL);
+    float3 coolChip=lerp(nativeGravel*float3(.93,.90,.85),coarse*float3(1.03,.99,.91),.45);
+    float3 dryNeedle=lerp(float3(.083,.052,.033),float3(.24,.17,.096),litter.r);
+    float3 vergeGround=lerp(lerp(trampled,humus,.39),dryNeedle,pine*.81);
+    vergeGround=lerp(vergeGround,coolChip,.12+.84*chipTip);
+    color=lerp(color,vergeGround,vergeStain*.91);

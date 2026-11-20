@@ -44,5 +44,32 @@ class FluxPlanTest(unittest.TestCase):
         release=json.loads((self.root/"out/flux.config.fragment.json").read_text())
         self.assertTrue(all(e["playback"]=="baked" for e in release["domains"]))
 
+    def test_northern_lake_has_its_own_inlet_without_changing_southern_controls(self):
+        geometry = self.root / "water.json"
+        data = {
+            "watercourses": [{"id": "central_river", "surface_centreline_m":
+                              [[-30, 310, 100], [-20, 20, 92.4], [0, -20, 92], [200, -600, 55]]}],
+            "lakes": [{"id": "southeast_lake", "water_z_m": 55,
+                       "polygon_m": [[0,-900],[600,-900],[600,-500],[0,-500]]}],
+        }
+        geometry.write_text(json.dumps(data))
+        plan(self.master, geometry, self.root / "old", 128)
+        old = json.loads((self.root / "old/flux.spec.json").read_text())["domains"]
+        data["lakes"].append({"id": "north_headwater_lake", "water_z_m": 100,
+                              "polygon_m": [[-100,310],[100,310],[100,420],[-100,420]]})
+        data["watercourses"].append({"id": "headwater_spring",
+                                     "surface_centreline_m": [[0,440,103], [0,418,100]]})
+        geometry.write_text(json.dumps(data))
+        plan(self.master, geometry, self.root / "new", 128)
+        upper, lower = json.loads((self.root / "new/flux.spec.json").read_text())["domains"]
+        self.assertEqual(lower["sources"], old[1]["sources"])
+        holds = [s for s in upper["sources"] if s["role"] == "headwater_level_hold"]
+        self.assertTrue(holds)
+        self.assertTrue(all(s["pos"][2] == 10000 and not s["prime"] for s in holds))
+        springs = [s for s in upper["sources"] if s["role"] == "spring_inlet"]
+        self.assertEqual(len(springs), 1)
+        self.assertFalse(springs[0]["prime"])
+        self.assertFalse(any(s["role"] == "inlet_flow" for s in upper["sources"]))
+
 
 if __name__=="__main__":unittest.main()

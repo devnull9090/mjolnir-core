@@ -170,7 +170,7 @@ static void test_carrier_deck_and_airborne_pause(void) {
     assert(p.stage == WF_FALLING && (o.flags & WF_VELOCITY));
     s.position[2] = 325.935f; /* exact V8 false landing altitude */
     s.velocity[2] = 0;
-    for (int n = 0; n < 180; n++) step(&p, &s, 2, 3, 0, &o);
+    for (int n = 0; n < 180; n++) step(&p, &s, 2, 3, n == 60, &o);
     assert(p.stage == WF_CANOPY && p.protected_fall); /* no terrain support */
     s.support_world = 1; s.carrier_clear = 0;
     for (int n = 0; n < 30; n++) step(&p, &s, 2, 4, 0, &o);
@@ -205,7 +205,146 @@ static void test_carrier_deck_and_airborne_pause(void) {
     assert(p.stage == WF_LANDED && !p.protected_fall);
 }
 
+#include "warfare_inventory.h"
+
+typedef struct { float opened, landed, remaining, horizontal, max_sink, final_sink; } flight_result;
+
+static flight_result fly_course(int rate, float open_at, int brake) {
+    float dt = 1.0f / rate;
+    warfare_player p; warfare_player_reset(&p);
+    warfare_sample s = sample(42); warfare_output o;
+    p.unit = s.unit; p.stage = WF_EXITING; p.protected_fall = 1; p.saw_insertion = 1;
+    s.position[0] = -590; s.position[1] = -130; s.position[2] = 550; s.facing[0] = 1;
+    p.carrier_velocity[0] = 15;
+    float x0 = s.position[0];
+    flight_result result = {0};
+    for (int tick = 0; tick < 90*rate; tick++) {
+        float age = tick * dt;
+        s.brake = brake;
+        int key = open_at >= 0 && tick == (int)ceilf(open_at * rate);
+        warfare_step(&p, &s, 2, age, 60, dt, key, &o);
+        assert(p.stage != WF_FAILED);
+        if (p.stage == WF_CANOPY && !result.opened) {
+            result.opened = age;
+            result.remaining = s.position[2] - warfare_terrain(s.position[0], s.position[1], 0);
+        }
+        if (p.stage == WF_LANDED) {
+            result.landed = age;
+            result.horizontal = s.position[0] - x0;
+            return result;
+        }
+        if (o.flags & WF_VELOCITY) memcpy(s.velocity, o.velocity, sizeof s.velocity);
+        result.max_sink = fmaxf(result.max_sink, -s.velocity[2]);
+        if (p.stage == WF_CANOPY && !s.support_world) result.final_sink = -s.velocity[2];
+        for (int k=0; k<3; k++) s.position[k] += s.velocity[k] * dt;
+        float terrain = warfare_terrain(s.position[0], s.position[1], 0);
+        if (s.position[2] <= terrain) {
+            s.position[2] = terrain; s.support_world = 1;
+            memset(s.velocity, 0, sizeof s.velocity);
+        }
+    }
+    assert(!"Flight did not land");
+    return result;
+}
+
+static void test_flight_controls(void) {
+    flight_result early = fly_course(60, 1, 0), brake = fly_course(60, 1, 1);
+    flight_result automatic = fly_course(60, -1, 0);
+    assert(early.opened == 1 && early.landed > 19 && early.landed < 35);
+    assert(brake.landed > early.landed && brake.landed < 50 && brake.horizontal < early.horizontal);
+    assert(fabsf(early.final_sink - 16.0f) < 0.1f && fabsf(brake.final_sink - 10.5f) < 0.1f);
+    assert(automatic.opened > 6 && automatic.remaining > 45 && automatic.remaining < 130);
+    assert(automatic.max_sink > 45 && automatic.landed < early.landed);
+    for (int rate=30; rate<=120; rate*=2) {
+        flight_result r = fly_course(rate, -1, 0);
+        assert(fabsf(r.opened - automatic.opened) < 0.08f && fabsf(r.landed - automatic.landed) < 0.13f);
+    }
+    printf("PWR 550m route exit above red home: auto %.2fs at %.1fm, peak sink %.1fm/s, landed %.2fs; "
+           "1s pull landed %.2fs/%.0fm forward, held brake %.2fs/%.0fm forward.\n",
+           automatic.opened, automatic.remaining, automatic.max_sink, automatic.landed,
+           early.landed, early.horizontal, brake.landed, brake.horizontal);
+    warfare_player p; warfare_player_reset(&p); warfare_sample s = sample(42); warfare_output o;
+    p.unit = s.unit; p.stage = WF_CANOPY; p.departure_z = 550; s.position[2] = 350;
+    s.facing[0] = 1; s.right_input = 1;
+    for (int n=0; n<180; n++) step(&p,&s,2,0,0,&o);
+    assert(o.velocity[0] > 13 && o.velocity[1] < -13 && p.steering > 0.99f);
+    s.facing[0] = 0; s.facing[1] = 1; s.right_input = 0; s.forward_input = 1;
+    for (int n=0; n<240; n++) step(&p,&s,2,0,0,&o);
+    assert(o.velocity[1] > 27 && fabsf(o.velocity[0]) < 0.2f && fabsf(p.steering) < 0.01f);
+    s.brake = 1;
+    for (int n=0; n<240; n++) step(&p,&s,2,0,0,&o);
+    assert(p.braking && fabsf(o.velocity[1]-12) < 0.1f && fabsf(o.velocity[2]+10.5f) < 0.1f);
+    s.brake = 0; s.support_world = 1; step(&p,&s,2,0,0,&o);
+    assert(!(o.flags & WF_VELOCITY));
+
+    /* One tap leaves the seat. A distinct tap during line stretch is
+     * retained until deployment is safe without requiring a third press. */
+    warfare_player_reset(&p); s = sample(42); s.position[2] = 550;
+    p.unit = s.unit; p.stage = WF_SEATED; p.saw_insertion = 1;
+    s.parent = 45; s.parent_is_transport = 1; s.carrier_clear = 0;
+    step(&p,&s,1,0.2f,1,&o);
+    assert(p.stage == WF_EXITING && !p.deploy_requested);
+    step(&p,&s,1,0.3f,1,&o); assert(p.deploy_requested);
+    s.parent = WARFARE_NONE; s.parent_is_transport = 0; s.carrier_clear = 1;
+    step(&p,&s,1,0.4f,0,&o); assert(p.stage == WF_FALLING);
+    for (int n=0;n<17;n++) step(&p,&s,1,0.6f,0,&o);
+    assert(p.stage == WF_CANOPY && !p.deploy_requested);
+}
+
+static int inventory_calls, inventory_grants, inventory_clears, reject_next;
+static int fake_inventory_submit(const char *command) {
+    inventory_calls++;
+    if (strstr(command, "pwr_unarmed true false")) inventory_clears++;
+    if (strstr(command, "pwr_starter false false")) inventory_grants++;
+    if (reject_next) { reject_next = 0; return 0; }
+    return 1;
+}
+static void test_owned_inventory(void) {
+    warfare_inventory kit = {0};
+    warfare_player p; warfare_player_reset(&p); warfare_output o; warfare_sample s = sample(42);
+    p.unit=42; p.stage=WF_EXITING; p.protected_fall=1; p.saw_insertion=1;
+    step(&p,&s,1,20,0,&o);
+    assert(p.stage==WF_FALLING);
+    warfare_inventory_apply(&kit,80,s.unit,3,o.flags,fake_inventory_submit);
+    assert(kit.cleared && inventory_calls==1 && inventory_clears==1 && inventory_grants==0);
+    s.position[2]=100; s.velocity[2]=-5;
+    for(int n=0;n<160;n++) {
+        step(&p,&s,1,21,0,&o);
+        warfare_inventory_apply(&kit,80,s.unit,3,o.flags,fake_inventory_submit);
+    }
+    assert(p.stage==WF_CANOPY && inventory_calls==1);
+    s.support_world=1; s.velocity[2]=0;
+    for(int n=0;n<120;n++) {
+        step(&p,&s,2,1,0,&o);
+        warfare_inventory_apply(&kit,80,s.unit,3,o.flags,fake_inventory_submit);
+    }
+    assert(p.stage==WF_LANDED && !kit.cleared && inventory_calls==2 && inventory_grants==1);
+    warfare_inventory_apply(&kit,80,43,4,WF_LOWER_WEAPON,fake_inventory_submit);
+    reject_next=1;
+    warfare_inventory_apply(&kit,80,43,4,WF_RAISE_WEAPON,fake_inventory_submit);
+    assert(kit.cleared && kit.restoring && inventory_grants==2);
+    for(int n=0;n<35;n++) warfare_inventory_apply(&kit,80,43,4,0,fake_inventory_submit);
+    assert(!kit.cleared && !kit.restoring && inventory_grants==3);
+    warfare_inventory_apply(&kit,80,43,4,WF_LOWER_WEAPON,fake_inventory_submit);
+    reject_next=1;
+    warfare_inventory_apply(&kit,80,43,4,WF_RAISE_WEAPON,fake_inventory_submit);
+    int grants=inventory_grants;
+    warfare_inventory_apply(&kit,80,44,4,0,fake_inventory_submit);
+    warfare_inventory_apply(&kit,80,44,4,WF_RAISE_WEAPON,fake_inventory_submit);
+    assert(inventory_grants==grants && !kit.cleared && !kit.restoring);
+    warfare_inventory_apply(&kit,80,45,4,WF_LOWER_WEAPON,fake_inventory_submit);
+    warfare_inventory_apply(&kit,81,45,4,WF_RAISE_WEAPON,fake_inventory_submit);
+    assert(inventory_grants==grants);
+    reject_next=1;
+    warfare_inventory_apply(&kit,81,46,4,WF_LOWER_WEAPON,fake_inventory_submit);
+    warfare_inventory_apply(&kit,81,46,4,WF_RAISE_WEAPON,fake_inventory_submit);
+    assert(inventory_grants==grants);
+    puts("inventory: once on exit/ground, additive retry only on rejection, salt/instance reset and rejected clear passed");
+}
+
 int main(void) {
+    test_flight_controls();
+    test_owned_inventory();
     test_routes(); test_nonflat_drop(); test_high_altitude_late_exit();
     test_world_support(); test_ejection_bounds(); test_carrier_deck_and_airborne_pause();
     warfare_sample sparse[WARFARE_PLAYERS]; memset(sparse, 0, sizeof sparse);
@@ -232,14 +371,22 @@ int main(void) {
     s.parent = WARFARE_NONE;
     step(&p, &s, 1, 4.1f, 0, &o); assert(p.stage == WF_FALLING
         && (o.flags & (WF_PROTECT | WF_VELOCITY)) == (WF_PROTECT | WF_VELOCITY));
+    assert(p.weapon_lowered && (o.flags & WF_LOWER_WEAPON));
     s.position[2] = 140; s.velocity[0] = 20; s.velocity[2] = -25;
-    for (int n = 0; n < 125; n++) step(&p, &s, 1, 6.2f, 0, &o);
-    assert(p.stage == WF_CANOPY && o.velocity[2] == -6 && o.velocity[0] <= 8 && o.velocity[0] > 7.5f);
+    for (int n = 0; n < 125; n++) {
+        step(&p, &s, 1, 6.2f, 0, &o);
+        assert(!(o.flags & (WF_LOWER_WEAPON | WF_RAISE_WEAPON)));
+    }
+    assert(p.stage == WF_CANOPY && o.velocity[2] < -15 && o.velocity[2] > -17 && o.velocity[0] > 15);
     s.velocity[0] = 0; s.velocity[2] = -0.2f;
-    step(&p, &s, 1, 7, 0, &o); assert(!(o.flags & WF_VELOCITY));
+    step(&p, &s, 1, 7, 0, &o); assert(o.flags & WF_VELOCITY); /* airborne apex still under flight control */
     s.support_world = 1;
-    for (int n = 0; n < 20; n++) step(&p, &s, 2, 0.2f, 0, &o);
-    assert(p.stage == WF_LANDED && !p.protected_fall);
+    int raises = 0;
+    for (int n = 0; n < 20; n++) {
+        step(&p, &s, 2, 0.2f, 0, &o);
+        raises += !!(o.flags & WF_RAISE_WEAPON);
+    }
+    assert(p.stage == WF_LANDED && !p.protected_fall && !p.weapon_lowered && raises == 1);
     step(&p, &s, 2, 2, 1, &o); assert(o.flags == 0);
     /* Respawn uses a new salted unit handle; it must not reinsert or retain
      * fall immunity. Late arrivals during active play have the same rule. */

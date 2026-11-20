@@ -4,6 +4,7 @@
  * Only owning peers apply biped movement. The host drives named transports.
  * No filesystem, allocation or UObject reflection occurs on a steady tick. */
 #include "warfare_core.h"
+#include "lua_channel.h"
 
 typedef struct {
     int ready, status, host, rate, tick, layout, insertion_seconds, globals[12];
@@ -11,10 +12,20 @@ typedef struct {
     uint64_t instance;
     warfare_sample sample[WARFARE_PLAYERS];
     int stage[WARFARE_PLAYERS];
+    float steering[WARFARE_PLAYERS];
+    int braking[WARFARE_PLAYERS];
 } warfare_snapshot;
 static SRWLOCK warfare_snapshot_lock = SRWLOCK_INIT;
 static warfare_snapshot warfare_published;
 static volatile LONG warfare_enabled, warfare_action, warfare_recheck;
+typedef struct {
+    uint64_t instance, updated_ms;
+    uint32_t unit;
+    float forward, right, yaw;
+    int brake, jump;
+} warfare_controls;
+static SRWLOCK warfare_controls_lock = SRWLOCK_INIT;
+static warfare_controls warfare_local_controls[2];
 static struct {
     unsigned char *base;
     int supported, last_tick, last_phase, map_ok, disabled, was_client, transport_created, hs_failures, duration_valid;
@@ -202,6 +213,8 @@ static int warfare_samples(unsigned char *tls, float dt, warfare_sample out[WARF
          * velocity commands. No guessed raw-velocity unit conversion. */
         const float *at = (const float *)((parent ? parent : unit) + 0x44);
         for (int k = 0; k < 3; k++) s->position[k] = at[k] * WARFARE_METRES_PER_WU;
+        const float *forward = (const float *)(unit + 0x50);
+        s->facing[0] = forward[0]; s->facing[1] = forward[1];
         s->valid = 1;
         if (warfare.previous_valid[i] && warfare.previous[i].unit == s->unit
             && warfare.previous[i].parent == s->parent && dt > 0) {
@@ -213,10 +226,13 @@ static int warfare_samples(unsigned char *tls, float dt, warfare_sample out[WARF
     return count;
 }
 
+#include "warfare_inventory.h"
+static warfare_inventory warfare_kits[WARFARE_PLAYERS];
+
 static void warfare_apply(unsigned char *tls, const warfare_sample all[WARFARE_PLAYERS], int i,
                           const warfare_output *out) {
     const warfare_sample *s = &all[i];
-    if (!out->flags || !warfare_finite_sample(s)) return;
+    if ((!out->flags && !warfare_kits[i].restoring) || !warfare_finite_sample(s)) return;
     int hs_player = warfare_hs_rank(all, i);
     if (hs_player < 0) return;
     unsigned char *unit = fd_object(tls, s->unit);
@@ -250,6 +266,7 @@ static void warfare_apply(unsigned char *tls, const warfare_sample all[WARFARE_P
     if (out->flags & WF_PROTECT) {
         snprintf(line, sizeof line, "(unit_falling_damage_disable (player_get %d) true)", hs_player); warfare_hs(line);
     }
+    warfare_inventory_apply(&warfare_kits[i], warfare.instance, s->unit, hs_player, out->flags, warfare_hs);
     if (out->flags & WF_BOARD) {
         /* Prefer the four stock player-capable positions. Live l04/l01 A/B
          * removed the first-person geometry clipping for the first rider.
@@ -385,7 +402,9 @@ static void warfare_tick_inner(void) {
     if (tick == warfare.last_tick || rate < 10 || rate > 240) return;
     int tick_delta = warfare.last_tick >= 0 ? tick - warfare.last_tick : 1;
     warfare.last_tick = tick;
-    float dt = 1.0f / (float)rate;
+    /* Catch up short gaps in simulation updates, while rejecting velocity
+     * observations that straddle a discontinuity or a pause. */
+    float dt = fminf(0.1f, (float)(tick_delta > 0 ? tick_delta : 1) / (float)rate);
     if (tick_delta != 1) memset(warfare.previous_valid, 0, sizeof warfare.previous_valid);
     s.instance = instance; s.rate = rate; s.tick = tick; s.sampled_ms = GetTickCount64(); s.host = g[0x11] != 4;
     memcpy(s.globals, engine + 0x234, sizeof s.globals);
@@ -416,6 +435,12 @@ static void warfare_tick_inner(void) {
     if (s.globals[0] == 0) warfare_lock_roster(s.sample, warfare.admitted, warfare.seat);
     warfare_flight(tls, &s, tick);
     LONG action = InterlockedExchange(&warfare_action, 0);
+    warfare_controls controls[2];
+    AcquireSRWLockExclusive(&warfare_controls_lock);
+    memcpy(controls, warfare_local_controls, sizeof controls);
+    warfare_local_controls[0].jump = warfare_local_controls[1].jump = 0;
+    ReleaseSRWLockExclusive(&warfare_controls_lock);
+    uint64_t controls_read_ms = GetTickCount64();
     for (int i = 0; i < WARFARE_PLAYERS; i++) {
         warfare_output out;
         int before = warfare.player[i].stage;
@@ -425,10 +450,27 @@ static void warfare_tick_inner(void) {
         int player_phase = s.globals[0];
         if (player_phase == 1 && (!s.sample[i].participant_salt || warfare.admitted[i] != s.sample[i].participant_salt))
             player_phase = 2;
-        warfare_step(&warfare.player[i], &s.sample[i], player_phase, (float)s.globals[1] / (float)rate,
-                     warfare.insertion_seconds, dt, action && s.sample[i].local_user == 0, &out);
+        warfare_sample *sample = &s.sample[i];
+        int jump = action && sample->local_user == 0;
+        if (sample->valid && sample->local_user >= 0 && sample->local_user < 2) {
+            const warfare_controls *c = &controls[sample->local_user];
+            if (c->instance == instance && c->unit == sample->unit && controls_read_ms - c->updated_ms <= 350) {
+                sample->forward_input = c->forward;
+                sample->right_input = c->right;
+                sample->brake = c->brake;
+                jump |= c->jump;
+                if (isfinite(c->yaw)) {
+                    float radians = -c->yaw * 0.01745329252f; /* UE +Y is map -Y */
+                    sample->facing[0] = cosf(radians); sample->facing[1] = sinf(radians);
+                }
+            }
+        }
+        warfare_step(&warfare.player[i], sample, player_phase, (float)s.globals[1] / (float)rate,
+                     warfare.insertion_seconds, dt, jump, &out);
         warfare_apply(tls, s.sample, i, &out);
         s.stage[i] = warfare.player[i].stage;
+        s.steering[i] = warfare.player[i].steering;
+        s.braking[i] = warfare.player[i].braking;
         if (before != s.stage[i]) fireteam_log("warfare: player %d local %d state %d -> %d support=%d clear=%d velocity_valid=%d parent=%08x", i,
             s.sample[i].local_user, before, s.stage[i], s.sample[i].support_world, s.sample[i].carrier_clear,
             s.sample[i].velocity_valid, s.sample[i].parent);
@@ -488,10 +530,54 @@ __declspec(dllexport) int mjolnir_warfare_open(void *L) {
 }
 __declspec(dllexport) int mjolnir_warfare_close(void *L) {
     (void)L; InterlockedExchange(&warfare_enabled, 0); InterlockedExchange(&warfare_action, 0);
+    AcquireSRWLockExclusive(&warfare_controls_lock);
+    memset(warfare_local_controls, 0, sizeof warfare_local_controls);
+    ReleaseSRWLockExclusive(&warfare_controls_lock);
     warfare_snapshot empty; memset(&empty, 0, sizeof empty); warfare_publish(&empty); return 0;
 }
 __declspec(dllexport) int mjolnir_warfare_action(void *L) {
     (void)L; if (warfare_enabled) InterlockedExchange(&warfare_action, 1); return 0;
+}
+
+/* One local controller's intent. The simulation owns the flight law and all
+ * velocity changes. A message cannot target a remote player or a recycled unit. */
+__declspec(dllexport) int mjolnir_warfare_controls(void *L) {
+    lc_frame f;
+    if (!warfare_enabled || !lc_begin(&f, L)) return 0;
+    long long user = lc_take_integer(&f, 1, -1);
+    long long unit = lc_take_integer(&f, 1, -1);
+    double forward = lc_take_number(&f, 1, NAN), right = lc_take_number(&f, 1, NAN);
+    int brake = lc_take_bool(&f, 1);
+    double yaw = lc_take_number(&f, 1, NAN);
+    int jump = lc_take_bool(&f, 1);
+    lc_end(&f);
+    if (user < 0 || user > 1 || unit <= 0 || unit >= WARFARE_NONE
+        || !isfinite(forward) || !isfinite(right) || fabs(forward) > 1.001 || fabs(right) > 1.001) return 0;
+    uint64_t instance = 0;
+    AcquireSRWLockShared(&warfare_snapshot_lock);
+    if (warfare_published.ready && warfare_published.globals[0] != 3) {
+        for (int i=0; i<WARFARE_PLAYERS; i++) {
+            const warfare_sample *p = &warfare_published.sample[i];
+            int stage = warfare_published.stage[i];
+            if (p->valid && p->local_user == (int)user && p->unit == (uint32_t)unit
+                && (stage == WF_SEATED || stage == WF_EXITING || stage == WF_FALLING || stage == WF_CANOPY)) {
+                instance = warfare_published.instance;
+                break;
+            }
+        }
+    }
+    ReleaseSRWLockShared(&warfare_snapshot_lock);
+    if (!instance) return 0;
+    AcquireSRWLockExclusive(&warfare_controls_lock);
+    warfare_controls *c = &warfare_local_controls[(int)user];
+    uint64_t now = GetTickCount64();
+    int pending = c->unit == (uint32_t)unit && c->instance == instance && now-c->updated_ms <= 350 && c->jump;
+    c->instance = instance; c->updated_ms = now; c->unit = (uint32_t)unit;
+    c->forward = (float)forward; c->right = (float)right;
+    c->yaw = isfinite(yaw) ? (float)remainder(yaw, 360.0) : (float)NAN;
+    c->brake = brake; c->jump = jump || pending;
+    ReleaseSRWLockExclusive(&warfare_controls_lock);
+    return 0;
 }
 /* The thin M overlay pumps only while open. Its file IO stays off the
  * simulation tick and is independent of the existing 2 Hz HUD snapshot. */
@@ -517,6 +603,13 @@ __declspec(dllexport) int mjolnir_warfare_pump(void *L) {
         fprintf(file, "player %d %d %d %d %.3f %.3f %.3f %u\n", i, p->team, s.stage[i], p->local_user,
                 p->position[0], p->position[1], p->position[2], p->unit);
         fprintf(file, "ordinal %d %d\n", i, warfare_hs_rank(s.sample, i));
+        if (p->local_user >= 0 && p->velocity_valid && warfare_finite_sample(p)
+            && (s.stage[i] == WF_FALLING || s.stage[i] == WF_CANOPY)) {
+            fprintf(file, "flight %d %.3f %.3f %.3f %d %.3f\n", i,
+                    p->velocity[0], p->velocity[1], p->velocity[2], s.braking[i], s.steering[i]);
+            float clearance = p->position[2] - warfare_terrain(p->position[0], p->position[1], 0);
+            fprintf(file, "clearance %d %.2f\n", i, fmaxf(0, clearance));
+        }
     }
     fclose(file); return 0;
 }

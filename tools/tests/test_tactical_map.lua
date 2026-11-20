@@ -128,7 +128,7 @@ local presenter=Map.new({
     blocked=function()return typing end,hidden=function()return hudHidden end,
     localIndex=function()return 0 end,log=function(message)error(message)end,
     createWidget=function(path,z)
-        eq(path,"/Game/MJOLNIR/TacticalMap/WBP_MJOLNIRTacticalMap.WBP_MJOLNIRTacticalMap_C")
+        eq(path,"/Game/MJOLNIR/UI/WBP_MJOLNIRTacticalMap.WBP_MJOLNIRTacticalMap_C")
         eq(z,44,"tactical overlay is above world waypoints");creates=creates+1;local w=fakeMapWidget();widgets[#widgets+1]=w;return w
     end,
     read=function()renderReads=renderReads+1;return renderRaw()end,

@@ -2,7 +2,7 @@
 -- snapshot. No actor scans, movement writes, polling while closed, or UI focus.
 local Map = {}
 local ROOT = "/Game/MJOLNIR/TacticalMap/"
-local CLASS = ROOT .. "WBP_MJOLNIRTacticalMap.WBP_MJOLNIRTacticalMap_C"
+local CLASS = "/Game/MJOLNIR/UI/WBP_MJOLNIRTacticalMap.WBP_MJOLNIRTacticalMap_C"
 local KINDS = { self=true, player=true, hog=true, tank=true, banshee=true, pelican=true, base=true, capture=true }
 local LIMITS = {
     ready={0,1}, status={-32,32}, tick={0,2147483647}, sampled_ms={0,9007199254740991},

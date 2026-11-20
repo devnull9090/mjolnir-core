@@ -1,0 +1,6 @@
+First Blender render self-review (not submitted to judge):
+Architecture follows target general organization but is NOT judge-ready.
+Major gaps: exposed rectangular voids above side-gallery hoops; thin unsupported roof ramps; plain prismatic fins; broad uniform pale blue finish; roof too grid-like. Camera too high and rotated relative to target, edge ramps crop out.
+Presentation bugs: UE vertex mask multiplied into pine albedo; ground excessively blurred; Warthog slightly airborne.
+Round 2 fixes: real armored infill around galleries preserving portal voids; outboard continuously connected roof ramps with retained wings and support piers; layered sculpted rear fins; stepped roof channels and layered cannon socket; lower more frontal camera, neutral warm daylight; direct pine albedo, detailed ground, evaluated tire contact grounding.
+Scope: architecture art/mesh clearance only, no engine/game/FPS claims.

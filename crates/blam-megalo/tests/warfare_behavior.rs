@@ -277,6 +277,26 @@ fn contest_blocks_capture_and_score_but_empty_owned_sites_keep_scoring() {
 }
 
 #[test]
+fn mounted_capture_variant_counts_a_living_driver() {
+    let rules = Variant::warfare(Warfare {
+        allow_mounted_capture: true,
+        tick_rate: 10,
+        capture_seconds: 1,
+        ..Warfare::default()
+    }).unwrap();
+    let mut world = World::new();
+    world.globals[PHASE as usize] = 2;
+    world.at[0] = Some(1);
+    world.seated[0] = true;
+    world.alive[0] = false;
+    world.ticks(10, &rules);
+    assert_eq!(world.points[1][0], 0);
+    world.alive[0] = true;
+    world.ticks(10, &rules);
+    assert_eq!(world.points[1][0], 1);
+}
+
+#[test]
 fn dead_players_cannot_capture_and_score_or_clock_ends_the_round() {
     let mut v = variant();
     let mut w = World::new();

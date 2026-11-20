@@ -189,7 +189,7 @@ found[#found + 1] = widget("WBP_MJOLNIRChat_C_3", true, true)
 eq(typing(), true, "discovery retries when new world's chat arrives")
 local tacticalFixture=fixture()
 local tacticalName="WBP_MJOLNIRTacticalMap"
-local tacticalPath="/Game/MJOLNIR/TacticalMap/"..tacticalName.."."..tacticalName.."_C"
+local tacticalPath="/Game/MJOLNIR/UI/"..tacticalName.."."..tacticalName.."_C"
 local tacticalClass=tacticalFixture.class()
 local tacticalKeeper=tacticalFixture.keeper({tacticalName})
 eq(tacticalKeeper(tacticalPath,tacticalClass),tacticalClass,"isolated map class retained")

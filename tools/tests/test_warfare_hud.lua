@@ -10,6 +10,21 @@ local function sample(tick, phase, red, blue, instance, stage)
 end
 
 local parsed = assert(Warfare.parse(sample(100)))
+local Flight=dofile("mods/MJOLNIRHud/Scripts/warfare_instruments.lua")
+local airborneSample=sample(100,1,0,0,"123",4).."flight 0 -3 4 -12 1 -0.53\nclearance 0 82.37\n"
+local airborne=assert(Warfare.parse(airborneSample))
+local speed,sink,track,height,label=Flight.readout(airborne.flight[0],airborne.clearance[0])
+eq(speed,"47","3-D speed from native m/s to km/h"); eq(sink,"12");eq(label,"SINK")
+eq(track,"323° NW");eq(height,"82");eq(airborne.flight[0].brake,true);eq(airborne.flight[0].steer,-.53)
+eq(select(3,Flight.readout({vx=1,vy=0,vz=0})),"090° E","native X east matches the tactical grid")
+eq(select(3,Flight.readout({vx=0,vy=-5,vz=2})),"180° S")
+eq(select(3,Flight.readout({vx=0,vy=0,vz=-35})),"—","vertical fall has no horizontal bearing")
+eq(select(5,Flight.readout({vx=0,vy=1,vz=3})),"CLIMB")
+eq(Flight.readout(nil,nil),"—","missing instrument data is not zero")
+for _,row in ipairs({"flight 0 -3 4 -12 1 0\n","flight 1 1e999 2 3 0 0\n",
+    "flight 1 2 3 4 3 0\n","flight 1 2 3 4 1 -2\n","clearance 0 50\n","clearance 1 -20\n"}) do
+    eq(Warfare.parse(airborneSample..row),nil,"bad or duplicate flight observation")
+end
 eq(parsed.instance, "18446744073709551614", "uint64 identity kept exact")
 eq(parsed.score[1], 17); eq(parsed.players[0].x, -10.5)
 eq(assert(Warfare.parse(sample(100) .. "ordinal 0 0\n")).ordinals[0], 0, "optional HS ordinal metadata")
@@ -93,6 +108,98 @@ for stage, hint in pairs({ [1] = "BOARDING", [2] = "SPACE TO JUMP", [3] = "SPACE
     assert(Warfare.describe(assert(Warfare.parse(sample(300, 1, 0, 0, "456", stage))), 0):find(hint, 1, true))
 end
 print("Warfare HUD: strict parser, freshness/instance/map guards, authoritative totals, capture fields and insertion hints passed")
+
+-- Build and tick the actual runtime-composed panel with a small UMG double.
+do
+    local created, frames={},{}
+    local function new(name)
+        local w={IsValid=function() return true end}
+        function w:SetText(t) self.value=t end
+        function w:SetVisibility(v) self.visibility=v end
+        function w:AddChildToCanvas() return new() end
+        setmetatable(w,{__index=function() return function() end end})
+        if name then created[name]=w end
+        return w
+    end
+    local oldFind,oldConstruct,oldName,oldText=StaticFindObject,StaticConstructObject,FName,FText
+    StaticFindObject=function(path)
+        if path:find("Default__WidgetBlueprintLibrary",1,true) then
+            return {Create=function()
+                local w=new();w.WidgetTree={};frames[#frames+1]=w;return w
+            end}
+        end
+        return path
+    end
+    FName=function(name) return name end;FText=FName
+    StaticConstructObject=function(_,_,name) return new(name) end
+    local pc={GetAddress=function() return 25 end,
+        PlayerCameraManager={IsValid=function() return true end,GetCameraLocation=function() return {X=10,Y=20,Z=30} end}}
+    local projection=true
+    function pc:GetViewportSize(size) size.SizeX,size.SizeY=1280,720 end
+    function pc:ProjectWorldLocationToScreen(world,pixel)
+        eq(world.X,-290);eq(world.Y,-380,"Blam north is UE -Y");eq(world.Z,-1170)
+        pixel.X,pixel.Y=780,430
+        return projection
+    end
+    local panel=Flight.new()
+    assert(panel.update(pc,4,airborne.flight[0],82,"SPACE","SHIFT"))
+    eq(created.Speed.value,"47");eq(created.Mode.value,"BRAKING");eq(created.Track.value,"TRK  323° NW")
+    eq(frames[1].visibility,3)
+    panel.frame(pc,1)
+    eq(frames[2].visibility,3,"flight path drawn at visible measured trajectory")
+    projection=false;panel.frame(pc,1.1);eq(frames[2].visibility,1)
+    panel.update(pc,3,nil,nil,"U","L3")
+    eq(created.Mode.value,"FREEFALL");eq(created.Speed.value,"—");eq(created.Control.value,"U  DEPLOY")
+    panel.hide();eq(frames[1].visibility,1);eq(#frames,2,"widgets reused throughout drop")
+    StaticFindObject,StaticConstructObject,FName,FText=oldFind,oldConstruct,oldName,oldText
+end
+
+-- Exercise the actual HUD poll from the installation under test. The merged
+-- release once called Markers.tick with only five arguments. Module-level
+-- parser and lifecycle checks still passed, but each tick cleared the rig.
+do
+    local f = assert(io.open("mods/MJOLNIRHud/Scripts/main.lua", "rb"))
+    local main = f:read("*a"):gsub("\r\n", "\n")
+    f:close()
+    local tickSource = assert(main:match("(local function tick%(%)\n.-\nend)\n"))
+    local stamp, activeCode = 10, "PWR"
+    local world = {}
+    local pc = { GetWorld = function() return world end }
+    local stop = {}
+    local function noop() end
+    local dispatch = dofile("mods/MJOLNIRHud/Scripts/markers.lua").new({Hill={}})
+    local fixture = {
+        code="PWR", variant="warfare", mode={family="warfare"}, teams={[0]=0,[1]=0},
+        players={}, warfare=hud,
+    }
+    local env = setmetatable({
+        playerController=function() return pc end, scenarioOf=function() return activeCode end,
+        Hitches={poll=noop}, lastWorld=activeCode, Match=fixture,
+        hookIncidents=noop, ensureWidgets=noop, ensureFrameHook=noop,
+        refreshLocalPlayer=noop, isHostWorld=function() return false end,
+        findBipeds=noop, Markers=dispatch, now=function() return stamp end,
+        HudHidden=true, LOCAL_PLAYER=0, boardDirty=false, Bots={tick=noop},
+        -- The first roster refresh immediately after objective dispatch marks
+        -- the end of this test's portion of the full game-thread poll.
+        syncBotNames=function() error(stop) end,
+    }, {__index=_G})
+    local poll = assert(load(tickSource .. "\nreturn tick", "@staged HUD poll", "t", env))()
+    local function pollAt(t, tck, map)
+        stamp, activeCode = t, map
+        env.lastWorld = map
+        fixture.nextBotRoster = 0
+        raw = sample(tck, 2, 30, 12, "833444", 4)
+        local ok, err = pcall(poll)
+        assert(not ok and err == stop, tostring(err))
+    end
+    pollAt(13, 300, "PWR")
+    pollAt(13.5, 330, "PWR")
+    eq(fixture.warfare.snapshot and fixture.warfare.snapshot.instance, "833444", "poll forwards actual PWR world")
+    eq(fixture.warfare.snapshot.players[0].stage, 4, "presentation receives the gliding rider")
+    eq(env.boardDirty, true, "changed native score invalidates the normal scoreboard")
+    pollAt(14, 360, "BGL")
+    eq(fixture.warfare.snapshot, nil, "poll supplies actual world on travel")
+end
 
 local descriptors = dofile("mods/MJOLNIRLevelLoader/Scripts/mode_descriptors.lua")
 local Settings = dofile("mods/MJOLNIRLobby/Scripts/settings.lua")

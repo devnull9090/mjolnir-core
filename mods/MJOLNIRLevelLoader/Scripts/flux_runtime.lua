@@ -83,11 +83,18 @@ function Flux.domains(spec)
             if n<1 or n>1024 or n%1~=0 or math.log(n,2)%1>1e-9 then error("Flux resolution must be power-of-two <=1024") end
         end
         if not Flux.validProvenance(s.provenance) then error("Flux requires terrain/bed/water/settings hashes") end
+        local painter=s.surface_painter
+        if painter and (type(painter)~="table" or type(painter.from_domain)~="string" or painter.from_domain==id
+            or not finite(painter.start_ue_y_cm) or not finite(painter.end_ue_y_cm)
+            or painter.start_ue_y_cm>=painter.end_ue_y_cm) then error("Invalid spatial Flux painter") end
         for key,value in pairs(s.simulation or {}) do
             if not simulationKeys[key] or not finite(value) or value<0 then error("Invalid Flux simulation option: "..tostring(key)) end
         end
         validateWave(s)
         if s.playback=="baked" then local ok,why=Flux.fits(s,s.state); if not ok then error("Flux "..id..": "..why) end end
+    end
+    for _,s in ipairs(list) do
+        if s.surface_painter and not seen[s.surface_painter.from_domain] then error("Flux painter references an unknown domain") end
     end
     return list
 end
@@ -140,6 +147,74 @@ function Flux.importState(api,world,outer,spec,c)
     state.AreaLocation=c; state.AreaSize={X=d.res[1]*d.cell,Y=d.res[2]*d.cell,Z=d.height}
     state.Resolution={X=d.res[1],Y=d.res[2]}; state.CaptureOffset=bs.capture
     return state
+end
+
+-- Stock BP_FluxWorldPainterComponent uses this rectangle and texture to mix
+-- color slots 0 and 1 on the native material. Paint once after both surfaces
+-- have their final color values. The MID owns the texture through level travel.
+local function spatialPainter(api,world,entry,domains)
+    local p=entry.spec.surface_painter
+    local source
+    for _,d in ipairs(domains) do if d.id==p.from_domain then source=d.surface;break end end
+    assert(alive(source) and alive(entry.surface),"Missing painter surface")
+    local instances=entry.surface.MaterialInstances
+    local sample=source.MaterialInstances[1]
+    assert(alive(sample) and #instances>0,"Incomplete painter materials")
+    local state=entry.surface.SimulationState
+    local centre,area=state.AreaLocation,state.AreaSize
+    local x0,y0=centre.X-area.X*.5,centre.Y-area.Y*.5
+    assert(y0<=p.start_ue_y_cm and p.end_ue_y_cm<=y0+area.Y,"Painter ramp lies outside the river tile")
+    local render=api.findObject("/Script/Engine.Default__KismetRenderingLibrary")
+    local rows=1024
+    local rt=render:CreateRenderTarget2D(world,4,rows,6,{R=0,G=0,B=0,A=0},false,false)
+    assert(alive(rt),"Could not create Flux painter canvas")
+    local function color(c) return {R=c.R,G=c.G,B=c.B,A=c.A} end
+    local keys={"SurfaceScattering","SurfaceAbsorption","ColorBehind"}
+    local originals={}
+    local ok,reason=pcall(function()
+        local canvas,size,context={},{},{}
+        render:BeginDrawCanvasToRenderTarget(world,rt,canvas,size,context)
+        local finish=context.RenderTarget and context or size.RenderTarget and size or {RenderTarget=rt}
+        local drew,err=pcall(function()
+            assert(canvas.Canvas and canvas.Canvas:IsValid(),"Missing Flux painter canvas")
+            local white=api.findObject("/Engine/EngineResources/WhiteSquareTexture.WhiteSquareTexture")
+            if not alive(white) then white=api.findObject("/Engine/EngineResources/WhiteTexture.WhiteTexture") end
+            if not alive(white) then white=nil end
+            local first=math.max(0,math.floor((p.start_ue_y_cm-y0)/area.Y*rows))
+            for row=first,rows-1 do
+                local y=y0+(row+.5)*area.Y/rows
+                local t=math.max(0,math.min(1,(y-p.start_ue_y_cm)/(p.end_ue_y_cm-p.start_ue_y_cm)))
+                t=t*t*(3-2*t)
+                -- UCanvas uses GWhiteTexture for a null render texture.
+                canvas.Canvas:K2_DrawTexture(white,{X=0,Y=row},{X=4,Y=1},{X=0,Y=0},{X=1,Y=1},
+                                            {R=t,G=t,B=t,A=t},0,0,{X=0,Y=0})
+            end
+        end)
+        render:EndDrawCanvasToRenderTarget(world,finish)
+        assert(drew,tostring(err))
+        for i=1,#instances do
+            local material=instances[i]
+            local old={m=material,tex=material:K2_GetTextureParameterValue(api.name("PainterTexture")),vectors={}}
+            table.insert(originals,old)
+            local function set(k,v)
+                local n=api.name(k)
+                old.vectors[k]=color(material:K2_GetVectorParameterValue(n))
+                material:SetVectorParameterValue(n,v)
+            end
+            material:SetTextureParameterValue(api.name("PainterTexture"),rt)
+            set("WorldToPainterUV",{R=x0,G=y0,B=area.X,A=area.Y})
+            for _,k in ipairs(keys) do set(k.."1",color(sample:K2_GetVectorParameterValue(api.name(k.."0")))) end
+        end
+    end)
+    if not ok then
+        for _,old in ipairs(originals) do
+            old.m:SetTextureParameterValue(api.name("PainterTexture"),old.tex)
+            for k,v in pairs(old.vectors) do old.m:SetVectorParameterValue(api.name(k),v) end
+        end
+        render:ReleaseRenderTarget2D(rt)
+        error(reason)
+    end
+    entry.painter_target=rt
 end
 
 function Flux.start(api,world,spec)
@@ -276,6 +351,12 @@ function Flux.start(api,world,spec)
             api.hide(spec)
             api.delay(3000,function()
                 if not fresh() then return end
+                for _,entry in ipairs(run.domains) do
+                    if entry.spec.surface_painter then
+                        local painted,why=pcall(spatialPainter,api,world,entry,run.domains)
+                        if not painted then entry.color_error=tostring(why);api.log("flux "..entry.id.." painter: "..tostring(why)) end
+                    end
+                end
                 for _,item in ipairs(level.decor or {}) do
                     local a=item.capture_only and current.actors[item.id]
                     if alive(a) then a:SetActorHiddenInGame(true) end

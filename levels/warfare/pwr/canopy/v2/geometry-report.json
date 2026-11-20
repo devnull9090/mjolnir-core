@@ -1,0 +1,24 @@
+{
+  "canopy_triangles": 42780,
+  "pack_triangles": 2564,
+  "grip_sockets_ue_cm": {
+    "grip_l": [
+      46,
+      -28,
+      173
+    ],
+    "grip_r": [
+      46,
+      28,
+      173
+    ]
+  },
+  "pack_mount_ue_cm": [
+    -29,
+    0,
+    122
+  ],
+  "axis": "Blender -Y forward, +X wearer right; metres; deployed mesh origin at biped feet, pack origin at base",
+  "width_m": 6.034,
+  "cells": 7
+}

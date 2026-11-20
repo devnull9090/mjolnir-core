@@ -1,7 +1,7 @@
 """Call the actual Blender MCP server from a checkout without an app restart.
 
-uvx --from mcp-for-blender==2.2.7 python tools/blender/mcp_client.py --list
-uvx --from mcp-for-blender==2.2.7 python tools/blender/mcp_client.py get_scene_info
+uvx --from mcp-for-blender==2.3.1 python tools/blender/mcp_client.py --list
+uvx --from mcp-for-blender==2.3.1 python tools/blender/mcp_client.py get_scene_info
 The server talks to the enabled Blender add-on in a running GUI session.
 """
 import argparse
@@ -29,7 +29,7 @@ async def main():
     if not uvx:
         parser.error("uvx is not installed")
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    server = StdioServerParameters(command=uvx, args=["--from", "mcp-for-blender==2.2.7", "mcp-for-blender"], env=env)
+    server = StdioServerParameters(command=uvx, args=["--from", "mcp-for-blender==2.3.1", "mcp-for-blender"], env=env)
     args.log.parent.mkdir(parents=True, exist_ok=True)
     with args.log.open("a", encoding="utf-8") as errlog:
         async with asyncio.timeout(args.timeout), stdio_client(server, errlog=errlog) as (read, write):

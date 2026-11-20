@@ -1,5 +1,72 @@
 # PWR editor PCG generation
 
+## Main-road shoulders
+
+The asphalt material and roadside planting share the cooked 2048² road-network field. Low fescue becomes more frequent toward the soil, with partly embedded stones on the gravel side. Water, intersections, courts, pads, player starts and objectives have separate exclusion checks.
+
+Run `levels/warfare/pwr/visual_dressing/bake_main_road_verges.py prepare <output>` to build the PCG inputs. Run the two jobs in the resulting `request.json` with `tools/ue/run_pwr_pcg.ps1 -Request <output>/request.json`. Then run `bake_main_road_verges.py finalize <output> --parent <previous-sweep-round>`. Finalization checks both same-seed graph results and writes the native instance transforms and survey.
+
+Set `PWR_MAIN_ROAD_VERGES` to the output directory before running `apply_pwr_main_road_verges.py` in the cooking project. Reopen with `PWR_VERGES_VERIFY=1` to verify the saved placements. The shipped map uses four distance-culled hierarchical instanced mesh components for these shoulders. The PCG graphs execute in the editor.
+
+## Playable meadow and understory
+
+The Saturday environment pass uses `levels/warfare/pwr/visual_dressing/playable_ecology.py`.
+The 2 km terrain shares its existing native collision grid. A 1009² field drives the
+three shipped grass varieties through Unreal Landscape Grass. Meadow colonies thin
+under tree crowns. Roads, water, paving, gameplay clearances and measured scenery
+footprints have zero weight. The editor graph selects the ferns, balsam, dwarf birch
+and mossy stone clusters from a separate stock-mesh palette. These nine additional
+mesh groups bake into collision-free HISM components. No runtime PCG plugin is required.
+
+With the bases-v1 landscape, verified grass pilot and stock asset inventories built,
+run from the repository root in PowerShell:
+
+```powershell
+$flora = 'out/pwr/world-art/foliage'
+$generate = 'levels/warfare/pwr/visual_dressing/playable_ecology.py'
+uv run --python 3.12 --with-requirements tools/level/requirements-alpine.txt --with shapely --with OpenEXR python $generate prepare --out $flora
+powershell -NoProfile -File tools/ue/run_pwr_pcg.ps1 -Request "$flora/request.json"
+uv run --python 3.12 --with-requirements tools/level/requirements-alpine.txt --with shapely --with OpenEXR python $generate finalize --out $flora
+$env:MJ_NATIVE_GRASS_PILOT = (Resolve-Path "$flora/pilot.json").Path
+$env:MJ_NATIVE_GRASS_MODE = 'build'
+powershell -NoProfile -File tools/ue/editor_cmd.ps1 -Script Scripts/build_pwr_landscape_grass_pilot.py -AllowRendering -StockRenderer
+$env:MJ_NATIVE_GRASS_MODE = 'verify'
+powershell -NoProfile -File tools/ue/editor_cmd.ps1 -Script Scripts/build_pwr_landscape_grass_pilot.py
+```
+
+Build the editor module and the map-owned PWR rock master before cloning the
+authoring world. Cook `/Game/Levels/Halo1/Solo/LPE/LPE` with the grass-capable
+retarget CLI and the Material, MaterialInstanceConstant, StaticMesh and
+LandscapeGrassType classes. Bake that world with the playtest's native level
+and verified bases-v1 collision. The shipping pair includes the new 965
+material container and 997 world, together with the 956 surface and 966 rye
+material containers. Fresh-editor readbacks cover all 256 landscape components
+and verify mesh identity, instance count, cull distance and disabled collision
+on the nine additional components.
+
+### Forest edges and shore vegetation
+
+The second foliage pass extends the saved understory with young conifers, birch
+scrub, rabbitbrush, low willow and rushes. It grows irregular margins around
+the map's measured forest stands and follows the dry side of water bodies.
+Roads, bridge decks and approaches, bases, and native obstacles have clearance
+masks. The same ecological fields drive the mipmapped terrain color under the
+plants. All mid-distance vegetation is a saved, collision-free mesh instance.
+
+After generating the first pass above, run from the repository root:
+
+```powershell
+$flora = 'out/pwr/world-art/foliage-r2'
+$dressing = 'levels/warfare/pwr/visual_dressing'
+uv run --python 3.12 --with-requirements tools/level/requirements-alpine.txt --with shapely --with OpenEXR python "$dressing/playable_ecotones.py" prepare --out $flora
+uv run --python 3.12 --with-requirements tools/level/requirements-alpine.txt --with shapely --with OpenEXR python "$dressing/bake_biome_color.py" $flora --bind-pilot
+powershell -NoProfile -File tools/ue/run_pwr_pcg.ps1 -Request "$flora/request.json"
+uv run --python 3.12 --with-requirements tools/level/requirements-alpine.txt --with shapely --with OpenEXR python "$dressing/playable_ecotones.py" export --out $flora
+```
+
+Use this pass's `pilot.json` for the editor build, fresh readback and cook
+described above. The authored world now contains 18 understory mesh groups.
+
 ## Current v5 reproduction
 
 V5 uses `terrain/runtime-v5/runtime-master.json` for **both biome decisions and

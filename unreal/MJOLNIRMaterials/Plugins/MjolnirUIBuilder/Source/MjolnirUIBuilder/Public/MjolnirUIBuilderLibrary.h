@@ -23,6 +23,10 @@ class MJOLNIRUIBUILDER_API UMjolnirUIBuilderLibrary : public UBlueprintFunctionL
 	GENERATED_BODY()
 
 public:
+	/** Apply or verify a bounded edit to an existing unlayered Landscape, using its native R16 grid. */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Landscape")
+	static bool PatchLandscapeHeights(class ALandscape* Landscape, const FString& BaselineR16, const FString& CandidateR16, bool bVerifyOnly);
+
 	/**
 	 * A new Widget Blueprint at PackagePath/Name. ParentClass is UserWidget
 	 * when unset; a screen for the game's menu stack uses
@@ -121,6 +125,11 @@ public:
 		const TArray<FVector>& Normals, const TArray<int32>& Indices,
 		const TArray<FVector2D>& CornerUVs, int32 NumUVChannels,
 		const TArray<int32>& Sections, const TArray<FName>& SlotNames, const TArray<FColor>& Colors);
+
+	/** Keep Mikk tangents and supply UV-aligned frames on degenerate bevel corners before Nanite compilation. */
+	UFUNCTION(BlueprintCallable, Category = "MJOLNIR|Mesh")
+	static int32 RepairStaticMeshTangentFrames(UStaticMesh* Mesh);
+
 
 	/**
 	 * Write every loaded class and struct's unversioned property schema, and

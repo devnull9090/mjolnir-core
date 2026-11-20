@@ -33,7 +33,7 @@ local function fixture()
         function o:SetSimulationState(state) self.SimulationState=state;self.initializations=(self.initializations or 0)+1 end
         return o
     end
-    local current={level={canvas={origin={0,0,0}},decor={},_dir="fixture"},actors={}}
+    local current={level={canvas={origin={0,0,0}},decor={},_dir="fixture"},actors={},dressGen=0}
     local K={ImportFileAsTexture2D=function() local o=object("texture");o.valid=textureOK;return o end}
     local gs={BeginDeferredActorSpawnFromClass=function(_,_,kind,transform)
         local o=object(kind);o.transform=transform;spawned[#spawned+1]=o
@@ -159,4 +159,65 @@ assert(domain.FluxHeightMapComponent.CaptureComponent.components[1]==bed)
 -- Legacy compatibility is an explicit dispatcher choice, not accidental import.
 assert(not pcall(Flux.domains,{domain=spec.domain}))
 assert(loadfile("mods/MJOLNIRLevelLoader/Scripts/main.lua"))
+-- The optical transition is opt-in and must resolve to another domain before
+-- any scene objects are spawned. The game rehearsal also samples the GPU mask.
+local upstream=clone(spec)
+local downstream=clone(spec); downstream.id="coast"
+upstream.surface_painter={from_domain="coast",start_ue_y_cm=-1000,end_ue_y_cm=0}
+assert(#Flux.domains({domains={upstream,downstream}})==2)
+do
+    local fixture=fixture()
+    local renderer=fixture.api.findObject("Rendering")
+    local black={IsValid=function()return true end}
+    local target={IsValid=black.IsValid,rows={}}
+    local created,finished=0,0
+    function renderer:CreateRenderTarget2D(world,width,height,format)
+        assert(world==fixture.world and width==4 and height==1024 and format==6)
+        created=created+1;return target
+    end
+    function renderer:BeginDrawCanvasToRenderTarget(_,rt,canvas,_,context)
+        assert(rt==target);context.RenderTarget=rt
+        canvas.Canvas={IsValid=black.IsValid,K2_DrawTexture=function(_,_,at,_,_,_,c)
+            assert(not target.rows[at.Y]);target.rows[at.Y]=c.R
+        end}
+    end
+    function renderer:EndDrawCanvasToRenderTarget(_,context)
+        assert(context.RenderTarget==target);finished=finished+1
+    end
+    local lookup=fixture.api.findObject
+    fixture.api.findObject=function(path) if path:find("White") then return black end;return lookup(path) end
+    Flux.start(fixture.api,fixture.world,{domains={upstream,downstream}})
+    fixture.pending[1][2]()
+    local function prepare(material,seed)
+        material.IsValid=black.IsValid
+        material.tex=black;material.vectors={}
+        for _,k in ipairs({"SurfaceScattering","SurfaceAbsorption","ColorBehind"}) do
+            material.vectors[k.."0"]={R=seed,G=.1,B=.2,A=1}
+        end
+        function material:K2_GetTextureParameterValue()return self.tex end
+        function material:SetTextureParameterValue(_,value)self.tex=value end
+        function material:K2_GetVectorParameterValue(k)return self.vectors[k] or {R=0,G=0,B=0,A=0} end
+        function material:SetVectorParameterValue(k,value)self.vectors[k]=value end
+        return material
+    end
+    local up=prepare(fixture.spawned[1].MaterialInstances[1],.4)
+    local down=prepare(fixture.spawned[2].MaterialInstances[1],.9)
+    for i=2,#fixture.pending do fixture.pending[i][2]() end
+    assert(created==1 and finished==1 and up.tex==target and down.tex==black)
+    assert(up.vectors.SurfaceScattering0.R==.4 and up.vectors.SurfaceScattering1.R==.9)
+    assert(up.vectors.WorldToPainterUV.G==-13000 and up.vectors.WorldToPainterUV.A==25600)
+    assert(target.rows[470]==nil and target.rows[500]>.45 and target.rows[500]<.60 and target.rows[530]==1)
+end
+for _,change in ipairs({
+    function(p)p.from_domain="missing" end,
+    function(p)p.from_domain="river" end,
+    function(p)p.start_ue_y_cm=1 end,
+    function(p)p.start_ue_y_cm=0/0 end,
+    function(p)p.end_ue_y_cm=nil end,
+}) do
+    local invalid=clone(upstream);change(invalid.surface_painter)
+    f=fixture()
+    assert(not pcall(Flux.start,f.api,f.world,{domains={invalid,downstream}}))
+    assert(#f.spawned==0 and #f.pending==0)
+end
 print("Flux runtime: validation, two baked domains, lifetime, teardown and failure tests passed")

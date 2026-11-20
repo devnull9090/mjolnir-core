@@ -157,6 +157,7 @@ local function readFile(path)
 end
 
 --- What the match marks in the world: the hill, the next flag, the Juggernaut, the flags.
+local warfareDll = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native\\mjolnir_lobby.dll"
 local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua"),
     Waypoint = dofile(MOD_DIR .. "\\Scripts\\waypoint.lua"),
@@ -165,6 +166,12 @@ local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     FlagMark = dofile(MOD_DIR .. "\\Scripts\\flagmark.lua"),
     Warfare = dofile(MOD_DIR .. "\\Scripts\\warfare.lua"),
     Canopy = dofile(MOD_DIR .. "\\Scripts\\warfare_canopy.lua"),
+    Grips = dofile(MOD_DIR .. "\\Scripts\\warfare_grips.lua"),
+    WarfareInput = dofile(MOD_DIR .. "\\Scripts\\warfare_input.lua"),
+    Instruments = dofile(MOD_DIR .. "\\Scripts\\warfare_instruments.lua"),
+    flightControls = package.loadlib(warfareDll, "mjolnir_warfare_controls"),
+    pumpFlight = package.loadlib(warfareDll, "mjolnir_warfare_pump"),
+    flightBlocked = function() return Chat.inputActive() or (Tactical and Tactical.open) end,
     readWarfare = function()
         return readFile((MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR)
             .. "\\MJOLNIRLobby\\native\\warfare_state.txt")

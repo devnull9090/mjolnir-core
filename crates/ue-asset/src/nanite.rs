@@ -1042,6 +1042,8 @@ pub struct Report {
     pub clusters: usize,
     /// Clusters that make up the full-detail mesh.
     pub leaf_clusters: usize,
+    /// Full-detail clusters carrying explicitly encoded tangent frames.
+    pub explicit_tangent_leaf_clusters: usize,
     pub triangles: usize,
     /// Triangles dropped because a vertex reference did not resolve.
     pub dropped_triangles: usize,
@@ -1116,6 +1118,7 @@ pub fn decode(res: &Resources, ubulk: Option<&[u8]>) -> Result<(Lod, Report), Er
                 continue;
             }
             report.leaf_clusters += 1;
+            report.explicit_tangent_leaf_clusters += usize::from(cluster.has_tangents);
             for v in cluster.vertices.iter().flatten() {
                 let inside = (0..3).all(|k| {
                     (v.pos[k] - cluster.box_center[k]).abs()

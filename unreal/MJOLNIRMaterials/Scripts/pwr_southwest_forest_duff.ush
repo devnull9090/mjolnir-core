@@ -1,0 +1,19 @@
+    // Irregular moss colonies sit within a continuous brown needle bed.
+    // The existing metric scan provides the needle shapes and surface relief.
+    [branch] if (forestMix>.001)
+    {
+        float2 colonyUV=mul(float2x2(.6,-.8,.8,.6),m)/3.8;
+        float2 cell=floor(colonyUV), f=frac(colonyUV);
+        f=f*f*(3.-2.*f);
+        float4 ids=dot(cell,float2(41.37,97.21))+float4(0.,41.37,97.21,138.58);
+        float4 corners=frac(sin(ids)*31253.41);
+        float localMoisture=lerp(lerp(corners.x,corners.y,f.x),lerp(corners.z,corners.w,f.x),f.y);
+        float colony=smoothstep(.57,.72,.67*localMoisture+.33*standMoisture+.12*(moss-.181));
+        float scanValue=saturate((litter.r-.28)*1.8);
+        float3 earth=lerp(humus*.76,humus*float3(1.33,1.14,.93),scanValue);
+        float3 needles=lerp(float3(.084,.043,.022),float3(.226,.119,.051),scanValue);
+        float3 needleBed=lerp(earth,needles,saturate(.12+.86*pine));
+        float3 mossBed=lerp(float3(.035,.045,.021),float3(.110,.125,.059),scanValue);
+        float3 forestGround=lerp(needleBed,mossBed,colony*(.69+.27*moss));
+        forest=lerp(forest,forestGround,forestMix);
+    }

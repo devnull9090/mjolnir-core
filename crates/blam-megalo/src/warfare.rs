@@ -38,6 +38,7 @@ pub struct Warfare {
     pub warmup_seconds: u16,
     pub insertion_seconds: u16,
     pub capture_seconds: u16,
+    pub allow_mounted_capture: bool,
     pub match_minutes: u8,
 }
 
@@ -50,6 +51,7 @@ impl Default for Warfare {
             warmup_seconds: 30,
             insertion_seconds: 60,
             capture_seconds: 8,
+            allow_mounted_capture: false,
             match_minutes: 20,
         }
     }
@@ -214,13 +216,15 @@ impl Variant {
         // A fixed bounded scan: at most three markers times sixteen players.
         // Occupants count once per team, so stacking players does not speed capture.
         let mut scan = alive(player::CURRENT, HEALTH);
-        scan.extend([
-            Item::Do(Action::GetPlayerVehicle {
-                player: Player(player::CURRENT),
-                out: Object::Ref(object::global(1)),
-            }),
-            eq(obj(object::global(1)), obj(object::NONE)),
-        ]);
+        if !c.allow_mounted_capture {
+            scan.extend([
+                Item::Do(Action::GetPlayerVehicle {
+                    player: Player(player::CURRENT),
+                    out: Object::Ref(object::global(1)),
+                }),
+                eq(obj(object::global(1)), obj(object::NONE)),
+            ]);
+        }
         scan.push(Item::If(ConditionKind::InBoundary {
             object: Object::PlayerBiped(player::CURRENT),
             shape: Object::Ref(object::global(0)),

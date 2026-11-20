@@ -1,5 +1,139 @@
 # Pelican Warfare: alpine battlefield
 
+## Saturday playtest variant
+
+For the November 21 playtest, the standard Megalo writer can build Warfare
+with vehicle occupants eligible to capture and contest a site. The released
+variant reader supports every instruction in this version. Build from the
+worktree root in PowerShell:
+
+```powershell
+$rules = 'out/pwr/playtest-20261121/variants/fireteam'
+New-Item -ItemType Directory -Force $rules | Out-Null
+cargo run --release -p blam-cli --bin mjolnir -- megalo write --mode warfare --vehicle-label-pool --allow-mounted-capture --out "$rules/warfare.mglo"
+```
+
+Keep `warfare.mglo` and the generated `warfare.layout.json` together. This
+profile waits for two players, runs a 30-second warmup, and allows 60 seconds
+for Pelican insertion. For a solo rehearsal, write to a separate directory and
+add `--minimum-players 1 --warmup-seconds 5`. Omitting
+`--allow-mounted-capture` produces the original infantry-only capture rules.
+
+On November 18, both playtest files passed the released variant reader and all
+38 installed map files matched the November 11 installation receipt. The host
+also needs the Warfare lobby, HUD and native controller. The shared runtime
+files on the development install changed after that receipt. The playtest
+profiles still need an in-game insertion, capture and respawn check with a
+second player.
+
+### Build the map and both profiles
+
+The November 18 playtest adds paired illuminated vehicle-entry markings to
+the front and rear of all three bases. Green has an additional pair on its
+outer arcade. Blue mirrors Red. Three batched visual meshes reuse the
+existing base materials. The closest marking sits 0.94 m beyond the edge of
+the rear driving lane. Cooked mesh readback matched the 504 Blender triangles
+with a maximum vertex placement error of 0.38 mm.
+
+From this worktree, the following PowerShell commands rebuild the package
+from the reviewed base scene, the existing verified map cook, and the cooked
+insertion assets. Each output argument takes a new folder.
+
+```powershell
+$review = 'out/pwr/playtest-20261121'
+$editor = 'C:/Program Files/Blender Foundation/Blender 5.3/blender.exe'
+$paks = 'C:/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved/Meteorite/Content/Paks'
+$base = 'levels/warfare/pwr/bases_v1'
+& $editor --background --factory-startup "$base/forerunner_bases.blend" --python-exit-code 1 --python "$base/portal_guides.py" -- --out "$review/portal-inlays" --render
+uv run --python 3.12 --with-requirements tools/level/requirements-alpine.txt --with OpenEXR python "$base/package_portal_guides.py" --paks $paks --art "$review/portal-inlays" --out "$review/portal-cooked"
+uv run --python 3.12 --with-requirements tools/level/requirements-alpine.txt --with OpenEXR python levels/warfare/pwr/stage_playtest.py --guides "$review/portal-cooked/package.json" --canopy out/pwr/canopy-v2/cooked/receipt.json --runtime '=1.24.0' --out "$review/saturday"
+```
+
+The output includes a private map archive, both rules profiles and a hash
+receipt. The archive contains the cooked base structures, entry markings,
+passenger Pelican, canopy, pack, fallback chute and both baked water domains. The launcher builds mount
+sidecars locally. CE content version 1.24.0 is the version on the development
+machine when the archive was staged.
+
+The published launcher applies profiles to map content. Its code mods share
+one signed, installation-wide release. For the private development build,
+`stage_mode_data.py` stages the Fireteam rules and layout, the PWR-only
+mode descriptor and the cooked tactical-map widget alongside the matching
+runtime. Its `--saturday` argument points to the folder above, `--stage`
+to the private runtime overlay and `--tactical` to the widget cook receipt.
+The staged widget lives in `/Game/MJOLNIR/UI` and uses the existing class
+retention rules.
+
+The coordinated private runtime supplies the Warfare lobby and native
+transport integration. Both players need matching content and runtime
+versions. Select PWR and **Pelican Warfare** in the ordinary Host Game
+lobby. The private rehearsal install selects the solo rules and saves that
+map/mode pair using the lobby's own previous-game setting.
+
+### Alpine world playtest
+
+The landscape build starts with the verified flight release. It adds a PWR-owned
+surface package for mountain rock, erosion, snow, and Forerunner paving. The
+playable terrain uses three native grass meshes, with denser growth on 230 of
+the 256 landscape components and a 40–60 m fade. The baked PCG vegetation
+has 16,690 instances across 18 mesh groups, with willows and rushes along
+wet banks, scrub in open areas and young pines below the peaks. Roadways,
+base entrances and vehicle routes have dedicated clearance masks. The map
+reuses B30’s original Clear Afternoon sky mesh from chunk 986 and its textures
+from 985. Three stock gull effects circle the water. The lake uses a glacial
+blue surface finish. Both Fluid Flux domains use the original riverbed and lakebed.
+
+After cooking the surfaces, grass and world, build both Saturday profiles with
+the following command. Each output must be a fresh directory.
+
+```powershell
+$flight = 'out/pwr/playtest-20261121'
+$world = 'out/pwr/world-art/foliage-r2/bake'
+python levels/warfare/pwr/stage_world_playtest.py `
+    --baseline "$flight/saturday-flight.3" --solo "$flight/flight-candidate/saturday" `
+    --surfaces out/pwr/world-surfaces/cooked/pakchunk956-MJOLNIRPWRSURFACES_P.utoc `
+    --land "$world/pakchunk965-MJOLNIRLAND-Windows.utoc" `
+    --world "$world/pakchunk997-MJOLNIRMAP-PWR_P.utoc" --out out/pwr/world-art/saturday-b30.4
+```
+
+The root runtime ZIP contains the two-player Fireteam rules. The `solo` folder
+contains the one-player runtime for rehearsals. Both use the same map archive.
+
+### Spartan insertion rig
+
+Open `canopy/v2/pwr_insertion.blend` to edit the deployed wing, suspension
+lines, steering loops and detachable pack. The canopy origin is at the
+rider's feet. The pack has its own origin at its base so the same mesh can
+sit on the ground after touchdown. `canopy/v2/geometry-report.json` records
+the two handle centers and the pack mounting point in Unreal centimetres.
+
+The mapped Jump action (Space by default) exits the Pelican. Press it again
+in freefall to open the canopy. Steer with the movement controls and hold
+Shift or click and hold the left stick to brake. The flight HUD shows total
+speed, vertical speed, ground track and terrain clearance. Its hollow diamond
+follows the direction of travel when that direction is inside the visor.
+Landing releases the pack and restores the starting loadout.
+
+The center underside cell carries the MJOLNIR Core crest. A small woven label
+on the detachable pack carries the maker's URL. The master prints are in
+`canopy/v2/print` and `canopy/v2/build_prints.py` generates them.
+
+To regenerate the authored geometry and cook both assets from the repository
+root, run the following in PowerShell with the project's Unreal tools installed.
+
+```powershell
+$chute = 'levels/warfare/pwr/canopy/v2'
+& $editor --background --factory-startup --python-exit-code 1 --python "$chute/build_rig.py"
+python "$chute/cook.py"
+```
+
+The cook reads the delivered meshes back and verifies each grip socket, its
+four distance levels, material assignments and fabric texture. The local
+fit studies use reference Spartans from the developer's game files. For the
+skinned CE multiplayer hand study, set `PWR_SPARTAN_FIT_REFERENCE` to a local
+converted CE multiplayer biped glTF and run `render_reach.py` in the authored
+Blender scene. Frames 1–9 of the resulting review scene show the reach.
+
 ## Offline base integration — November 11
 
 The reviewed red, blue and green Forerunner bases are assembled with the full

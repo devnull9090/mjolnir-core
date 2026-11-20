@@ -1,0 +1,79 @@
+    // Stochastic triangular sampling of the existing 2.4 m organic scan.
+    // Adjacent triangles share the same world-seeded vertex transforms, so
+    // the scan crosses cell boundaries continuously and never follows a camera.
+    float2x2 organicPad=float2x2(768./2048.,0,0,1008./1024.);
+    float2 orgBias=float2(1032./2048.,8./1024.);
+    // The original signed wear and duff channels suppress this on all
+    // compacted wheels, registered stone windrows and functioning wet basins.
+    float forestMix=smoothstep(.20,.61,survey.y)*smoothstep(.245,.39,survey.x)
+                    *(1-smoothstep(.505,.51,survey.x))*(1-smoothstep(0.,.025,wetField));
+    float4 litter=float4(0,0,.5,.5);
+    float2 litterWorld=float2(0,0);
+    float sampleMoss=0., samplePine=0., standMoisture=.5;
+    [branch] if (forestMix<.999)
+    {
+        litter=Texture2DSampleGrad(SweepFloorDetail,SiteEarthSampler,
+             mul(organicPad,frac(pineUV))+orgBias,
+             mul(organicPad,mul(pineRot,dx)/2.40),mul(organicPad,mul(pineRot,dy)/2.40));
+        litterWorld=mul(litter.ba*2-1,pineRot);
+        sampleMoss=smoothstep(.18,.38,litter.g)*(1-smoothstep(.44,.61,litter.g));
+        samplePine=smoothstep(.44,.78,litter.g);
+    }
+    [branch] if (forestMix>.001)
+    {
+        float2 q=float2(m.x-.5773503*m.y,1.1547005*m.y)/2.67;
+        float2 baseCell=floor(q), f=frac(q);
+        float upper=step(1.,f.x+f.y);
+        float3 weights=lerp(float3(1-f.x-f.y,f.x,f.y),float3(f.x+f.y-1,1-f.x,1-f.y),upper);
+        weights=weights*weights*(3.-2.*weights);
+        weights/=max(.001,weights.x+weights.y+weights.z);
+        float2 vertices[3]={baseCell+upper.xx,baseCell+float2(1.-upper,upper),baseCell+float2(upper,1.-upper)};
+        float4 material=0.; float2 norm=0.; float2 forestKinds=0.;
+        [unroll] for (int i=0; i<3; ++i)
+        {
+            float2 cell=vertices[i];
+            float3 h=frac(float3(cell.x,cell.y,cell.x)*float3(.1031,.1030,.0973));
+            h+=dot(h,h.yzx+33.33);
+            h=frac((h.xxy+h.yzz)*h.zyx);
+            // Quarter-turns preserve the physical blade shape. Scale and phase
+            // are independent at each vertex. Transform the tangent slopes back
+            // to world axes before any cross-fade.
+            int rot=(int)floor(h.z*4.);
+            float2 facing=rot==0 ? float2(1,0) : (rot==1 ? float2(0,1) : (rot==2 ? float2(-1,0) : float2(0,-1)));
+            float2x2 spin=float2x2(facing.x,-facing.y,facing.y,facing.x);
+            float2x2 basis=mul(spin,pineRot);
+            float invScale=1./(2.40*(.77+.57*h.y));
+            float2 uv=mul(basis,m)*invScale+h.xy*3.71;
+            float2 gx=mul(basis,dx)*invScale, gy=mul(basis,dy)*invScale;
+            float2 dims=float2(768.,1008.), tx=gx*dims, ty=gy*dims;
+            float major=max(length(tx),length(ty));
+            float minor=abs(tx.x*ty.y-tx.y*ty.x)/max(.001,major);
+            float filteredFoot=max(minor,major*.125);
+            // Preserve anisotropic needle detail in long grazing footprints.
+            // Inset each packed axis by its own projected filter radius, then
+            // fade by the effective filtered mip, not by the long axis alone.
+            float2 reach=.68*(abs(gx)+abs(gy));
+            float lodLimit=min(1.,.2/max(.0001,max(reach.x,reach.y)));
+            float2 inset=max(0.,reach*lodLimit-5./dims);
+            float2 uvScale=1.-2.*inset;
+            float4 bark=Texture2DSampleGrad(SweepFloorDetail,SiteEarthSampler,
+                 mul(organicPad,frac(uv)*uvScale+inset)+orgBias,
+                 mul(organicPad,gx*uvScale*lodLimit),mul(organicPad,gy*uvScale*lodLimit));
+            float2 organicKinds=float2(smoothstep(.18,.38,bark.g)*(1-smoothstep(.44,.61,bark.g)),smoothstep(.44,.78,bark.g));
+            float fade=smoothstep(34.,105.,filteredFoot);
+            material+=weights[i]*lerp(bark,float4(.44,.26,.5,.5),fade);
+            norm+=weights[i]*(1-fade)*mul(bark.ba*2-1,basis);
+            forestKinds+=weights[i]*lerp(organicKinds,float2(.34,.23),fade);
+        }
+        litter=lerp(litter,material,forestMix);
+        litterWorld=lerp(litterWorld,norm,forestMix);
+        sampleMoss=lerp(sampleMoss,forestKinds.x,forestMix);
+        samplePine=lerp(samplePine,forestKinds.y,forestMix);
+        // Metric, non-periodic patches of moss and exposed duff survive after
+        // the small needle scan has filtered away at driving distance.
+        float2 broadUV=mul(float2x2(.84,.54,-.54,.84),m)/12.8;
+        float2 k=floor(broadUV), j=frac(broadUV); j=j*j*(3.-2.*j);
+        float4 ids=dot(k,float2(127.1,311.7))+float4(0.,127.1,311.7,438.8);
+        float4 t=frac(sin(ids)*43758.5453);
+        standMoisture=lerp(lerp(t.x,t.y,j.x),lerp(t.z,t.w,j.x),j.y);
+    }

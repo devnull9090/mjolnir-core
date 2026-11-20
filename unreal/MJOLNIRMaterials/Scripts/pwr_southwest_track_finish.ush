@@ -1,0 +1,72 @@
+    float lum = dot(soil,float3(.2126,.7152,.0722));
+    float compact = smoothstep(.49,.89,survey.x);
+    float deposit = 1-smoothstep(.09,.49,survey.x);
+    float fine = saturate((lum-.025)*4.2+.14*(stone.r-.44));
+    // Clay polished by repeated traffic runs beside porous, damp mineral soil.
+    // Both the matrix and the aggregate change in the median; in the swaths
+    // the stone crests disappear below a relatively smooth coat of dust.
+    float3 earth = lerp(float3(.043,.025,.017),float3(.142,.094,.063),fine);
+    float3 packed = lerp(float3(.092,.057,.036),float3(.240,.156,.094),fine);
+    float3 gravelBed = lerp(float3(.021,.016,.013),float3(.093,.071,.057),fine);
+    float3 color = lerp(lerp(earth,gravelBed,deposit),packed,compact);
+    float bankGrain = stone.g+.26*(stone.r-.46);
+    float pocket = saturate(.59+2.5*(lum-.10)+.17*sin(m.x*.45+m.y*.29+.65*sin(m.y*.4)));
+    float bearing = saturate(deposit*(.66+.40*pocket));
+    float crest = smoothstep(lerp(.73,.43,bearing),lerp(.92,.69,bearing),bankGrain);
+    float chip = crest*(.18+.81*bearing)*(1-.93*compact);
+    float3 slate = lerp(float3(.053,.049,.045),float3(.236,.229,.210),smoothstep(.16,.79,stone.r));
+    float iron = smoothstep(.55,.80,stone.g)*smoothstep(.26,.67,stone.r);
+    slate *= lerp(float3(1.,1.,1.),float3(1.11,.95,.84),iron);
+    color = lerp(color,slate,chip);
+    color *= lerp(.82,1.03,smoothstep(.19,.68,stone.g)*(1-compact) + compact*.78);
+
+    // Layer weathered russet fibres over broken humus; the map-space washed
+    // openings interrupt the directionally matted pine layer at the verge.
+    float moss = smoothstep(.18,.38,litter.g)*(1-smoothstep(.44,.61,litter.g));
+    float pine = smoothstep(.47,.79,litter.g);
+    float3 humus = lerp(float3(.032,.018,.012),float3(.092,.056,.037),litter.r);
+    float3 mossColour = lerp(float3(.038,.048,.024),float3(.100,.108,.055),litter.r);
+    float3 russet = lerp(float3(.068,.033,.019),float3(.196,.112,.061),litter.r);
+    float3 forest = lerp(lerp(humus,mossColour,moss*.62),russet,pine);
+    float contact = smoothstep(.887,.994,duff);
+    forest *= 1-contact*(.34+.12*(1-litter.r));
+    float fringe = saturate(1-abs(duff-.49)*2.0);
+    duff = saturate((duff-.07)*1.31+fringe*(.55*(litter.g-.38)+.42*(litter.r-.40)));
+    color = lerp(color,forest,duff);
+    float2 gravelN = mul(stone.ba*2-1,rockRot);
+    float2 litterN = mul(litter.ba*2-1,pineRot);
+    float2 n = lerp(soilNormal*lerp(.39,.18,compact),gravelN*.73,chip);
+    n = lerp(n,litterN*.60,duff);
+
+    float damp=0, pool=0;
+    [branch] if (wetField>.025)
+    {
+        // A topographic high can emerge even from the middle of a small basin.
+        // Broken silt ribs interrupt water across the depressed centre, while
+        // the wet earth extends beyond the separate narrow reflective pieces.
+        float bank = .22*(bankGrain-.49)+.055*sin(m.x*11.2+m.y*7.9);
+        float depth = wetField-bank;
+        damp = smoothstep(.09,.35,depth)*(1-duff);
+        float along = dot(m,float2(.814,.581));
+        float across = dot(m,float2(-.581,.814));
+        float meander = .83*sin(along*3.9)+.34*sin(along*8.2+across*4.1);
+        float rib = cos(across*16.8+meander+2.2*(stone.r-.43));
+        float slit = smoothstep(-.14,.40,rib+.22*sin(along*6.1));
+        float exposed = smoothstep(.60,.83,bankGrain);
+        pool = smoothstep(.41,.64,depth)*slit*(1-exposed)*(1-duff);
+        color = lerp(color,color*float3(.52,.57,.62),damp);
+        float3 silt = lerp(color*.77,float3(.025,.031,.033),.27);
+        color = lerp(color,silt,pool);
+        float2 ripples = .014*float2(sin(along*17.),sin(across*9.+along*2.5));
+        n = lerp(n,ripples,.99*pool);
+    }
+    n *= rsqrt(max(1.,dot(n,n)*1.025));
+    float3 terrainNormal = float3(n,sqrt(saturate(1-dot(n,n))));
+    float rough = lerp(.94-.18*compact,.94,duff)-.19*damp;
+    originalGround = lerp(originalGround,color,alpineField.r);
+    WetNormal = normalize(lerp(WetNormal,terrainNormal,alpineField.r));
+    WetRough = lerp(WetRough,lerp(rough,.087,pool),alpineField.r);
+    WetSpec = lerp(WetSpec,lerp(.18,.46,pool),alpineField.r);
+    RoadMetal = lerp(RoadMetal,0.,alpineField.r);
+}
+// End PWR Southwest forest floor

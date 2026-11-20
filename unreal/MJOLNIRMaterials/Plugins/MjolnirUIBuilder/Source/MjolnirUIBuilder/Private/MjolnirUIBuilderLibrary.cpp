@@ -26,6 +26,7 @@
 #include "GameFramework/Actor.h"
 #include "MeshDescription.h"
 #include "StaticMeshAttributes.h"
+#include "StaticMeshOperations.h"
 #include "Modules/ModuleManager.h"
 #include "WidgetBlueprint.h"
 #include "Landscape.h"
@@ -728,6 +729,74 @@ bool UMjolnirUIBuilderLibrary::BuildAttributedStaticMesh(UStaticMesh* Mesh, cons
 	return true;
 }
 
+
+int32 UMjolnirUIBuilderLibrary::RepairStaticMeshTangentFrames(UStaticMesh* Mesh)
+{
+	if (!Mesh || !Mesh->IsMeshDescriptionValid(0))
+	{
+		return -1;
+	}
+	FMeshDescription* Desc = Mesh->GetMeshDescription(0);
+	FStaticMeshOperations::ComputeTriangleTangentsAndNormals(*Desc, 0.0f, *Mesh->GetName());
+	FStaticMeshOperations::ComputeTangentsAndNormals(*Desc, EComputeNTBsFlags::Tangents | EComputeNTBsFlags::UseMikkTSpace | EComputeNTBsFlags::BlendOverlappingNormals);
+	FStaticMeshAttributes Attr(*Desc);
+	auto Positions = Attr.GetVertexPositions();
+	auto Normals = Attr.GetVertexInstanceNormals();
+	auto Tangents = Attr.GetVertexInstanceTangents();
+	auto Signs = Attr.GetVertexInstanceBinormalSigns();
+	auto UVs = Attr.GetVertexInstanceUVs();
+	int32 Repaired = 0;
+	for (const FTriangleID Triangle : Desc->Triangles().GetElementIDs())
+	{
+		const auto Corners = Desc->GetTriangleVertexInstances(Triangle);
+		const auto Vertices = Desc->GetTriangleVertices(Triangle);
+		const FVector3d E1 = FVector3d(Positions[Vertices[1]]) - FVector3d(Positions[Vertices[0]]);
+		const FVector3d E2 = FVector3d(Positions[Vertices[2]]) - FVector3d(Positions[Vertices[0]]);
+		const FVector3d FaceNormal = FVector3d::CrossProduct(E2, E1).GetSafeNormal(1.e-28);
+		const FVector2d A = FVector2d(UVs.Get(Corners[1],0)) - FVector2d(UVs.Get(Corners[0],0));
+		const FVector2d B = FVector2d(UVs.Get(Corners[2],0)) - FVector2d(UVs.Get(Corners[0],0));
+		const double Det = A.X*B.Y - A.Y*B.X;
+		for (const auto Corner : Corners)
+		{
+			FVector3d N(Normals[Corner]), T(Tangents[Corner]);
+			if (N.IsNormalized() && T.IsNormalized() && FMath::Abs(N.Dot(T)) < .001 && FMath::Abs(Signs[Corner])>.99f)
+			{
+				continue;
+			}
+			if (!N.Normalize(1.e-24))
+			{
+				N = FaceNormal.IsNearlyZero() ? FVector3d::UnitZ() : FaceNormal;
+			}
+			FVector3d V;
+			if (FMath::Abs(Det)>1.e-22)
+			{
+				T = (E1*B.Y - E2*A.Y)/Det;
+				V = (E2*A.X - E1*B.X)/Det;
+			}
+			else
+			{
+				T = E1.SquaredLength()>=E2.SquaredLength() ? E1 : E2;
+				V = N.Cross(T);
+			}
+			T -= N*T.Dot(N);
+			if (!T.Normalize(1.e-24))
+			{
+				N.FindBestAxisVectors(T,V);
+			}
+			Normals[Corner] = FVector3f(N);
+			Tangents[Corner] = FVector3f(T);
+			Signs[Corner] = N.Cross(T).Dot(V)<0 ? -1.f : 1.f;
+			++Repaired;
+		}
+	}
+	Mesh->GetSourceModel(0).BuildSettings.bRecomputeTangents = false;
+	Mesh->GetSourceModel(0).BuildSettings.bRecomputeNormals = false;
+	Mesh->CommitMeshDescription(0);
+	Mesh->Build();
+	Mesh->PostEditChange();
+	Mesh->MarkPackageDirty();
+	return Repaired;
+}
 // A cooked GUID's 16 bytes (four little-endian words) from 32 hex digits.
 static bool GuidFromCookedHex(const FString& Hex, FGuid& Out)
 {

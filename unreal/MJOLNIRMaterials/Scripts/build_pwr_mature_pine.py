@@ -17,6 +17,10 @@ OUT=Path(os.environ.get('MJ_PWR_PINE_OUT',str(ROOT/'out/pwr/visual-v5/outcrops-v
 EXPECTED=os.environ.get('MJ_PWR_PINE_SHA','68bdcb09e0af2dc2030b50b543f45d28a7284264bd7ce188484759b320cdf405')
 FOLDER='/Game/MJOLNIR/Scenery/PWR'
 NAME='SM_PWR_MaturePine_A'
+OPEN_BEND=os.environ.get('MJ_PWR_PINE_OPEN_BEND')=='1'
+if OPEN_BEND:
+    FOLDER='/Game/MJOLNIR/GrassPilot/Playable'
+    NAME='SM_PWR_SweepBendPine_OpenA'
 BINDINGS={
  'MI_Pine_Tree_Mat':'/Game/Env/Bio/Tree/Pine/Tree_Windswept/Materials/MI_Pine_Tree_Mat_LOD0',
  'MI_Branch_Mat':'/Game/Env/Bio/Tree/Pine/Tree_Windswept_A/Materials/MI_Branch_Mat_LOD0_TwoSided',
@@ -59,7 +63,12 @@ def native_material(path,masked):
 
 if digest(SOURCE)!=EXPECTED:raise RuntimeError('Frozen pine GLB changed')
 OUT.mkdir(parents=True,exist_ok=True)
-materials={name:native_material(path,name=='MI_Branch_Mat') for name,path in BINDINGS.items()}
+if OPEN_BEND:
+    materials={name:unreal.load_asset(path) for name,path in BINDINGS.items()}
+    if not all(isinstance(m,unreal.MaterialInstanceConstant) for m in materials.values()):
+        raise RuntimeError('Missing original pine material slots')
+else:
+    materials={name:native_material(path,name=='MI_Branch_Mat') for name,path in BINDINGS.items()}
 
 # UE5.5's glTF parser silently drops TEXCOORD_2. Decode the frozen GLB
 # explicitly and feed the attribute-preserving MeshDescription builder.
@@ -133,16 +142,17 @@ body.set_editor_property('default_instance',instance)
 if subsystem.get_num_uv_channels(mesh,0)!=3:raise RuntimeError('Import lost native UV channels')
 if not eal.save_loaded_asset(mesh):raise RuntimeError('Failed to save pine mesh')
 
-label_name='PAL_MJOLNIR_PWR_MaturePine959'
-label=unreal.load_asset(FOLDER+'/'+label_name)
-if label is None:label=tools.create_asset(label_name,FOLDER,unreal.PrimaryAssetLabel,unreal.DataAssetFactory())
-rules=label.get_editor_property('rules')
-# Recursive labels participate in priority arbitration. UE5.5 processes
-# nonrecursive labels last, which would also leave the HISM world owning this
-# mesh. Native /Game/Env dependencies remain explicitly NeverCook.
-set_props(rules,{'chunk_id':959,'priority':1000,'apply_recursively':True,'cook_rule':unreal.PrimaryAssetCookRule.ALWAYS_COOK})
-set_props(label,{'rules':rules,'label_assets_in_my_directory':False,'explicit_assets':[mesh]})
-eal.save_loaded_asset(label)
+if not OPEN_BEND:
+    label_name='PAL_MJOLNIR_PWR_MaturePine959'
+    label=unreal.load_asset(FOLDER+'/'+label_name)
+    if label is None:label=tools.create_asset(label_name,FOLDER,unreal.PrimaryAssetLabel,unreal.DataAssetFactory())
+    rules=label.get_editor_property('rules')
+    # Recursive labels participate in priority arbitration. UE5.5 processes
+    # nonrecursive labels last, which would also leave the HISM world owning this
+    # mesh. Native /Game/Env dependencies remain explicitly NeverCook.
+    set_props(rules,{'chunk_id':959,'priority':1000,'apply_recursively':True,'cook_rule':unreal.PrimaryAssetCookRule.ALWAYS_COOK})
+    set_props(label,{'rules':rules,'label_assets_in_my_directory':False,'explicit_assets':[mesh]})
+    eal.save_loaded_asset(label)
 bounds=mesh.get_bounds();origin=bounds.origin;extent=bounds.box_extent
 report={'schema':'pwr-native-pine-import-v1','source':str(SOURCE),'source_sha256':EXPECTED,'mesh':mesh.get_path_name(),
         'uv_channels':subsystem.get_num_uv_channels(mesh,0),'lod_count':subsystem.get_lod_count(mesh),
@@ -152,7 +162,7 @@ report={'schema':'pwr-native-pine-import-v1','source':str(SOURCE),'source_sha256
         'materials':{name:materials[name].get_path_name() for name in names},
         'nanite':{key:nanite.get_editor_property(key) for key in ('enabled','preserve_area','explicit_tangents','keep_percent_triangles','trim_relative_error','position_precision','fallback_percent_triangles','fallback_relative_error')},
         'build':{key:build.get_editor_property(key) for key in ('generate_lightmap_u_vs','recompute_normals','recompute_tangents','use_full_precision_u_vs','use_high_precision_tangent_basis','remove_degenerates')},
-        'chunk':959,'label_priority':1000,'placeholder_materials_ship':False,
+        'chunk':965 if OPEN_BEND else 959,'label_priority':None if OPEN_BEND else 1000,'placeholder_materials_ship':False,
         'color_policy':'glTF RGBA quantized to original FColor data bytes, FromSRGBColor counterconversion then native FColor; cooked byte audit required',
         'runtime_collision':'none; Blam trunk hulls authored separately','runtime_wpo':'HISM disabled by existing foliage bake',
         'script_sha256':digest(__file__),'status':'editor_imported_cook_and_native_readback_pending'}

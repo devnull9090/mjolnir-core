@@ -1,0 +1,647 @@
+{
+  "id": "pwr_b30_clear_afternoon",
+  "mesh": "/Game/MJOLNIR/Maps/PWR/SM_PWR_Sky.SM_PWR_Sky",
+  "pos": [
+    -2035756.0,
+    -4067394.0,
+    12142389.0
+  ],
+  "scale": [
+    348654.2188,
+    348654.2188,
+    348654.2188
+  ],
+  "materials": [
+    {
+      "parent": "/Game/MJOLNIR/CE/M_CE_TransparentAlpha.M_CE_TransparentAlpha",
+      "textures": {
+        "Map0": "/Game/MJOLNIR/Maps/PWR/Textures/T_sky_clear_afternoon_bitmaps_detail_star_twinkle.T_sky_clear_afternoon_bitmaps_detail_star_twinkle",
+        "Map1": "/Game/MJOLNIR/Maps/PWR/Textures/T_sky_clear_afternoon_bitmaps_stars.T_sky_clear_afternoon_bitmaps_stars",
+        "Map2": "/Game/MJOLNIR/Maps/PWR/Textures/T_sky_clear_afternoon_bitmaps_sky_clear_blue.T_sky_clear_afternoon_bitmaps_sky_clear_blue"
+      },
+      "scalars": {
+        "StageCount": 3,
+        "ChicagoFlags": 0.0,
+        "BlendFunction": 0.0,
+        "FadeMode": 0.0,
+        "SkyFollow": 1.0
+      },
+      "vectors": {
+        "Stage0Xform": [
+          12.0,
+          12.0,
+          0.0,
+          0.0
+        ],
+        "Stage0UAnim": [
+          6,
+          10.0,
+          0.0,
+          1.0
+        ],
+        "Stage0VAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage0RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage0Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Stage1Xform": [
+          8.0,
+          8.0,
+          0.0,
+          0.0
+        ],
+        "Stage1UAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage1VAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage1RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage1Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Stage2Xform": [
+          1.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "Stage2UAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage2VAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage2RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage2Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "StageColorFunctions": [
+          2,
+          4,
+          0,
+          0.0
+        ],
+        "StageAlphaFunctions": [
+          0,
+          0,
+          0,
+          0.0
+        ],
+        "SkyOrigin": [
+          2035755.2605779232,
+          4067394.0913115134,
+          -12134897.96577419,
+          0.0
+        ]
+      }
+    },
+    {
+      "parent": "/Game/MJOLNIR/CE/M_CE_TransparentAlpha.M_CE_TransparentAlpha",
+      "textures": {
+        "Map0": "/Game/MJOLNIR/Maps/PWR/Textures/T_sky_planets_threshold_clear_afternoon.T_sky_planets_threshold_clear_afternoon"
+      },
+      "scalars": {
+        "StageCount": 1,
+        "ChicagoFlags": 0.0,
+        "BlendFunction": 0.0,
+        "FadeMode": 0.0,
+        "SkyFollow": 1.0
+      },
+      "vectors": {
+        "Stage0Xform": [
+          1.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "Stage0UAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage0VAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage0RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage0Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "StageColorFunctions": [
+          0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "StageAlphaFunctions": [
+          0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "SkyOrigin": [
+          2035755.2605779232,
+          4067394.0913115134,
+          -12134897.96577419,
+          0.0
+        ]
+      }
+    },
+    {
+      "parent": "/Game/MJOLNIR/CE/M_CE_TransparentAlpha.M_CE_TransparentAlpha",
+      "textures": {
+        "Map0": "/Game/MJOLNIR/Maps/PWR/Textures/T_sky_planets_basis_clear_afternoon.T_sky_planets_basis_clear_afternoon"
+      },
+      "scalars": {
+        "StageCount": 1,
+        "ChicagoFlags": 0.0,
+        "BlendFunction": 0.0,
+        "FadeMode": 0.0,
+        "SkyFollow": 1.0
+      },
+      "vectors": {
+        "Stage0Xform": [
+          1.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "Stage0UAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage0VAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage0RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage0Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "StageColorFunctions": [
+          0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "StageAlphaFunctions": [
+          0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "SkyOrigin": [
+          2035755.2605779232,
+          4067394.0913115134,
+          -12134897.96577419,
+          0.0
+        ]
+      }
+    },
+    {
+      "parent": "/Game/MJOLNIR/CE/M_CE_TransparentAlpha.M_CE_TransparentAlpha",
+      "textures": {
+        "Map0": "/Game/MJOLNIR/Maps/PWR/Textures/T_levels_b30_bitmaps_reflection_water__face0.T_levels_b30_bitmaps_reflection_water__face0",
+        "Map1": "/Game/MJOLNIR/Maps/PWR/Textures/T_sky_bitmaps_crap_water0.T_sky_bitmaps_crap_water0",
+        "Map2": "/Game/MJOLNIR/Maps/PWR/Textures/T_sky_bitmaps_crap_water1.T_sky_bitmaps_crap_water1",
+        "Map3": "/Game/MJOLNIR/Maps/PWR/Textures/T_sky_bitmaps_crap_water1.T_sky_bitmaps_crap_water1",
+        "Map0Cube": "/Game/MJOLNIR/Maps/PWR/Textures/TC_levels_b30_bitmaps_reflection_water.TC_levels_b30_bitmaps_reflection_water"
+      },
+      "scalars": {
+        "StageCount": 4,
+        "ChicagoFlags": 0.0,
+        "BlendFunction": 0.0,
+        "FadeMode": 0.0,
+        "FirstMapType": 1.0,
+        "SkyFollow": 1.0
+      },
+      "vectors": {
+        "Stage0Xform": [
+          1.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "Stage0UAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage0VAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage0RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage0Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Stage1Xform": [
+          100.0,
+          100.0,
+          0.0,
+          0.0
+        ],
+        "Stage1UAnim": [
+          6,
+          50.0,
+          0.0,
+          1.0
+        ],
+        "Stage1VAnim": [
+          6,
+          40.0,
+          0.0,
+          1.0
+        ],
+        "Stage1RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage1Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Stage2Xform": [
+          200.0,
+          200.0,
+          0.0,
+          0.0
+        ],
+        "Stage2UAnim": [
+          6,
+          30.0,
+          0.0,
+          1.0
+        ],
+        "Stage2VAnim": [
+          6,
+          -10.0,
+          0.0,
+          1.0
+        ],
+        "Stage2RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage2Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Stage3Xform": [
+          50.0,
+          50.0,
+          0.0,
+          0.0
+        ],
+        "Stage3UAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage3VAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage3RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage3Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "StageColorFunctions": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "StageAlphaFunctions": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "SkyOrigin": [
+          2035755.2605779232,
+          4067394.0913115134,
+          -12134897.96577419,
+          0.0
+        ]
+      }
+    },
+    {
+      "parent": "/Game/MJOLNIR/CE/M_CE_TransparentAlpha.M_CE_TransparentAlpha",
+      "textures": {
+        "Map0": "/Game/MJOLNIR/Maps/PWR/Textures/T_sky_ring_ring_clear_afternoon.T_sky_ring_ring_clear_afternoon"
+      },
+      "scalars": {
+        "StageCount": 1,
+        "ChicagoFlags": 0.0,
+        "BlendFunction": 0.0,
+        "FadeMode": 0.0,
+        "SkyFollow": 1.0
+      },
+      "vectors": {
+        "Stage0Xform": [
+          1.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "Stage0UAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage0VAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage0RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage0Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "StageColorFunctions": [
+          0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "StageAlphaFunctions": [
+          0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "SkyOrigin": [
+          2035755.2605779232,
+          4067394.0913115134,
+          -12134897.96577419,
+          0.0
+        ]
+      }
+    },
+    {
+      "parent": "/Game/MJOLNIR/CE/M_CE_TransparentAlpha.M_CE_TransparentAlpha",
+      "textures": {
+        "Map0": "/Game/MJOLNIR/Maps/PWR/Textures/T_sky_clear_afternoon_bitmaps_cloud_mask.T_sky_clear_afternoon_bitmaps_cloud_mask",
+        "Map1": "/Game/MJOLNIR/Maps/PWR/Textures/T_sky_clear_afternoon_bitmaps_clouds_puffy_light.T_sky_clear_afternoon_bitmaps_clouds_puffy_light"
+      },
+      "scalars": {
+        "StageCount": 2,
+        "ChicagoFlags": 0.0,
+        "BlendFunction": 0.0,
+        "FadeMode": 0.0,
+        "SkyFollow": 1.0
+      },
+      "vectors": {
+        "Stage0Xform": [
+          1.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "Stage0UAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage0VAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage0RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage0Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Stage1Xform": [
+          6.0,
+          6.0,
+          0.0,
+          0.0
+        ],
+        "Stage1UAnim": [
+          6,
+          30.0,
+          0.0,
+          1.0
+        ],
+        "Stage1VAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage1RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage1Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "StageColorFunctions": [
+          2,
+          0,
+          0.0,
+          0.0
+        ],
+        "StageAlphaFunctions": [
+          2,
+          0,
+          0.0,
+          0.0
+        ],
+        "SkyOrigin": [
+          2035755.2605779232,
+          4067394.0913115134,
+          -12134897.96577419,
+          0.0
+        ]
+      }
+    },
+    {
+      "parent": "/Game/MJOLNIR/CE/M_CE_TransparentAlpha.M_CE_TransparentAlpha",
+      "textures": {
+        "Map0": "/Game/MJOLNIR/Maps/PWR/Textures/T_sky_clear_afternoon_bitmaps_fog_band.T_sky_clear_afternoon_bitmaps_fog_band"
+      },
+      "scalars": {
+        "StageCount": 1,
+        "ChicagoFlags": 0.0,
+        "BlendFunction": 0.0,
+        "FadeMode": 0.0,
+        "SkyFollow": 1.0
+      },
+      "vectors": {
+        "Stage0Xform": [
+          1.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "Stage0UAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage0VAnim": [
+          0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "Stage0RAnim": [
+          0,
+          1.0,
+          0.0,
+          360.0
+        ],
+        "Stage0Misc": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "StageColorFunctions": [
+          0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "StageAlphaFunctions": [
+          0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "SkyOrigin": [
+          2035755.2605779232,
+          4067394.0913115134,
+          -12134897.96577419,
+          0.0
+        ]
+      }
+    }
+  ],
+  "cast_shadow": false,
+  "sort_priority": -100
+}

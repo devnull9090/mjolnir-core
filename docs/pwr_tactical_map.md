@@ -30,11 +30,16 @@ writes. Two advancing snapshots from the HUD's current match instance are
 required, and stale samples clear the icons.
 
 The standalone widget builder is
-`unreal/MJOLNIRMaterials/Scripts/build_pwr_tactical_map.py`. It owns only
-`/Game/MJOLNIR/TacticalMap` in chunk 958, with standard UMG classes compatible
-with the game's fork. The class-lifetime allowlist retains its Blueprint
+`unreal/MJOLNIRMaterials/Scripts/build_pwr_tactical_map.py`. Chunk 958 owns
+`/Game/MJOLNIR/UI/WBP_MJOLNIRTacticalMap` and the eight overview and marker
+textures under `/Game/MJOLNIR/TacticalMap`. The class-lifetime allowlist retains its Blueprint
 class across travel, as for the existing HUD. Temporary hiding reuses the same
 widget pool.
+
+After the widget import and Unreal cook, run
+`python levels/warfare/pwr/tactical-map/package.py` to verify the generated
+class, marker pool and textures and stage chunk 958 under
+`out/pwr/tactical-map-ui-v2/cooked`.
 
 Validation commands:
 

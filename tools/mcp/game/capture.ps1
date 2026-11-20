@@ -42,7 +42,8 @@ param(
     [int]$ProcessId = 0,
     [Parameter(Mandatory = $true)][string]$OutFile,
     [int]$MaxWidth = 800,
-    [switch]$ForceForeground
+    [switch]$ForceForeground,
+    [switch]$BackgroundOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -176,6 +177,7 @@ $windowBitmap.Dispose()
 
 if (-not $printed -or (Test-Blank $bitmap) -or $ForceForeground) {
     $bitmap.Dispose()
+    if ($BackgroundOnly) { Fail "No readable background game frame. The window stayed in the background." }
     $method = "CopyFromScreen"
 
     if ([MjolnirWin]::IsIconic($hwnd)) { [MjolnirWin]::ShowWindow($hwnd, 9) | Out-Null }  # SW_RESTORE

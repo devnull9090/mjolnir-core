@@ -1,0 +1,221 @@
+{
+  "version": 1,
+  "subject": "Pelican Warfare deployed Spartan parafoil",
+  "target": "target.png",
+  "reference_view": "front",
+  "reference_part": "wing",
+  "views": [
+    {
+      "id": "front",
+      "pose": "deployed",
+      "frame": [
+        0,
+        0,
+        1,
+        1
+      ],
+      "subject_box": [
+        0.014,
+        0.023,
+        0.971,
+        0.953
+      ],
+      "background": "auto",
+      "camera": {
+        "yaw": 0,
+        "pitch": 25,
+        "lens": 110
+      },
+      "scene": {
+        "collection": "deployed"
+      },
+      "mask": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\.dream-loop\\chute-v2\\target-mask.png"
+    }
+  ],
+  "parts": [
+    {
+      "id": "wing",
+      "objects": [
+        "Woven cell*",
+        "Internal fabric rib*"
+      ],
+      "form": "Seven inflated olive cells, a shallow arched hem, a crowned upper surface with bound seams and two charcoal outer cheeks.",
+      "colours": [
+        {
+          "name": "olive",
+          "at": {
+            "view": "front",
+            "point": [
+              0.484,
+              0.117
+            ]
+          },
+          "hex": "#545743"
+        },
+        {
+          "name": "charcoal",
+          "at": {
+            "view": "front",
+            "point": [
+              0.958,
+              0.287
+            ]
+          },
+          "hex": "#494848"
+        }
+      ],
+      "boxes": {
+        "front": [
+          0.014,
+          0.023,
+          0.971,
+          0.351
+        ]
+      },
+      "outlines": {
+        "front": [
+          [
+            0.015,
+            0.35
+          ],
+          [
+            0.018,
+            0.289
+          ],
+          [
+            0.057,
+            0.195
+          ],
+          [
+            0.116,
+            0.13
+          ],
+          [
+            0.202,
+            0.089
+          ],
+          [
+            0.328,
+            0.043
+          ],
+          [
+            0.48,
+            0.024
+          ],
+          [
+            0.59,
+            0.027
+          ],
+          [
+            0.722,
+            0.057
+          ],
+          [
+            0.816,
+            0.109
+          ],
+          [
+            0.911,
+            0.163
+          ],
+          [
+            0.968,
+            0.25
+          ],
+          [
+            0.985,
+            0.32
+          ],
+          [
+            0.979,
+            0.368
+          ],
+          [
+            0.894,
+            0.357
+          ],
+          [
+            0.741,
+            0.343
+          ],
+          [
+            0.51,
+            0.333
+          ],
+          [
+            0.318,
+            0.333
+          ],
+          [
+            0.146,
+            0.349
+          ],
+          [
+            0.04,
+            0.373
+          ]
+        ]
+      }
+    },
+    {
+      "id": "rig",
+      "objects": [
+        "Suspension*",
+        "Load riser*",
+        "Amber steering toggle*"
+      ],
+      "form": "Cascading fan of fine lines leading into four flat risers and two amber hand loops. The hand separation follows the Spartan's available reach.",
+      "colours": [
+        {
+          "name": "amber",
+          "at": {
+            "view": "front",
+            "point": [
+              0.293,
+              0.906
+            ]
+          },
+          "hex": "#a2721c"
+        }
+      ],
+      "boxes": {
+        "front": [
+          0.038,
+          0.327,
+          0.92,
+          0.649
+        ]
+      }
+    }
+  ],
+  "joints": [],
+  "tolerances": {},
+  "target_size": [
+    1536,
+    1024
+  ],
+  "measures": {
+    "front": {
+      "aspect": 1.5283,
+      "parts": {
+        "wing": {
+          "height": 0.3683,
+          "width": 1.5283,
+          "cx": 0.0,
+          "cy": 0.8158,
+          "height_ref": 1.0,
+          "width_ref": 4.15
+        },
+        "rig": {
+          "height": 0.681,
+          "width": 1.4481,
+          "cx": -0.0024,
+          "cy": 0.3405,
+          "height_ref": 1.849,
+          "width_ref": 3.932
+        }
+      },
+      "joints": {}
+    }
+  }
+}

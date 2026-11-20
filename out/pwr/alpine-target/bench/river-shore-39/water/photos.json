@@ -1,0 +1,370 @@
+{
+  "release": {
+    "archive": "pelican-warfare-0.1.0-playtest.39.mjolnir",
+    "map_sha256": "dc06be35b9549104baaba411eb86395651630b1011db4009918f08d1c76d8f0e",
+    "solo_runtime_sha256": "46b97443ba8fb805ddbe143e0f9d9795f7b63a8714d5c59e1bae15eefbf43970"
+  },
+  "settings": {
+    "viewport_w": "3840.0",
+    "viewport_h": "2160.0",
+    "world": "World /Game/Levels/Halo1/Solo/PWR/PWR.PWR",
+    "hud": "true",
+    "display_mode": "1",
+    "saved_vsync": "false",
+    "saved_fps_limit": "0.0",
+    "dynamic_resolution_setting": "false",
+    "saved_frame_generation": "false",
+    "sg.ViewDistanceQuality": "3",
+    "sg.AntiAliasingQuality": "3",
+    "sg.ShadowQuality": "3",
+    "sg.GlobalIlluminationQuality": "3",
+    "sg.ReflectionQuality": "3",
+    "sg.PostProcessQuality": "3",
+    "sg.TextureQuality": "3",
+    "sg.EffectsQuality": "3",
+    "sg.FoliageQuality": "3",
+    "sg.ShadingQuality": "3",
+    "r.ScreenPercentage": "66.666999816895",
+    "sg.ResolutionQuality": "0.0",
+    "t.MaxFPS": "59.997001647949",
+    "r.VSync": "1.0",
+    "t.IdleWhenNotForeground": "0.0",
+    "r.DynamicRes.OperationMode": "0.0",
+    "r.DynamicRes.MinScreenPercentage": "50.0",
+    "r.DynamicRes.MaxScreenPercentage": "100.0",
+    "r.AntiAliasingMethod": "4.0",
+    "r.TemporalAA.Upsampling": "1.0",
+    "r.NGX.DLSS.Enable": "1.0",
+    "r.Streamline.DLSSG.Enable": "0.0",
+    "r.FidelityFX.FSR3.Enabled": "0.0",
+    "r.FidelityFX.FI.Enabled": "0.0",
+    "r.ViewDistanceScale": "1.0",
+    "r.Nanite": "1.0",
+    "r.Shadow.Virtual.Enable": "1.0",
+    "foliage.DensityScale": "1.0",
+    "grass.DensityScale": "1.0",
+    "r.Streaming.PoolSize": "1800.0"
+  },
+  "views": {
+    "basin": [
+      -21100,
+      -76300,
+      25200,
+      -29.1843,
+      -139.1748,
+      58
+    ],
+    "outlet": [
+      -27300,
+      -78500,
+      15200,
+      -4.5376,
+      -122.9694,
+      73
+    ],
+    "spring": [
+      -44900,
+      -93600,
+      16100,
+      -9.3064,
+      17.387,
+      73
+    ],
+    "overhead": [
+      -35400,
+      -87500,
+      40000,
+      -84.6649,
+      -90.0,
+      58
+    ],
+    "east-bank": [
+      -28000,
+      -85400,
+      14624.0,
+      -0.8424,
+      -149.5345,
+      73
+    ],
+    "spring-bank": [
+      -35200,
+      -95600,
+      14435.0,
+      1.6526,
+      -161.1468,
+      65
+    ],
+    "waterline": [
+      -27508.0,
+      -81247.0,
+      14436.2984375,
+      -2.9642,
+      -161.7842,
+      66
+    ],
+    "river-seam": [
+      1300,
+      3200,
+      12100,
+      -25.9895,
+      -146.0409,
+      68
+    ],
+    "seam-overhead": [
+      -3600,
+      500,
+      15500,
+      -84.5424,
+      -90.0,
+      67
+    ],
+    "riffle": [
+      -28000,
+      -79000,
+      14243.0,
+      1.0361,
+      -115.2777,
+      69
+    ]
+  },
+  "frames": {
+    "outlet": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\river-shore-39\\water\\outlet.png",
+      "sha256": "1e6cc42f06278f0d7d1e5347aa1a02918709b70c19648924bee768c09f933365",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        -27300.0,
+        -78500.0,
+        15200.0,
+        -4.5376,
+        -122.9694,
+        73.0,
+        3840.0,
+        2160.0,
+        46.58597,
+        0.01531
+      ],
+      "camera_after": [
+        -27300.0,
+        -78500.0,
+        15200.0,
+        -4.5376,
+        -122.9694,
+        73.0,
+        3840.0,
+        2160.0,
+        47.83711,
+        0.01643
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    },
+    "riffle": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\river-shore-39\\water\\riffle.png",
+      "sha256": "e854ee323c960fda4c229b932c8a9d124c727a708cc99ced239de3582ae7d9c3",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        -28000.0,
+        -79000.0,
+        14243.0,
+        1.0361,
+        -115.2777,
+        69.0,
+        3840.0,
+        2160.0,
+        56.19238,
+        0.01729
+      ],
+      "camera_after": [
+        -28000.0,
+        -79000.0,
+        14243.0,
+        1.0361,
+        -115.2777,
+        69.0,
+        3840.0,
+        2160.0,
+        57.42576,
+        0.01733
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    },
+    "waterline": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\river-shore-39\\water\\waterline.png",
+      "sha256": "948a888cc69ae5d8de1cbbc45e2d5ffc55ab1be53badabf085d70fca04c434ce",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        -27508.0,
+        -81247.0,
+        14436.3,
+        -2.9642,
+        -161.7842,
+        66.0,
+        3840.0,
+        2160.0,
+        65.81274,
+        0.01678
+      ],
+      "camera_after": [
+        -27508.0,
+        -81247.0,
+        14436.3,
+        -2.9642,
+        -161.7842,
+        66.0,
+        3840.0,
+        2160.0,
+        67.16364,
+        0.01667
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    },
+    "basin": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\river-shore-39\\water\\basin.png",
+      "sha256": "e134c06aed5e93b8acbf7d39673798893d8f47a61c616a6bb43311367c313a1d",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        -21100.0,
+        -76300.0,
+        25200.0,
+        -29.1843,
+        -139.1748,
+        58.0,
+        3840.0,
+        2160.0,
+        75.51816,
+        0.01719
+      ],
+      "camera_after": [
+        -21100.0,
+        -76300.0,
+        25200.0,
+        -29.1843,
+        -139.1748,
+        58.0,
+        3840.0,
+        2160.0,
+        76.8518,
+        0.01665
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    },
+    "east-bank": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\river-shore-39\\water\\east-bank.png",
+      "sha256": "d09a88ffd1db8436afdefc839b8928eff7a476e0b704526d008ca230641f2649",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        -28000.0,
+        -85400.0,
+        14624.0,
+        -0.8424,
+        -149.5345,
+        73.0,
+        3840.0,
+        2160.0,
+        85.20612,
+        0.01658
+      ],
+      "camera_after": [
+        -28000.0,
+        -85400.0,
+        14624.0,
+        -0.8424,
+        -149.5345,
+        73.0,
+        3840.0,
+        2160.0,
+        86.55668,
+        0.01565
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    },
+    "seam-overhead": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\river-shore-39\\water\\seam-overhead.png",
+      "sha256": "f5fc8089708a271c176d89dadafee8ef979cbd22da48635862cfa4ea028e68dd",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        -3600.0,
+        500.0,
+        15500.0,
+        -84.5424,
+        -90.0,
+        67.0,
+        3840.0,
+        2160.0,
+        94.82742,
+        0.01672
+      ],
+      "camera_after": [
+        -3600.0,
+        500.0,
+        15500.0,
+        -84.5424,
+        -90.0,
+        67.0,
+        3840.0,
+        2160.0,
+        96.1449,
+        0.01629
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    },
+    "river-seam": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\river-shore-39\\water\\river-seam.png",
+      "sha256": "437ae8f21d02b38deb4dad80e84e039ecbdbd5208222edcdbd3473a89ed5c434",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        1300.0,
+        3200.0,
+        12100.0,
+        -25.9895,
+        -146.0409,
+        68.0,
+        3840.0,
+        2160.0,
+        104.54865,
+        0.01656
+      ],
+      "camera_after": [
+        1300.0,
+        3200.0,
+        12100.0,
+        -25.9895,
+        -146.0409,
+        68.0,
+        3840.0,
+        2160.0,
+        105.78284,
+        0.01661
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    }
+  }
+}

@@ -1,0 +1,88 @@
+// Surveyed river alluvium. The diffusion and normal detail are a photographic
+// PBR pair. A coarse triangle lattice selects continuous rotated scan patches;
+// it never places synthetic stones or defines the sediment margin.
+[branch] if (hwXY.x>-470. && hwXY.x< -195. && hwXY.y>700. && hwXY.y<950.)
+{
+    const float4 rows[32]={REACH_ROWS};
+    const float band=(REACH_Y_HIGH-REACH_Y_LOW)/31.;
+    float yStep=clamp((hwXY.y-REACH_Y_LOW)/band,0.,30.9999);
+    int row=(int)yStep;
+    float4 section=lerp(rows[row],rows[row+1],frac(yStep));
+    float2 axis=normalize(float2(1.,-(rows[row+1].x-rows[row].x)/band));
+    float side=(hwXY.x-section.x)*axis.x;
+    float station=section.y+(hwXY.x-section.x)*axis.y;
+    float bar=smoothstep(-.42,.64,side/max(section.w,1.));
+    float2 a=(hwXY-float2(-302.,859.))/float2(19.,34.);
+    float2 b=(hwXY-float2(-351.,851.))/float2(36.,16.);
+    float terraces=smoothstep(.10,.83,max(exp(-dot(a,a)),exp(-dot(b,b))));
+    float broad=.44*sin(dot(hwXY,float2(.27,-.083)))+.31*sin(dot(hwXY,float2(.126,.411)))+.23*sin(dot(hwXY,float2(-.67,.49)));
+    float scope=smoothstep(-25.,-9.,station+1.9*broad)*(1.-smoothstep(44.,68.,station-2.6*broad));
+    scope*=1.-smoothstep(9.,18.,abs(side)-section.w+2.4*broad);
+    float focus=max(terraces,scope);
+    [branch] if(focus>.001)
+    {
+        float z=WorldCM.z*.01;
+        float level=z-lerp(142.4,section.z,scope);
+        float2 gritUV=hwXY/3.13+float2(.34,.256);
+        float4 grit=Texture2DSampleGrad(PathGravel,SiteEarthSampler,gritUV,hwDx/3.13,hwDy/3.13);
+        float2 gritN=Texture2DSampleGrad(PathGravelNormal,SiteEarthSampler,gritUV,hwDx/3.13,hwDy/3.13).rg*2.-1.;
+        float3 soil=Texture2DSampleGrad(SiteEarth,SiteEarthSampler,hwXY/3.66,hwDx/3.66,hwDy/3.66).rgb;
+        float mineral=dot(grit.rgb,float3(.26,.57,.17));
+        float stain=saturate(.47+.31*broad+1.7*(mineral-.13));
+        float lip=lerp(1.53,.69,bar*scope)+.64*broad+.83*(stain-.5);
+        float sod=smoothstep(lip-.41,lip+.57,level);
+        float cut=scope*(1.-bar)*smoothstep(-.17,.44,level);
+        float wet=1.-smoothstep(-.09,.68,level+.14*broad);
+        float3 sandy=lerp(.03+.81*soil*float3(1.12,.94,.69),.026+grit.rgb*float3(1.15,1.09,1.00),.34+.48*bar);
+        float rough=.76, pebbleWeight=0.; float2 rippleNormal=gritN*.30;
+        float3 sorted=sandy;
+        float deposit=(1.-smoothstep(.27+.55*bar-.19*broad,1.0+.64*bar+.3*broad,level))*
+                       lerp(.93,.25,cut)*(.83+.16*stain);
+        [branch] if(deposit>.002)
+        {
+            float2 g=mul(float2x2(.88,.27,-.16,.96),hwXY)*.268;
+            float2 v=floor(g),f=frac(g);
+            float2 m=f.x>f.y ? float2(1,0) : float2(0,1);
+            float3 weight=float3(1.-max(f.x,f.y),abs(f.x-f.y),min(f.x,f.y));
+            weight*=weight; weight*=weight;
+            weight/=max(.001,dot(weight,1.));
+            float4 color=0.; float2 normal=0.;
+            [unroll] for(int k=0;k<3;k++)
+            {
+                uint2 id=asuint(int2(v+(k==0?0.0.xx:(k==1?m:1.0.xx))));
+                uint bits=(id.x*0x68bc21ebu)^(id.y*0x02e5be93u);
+                bits^=bits>>16u;bits*=0x7feb352du;bits^=bits>>15u;
+                bits*=0x846ca68bu;bits^=bits>>16u;
+                float4 h=float4(uint4(bits,bits>>8u,bits>>16u,bits>>24u)&255u)/255.;
+                float c,s;sincos(6.283185*h.z,s,c);
+                float2x2 rot=float2x2(c,-s,s,c);
+                float metre=1./(2.16*lerp(.88,1.13,h.w)*lerp(.91,1.09,bar));
+                float2 uv=mul(rot,hwXY)*metre+h.xy;
+                float2 gx=mul(rot,hwDx)*metre,gy=mul(rot,hwDy)*metre;
+                color+=weight[k]*Texture2DSampleGrad(RiverCobble,SiteEarthSampler,uv,gx,gy);
+                float2 n=Texture2DSampleGrad(RiverCobbleN,SiteEarthSampler,uv,gx,gy).rg*2.-1.;
+                normal+=weight[k]*mul(transpose(rot),n)*float2(1,-1);
+            }
+            float3 rock=color.rgb*(.91+.14*stain)*float3(1.04,.998,.934);
+            // Transmitted light is already absorbed by Flux below the surface.
+            float underwater=1.-smoothstep(-.43,.03,level);
+            rock*=lerp(1.,lerp(.78,1.,underwater),wet);
+            sorted=lerp(sandy,rock,deposit);
+            rippleNormal=lerp(rippleNormal,normal*.68,deposit);
+            rough=lerp(.76,clamp(color.a,.44,.91),deposit);
+        }
+        float siltL=dot(soil,float3(.24,.58,.18));
+        float stripe=1.+.065*sin((z+.09*broad)*16.)*(1.-smoothstep(.04,.16,pixelMetres));
+        float3 strata=(.036+.70*siltL)*float3(1.21,.96,.68)*stripe*(1.-.22*wet);
+        sorted=lerp(sorted,strata,cut*.91);
+        float3 sodSoil=lerp(preShoreColor,max(.037,dot(preShoreColor,float3(.26,.57,.17)))*float3(.78,1.03,.57),.39+.16*stain);
+        float face=focus*(1.-smoothstep(2.5,4.6,level));
+        originalGround=lerp(originalGround,lerp(sorted,sodSoil,sod),face);
+        float2 facing=lerp(rippleNormal,gritN*.21,cut*.92);
+        float3 n=normalize(float3(facing,sqrt(saturate(1.-dot(facing,facing)))));
+        WetNormal=normalize(lerp(WetNormal,lerp(n,preShoreNormal,sod),face));
+        WetRough=lerp(WetRough,lerp(lerp(rough,min(rough,.55),wet),preShoreRough,sod),face);
+        WetSpec=lerp(WetSpec,lerp(.24+.075*wet,preShoreSpec,sod),face);
+        RoadMetal=lerp(RoadMetal,0.,face);
+    }
+}

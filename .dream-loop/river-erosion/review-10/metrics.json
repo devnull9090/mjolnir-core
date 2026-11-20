@@ -1,0 +1,85 @@
+{
+ "target": {
+  "file": ".dream-loop/river-erosion/target.png",
+  "size": [
+   1672,
+   941
+  ]
+ },
+ "current": {
+  "file": ".dream-loop/river-erosion/captures/round-10.png",
+  "size": [
+   1600,
+   900
+  ]
+ },
+ "grid": "6x4",
+ "frame": {
+  "luma": -0.039,
+  "colour": 0.046,
+  "detail_ratio": 0.86
+ },
+ "frame_difference": 0.211,
+ "previous": {
+  "file": ".dream-loop/river-erosion/captures/round-9.png",
+  "size": [
+   1600,
+   900
+  ]
+ },
+ "since_previous": {
+  "frame_difference_was": 0.214,
+  "better_cells": [
+   "C1"
+  ],
+  "worse_cells": [
+   "A1"
+  ]
+ },
+ "probes": [
+  {
+   "where": "left-bank",
+   "luma": 0.0,
+   "colour": 0.03,
+   "detail_ratio": 1.65,
+   "change": -0.001
+  },
+  {
+   "where": "right-grasses",
+   "luma": 0.008,
+   "colour": 0.019,
+   "detail_ratio": 1.07,
+   "change": 0.0
+  },
+  {
+   "where": "spring",
+   "luma": -0.031,
+   "colour": 0.038,
+   "detail_ratio": 1.0,
+   "change": 0.0
+  },
+  {
+   "where": "far-shore",
+   "luma": -0.082,
+   "colour": 0.081,
+   "detail_ratio": 0.77,
+   "change": 0.0
+  }
+ ],
+ "sheets": {
+  "compare": {
+   "file": ".dream-loop/river-erosion/review-10/compare.png",
+   "size": [
+    489,
+    849
+   ]
+  },
+  "probes": {
+   "file": ".dream-loop/river-erosion/review-10/probes.png",
+   "size": [
+    1566,
+    1339
+   ]
+  }
+ }
+}

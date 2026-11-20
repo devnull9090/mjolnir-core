@@ -1,0 +1,34 @@
+    // The larger gravel crop carries stone chips between the 1.58 m fine scan
+    // and the physical 2–19 cm stones. Face colour and normal sample the same
+    // rotated scan; screen derivatives filter fine relief as the road recedes.
+    float2 mineralUV=mul(float2x2(.6,-.8,.8,.6),pEarth)/5.7+float2(.36,.18);
+    float2 mineralDx=mul(float2x2(.6,-.8,.8,.6),earthDx)/5.7;
+    float2 mineralDy=mul(float2x2(.6,-.8,.8,.6),earthDy)/5.7;
+    float3 mineralScan=Texture2DSampleGrad(PathGravel,SiteEarthSampler,mineralUV,mineralDx,mineralDy).rgb;
+    float2 scanNormal=Texture2DSampleGrad(PathGravelNormal,SiteEarthSampler,mineralUV,mineralDx,mineralDy).rg*2-1;
+    float2 mineralNormal=mul(float2x2(.6,.8,-.8,.6),scanNormal);
+    // Use a filtered, broad crop of the same photogrammetry to expose small
+    // shelves of aggregate. Its measured median linear luminance is .092.
+    float3 depositScan=Texture2DSampleLevel(PathGravel,SiteEarthSampler,pEarth/18.6+.413,5.0).rgb;
+    float deposit=smoothstep(.071,.124,dot(depositScan,luminance)+.021*(macroBreak-.5));
+    float looseShelf=saturate(.14+.48*deposit+.39*mixLoose.x+.11*berm-.33*track);
+    float mineralLuma=dot(mineralScan,luminance);
+    float chips=smoothstep(.108,.193,mineralLuma);
+    float fines=saturate((.088-mineralLuma)*22.0);
+    float relief=clamp(.99+(mineralLuma-.095)*5.1,.69,1.53);
+    float3 chipColor=lerp(float3(.141,.133,.114),float3(.295,.281,.243),chips)*relief;
+    chipColor*=1-.14*fines;
+    float3 oldMineral=lerp(dot(originalGround,luminance)*float3(1.06,1.00,.87),
+                           originalGround,saturate(network.r));
+    float3 floorShade=lerp(earth,stones,pebbles);
+    floorShade=lerp(floorShade,oldMineral,.36+.16*deposit);
+    floorShade=lerp(floorShade,chipColor,looseShelf*(.47+.37*chips+.13*fines));
+    floorShade*=1-track*(.19+.19*mixLoose.y);
+    float median=(1-smoothstep(.32,1.37,side))*mixLoose.z*(.065+.11*macroBreak);
+    originalGround=lerp(originalGround,floorShade,loose.r*(1-median));
+    float microLOD=1-smoothstep(.075,.60,pixelMetres);
+    float2 xy=lerp(dirtN*lerp(.39,.61,mixLoose.x),mineralNormal*.89,looseShelf*microLOD);
+    WetNormal=normalize(lerp(WetNormal,float3(xy,sqrt(saturate(1-dot(xy,xy)))),loose.r*(.72+.24*looseShelf)));
+    float surfaceRough=lerp(.88,.76,mixLoose.y)-track*(.12+.05*mixLoose.y);
+    WetRough=lerp(WetRough,saturate(surfaceRough-.056*chips*looseShelf),loose.r);
+    WetSpec=lerp(WetSpec,.23+.025*track+.022*chips*looseShelf,loose.r);

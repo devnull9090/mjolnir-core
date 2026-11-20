@@ -1,0 +1,407 @@
+{
+ "version": 1,
+ "subject": "Forerunner gatehouse exterior",
+ "target": "target.png",
+ "reference_view": "approach",
+ "reference_part": "vehicle_gate",
+ "views": [
+  {
+   "id": "approach",
+   "pose": "installed",
+   "frame": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "subject_box": [
+    0.00556,
+    0.12099,
+    0.99028,
+    0.77037
+   ],
+   "background": "auto",
+   "camera": {
+    "yaw": 0,
+    "pitch": 10,
+    "lens": 45
+   }
+  }
+ ],
+ "parts": [
+  {
+   "id": "vehicle_gate",
+   "objects": [
+    "facade/gateway/*",
+    "polish/threshold*"
+   ],
+   "form": "Broad chamfered vehicle portal. The outer inclined shoulders meet the deep rectangular crown; the throat frames a clear view out.",
+   "colours": [
+    {
+     "name": "portal alloy",
+     "at": {
+      "view": "approach",
+      "point": [
+       0.39167,
+       0.57778
+      ]
+     },
+     "hex": "#786e6b"
+    }
+   ],
+   "boxes": {
+    "approach": [
+     0.32639,
+     0.4321,
+     0.4375,
+     0.30864
+    ]
+   },
+   "outlines": {
+    "approach": [
+     [
+      0.32917,
+      0.74074
+     ],
+     [
+      0.32639,
+      0.68148
+     ],
+     [
+      0.39167,
+      0.45679
+     ],
+     [
+      0.41528,
+      0.4321
+     ],
+     [
+      0.68889,
+      0.44444
+     ],
+     [
+      0.71528,
+      0.48148
+     ],
+     [
+      0.76389,
+      0.66667
+     ],
+     [
+      0.75833,
+      0.74074
+     ]
+    ]
+   }
+  },
+  {
+   "id": "left_ramp_cheek",
+   "objects": [
+    "ramp/armored retaining wall*",
+    "polish/*cheek*"
+   ],
+   "form": "The exterior sloping mass runs from the foundation to the elevated deck, with a stepped crest and a chamfered toe.",
+   "colours": [
+    {
+     "name": "ramp flank",
+     "at": {
+      "view": "approach",
+      "point": [
+       0.09028,
+       0.48889
+      ]
+     },
+     "hex": "#b3a19c"
+    }
+   ],
+   "boxes": {
+    "approach": [
+     0.01111,
+     0.30617,
+     0.19306,
+     0.38025
+    ]
+   },
+   "outlines": {
+    "approach": [
+     [
+      0.01111,
+      0.64938
+     ],
+     [
+      0.02639,
+      0.51358
+     ],
+     [
+      0.12083,
+      0.33086
+     ],
+     [
+      0.20417,
+      0.30617
+     ],
+     [
+      0.18472,
+      0.34321
+     ],
+     [
+      0.125,
+      0.43704
+     ],
+     [
+      0.07778,
+      0.59012
+     ],
+     [
+      0.06389,
+      0.68642
+     ],
+     [
+      0.025,
+      0.67407
+     ]
+    ]
+   }
+  },
+  {
+   "id": "left_apron_tongue",
+   "objects": [
+    "apron/*",
+    "polish/*apron*"
+   ],
+   "form": "Angular foreground paving flares outside the clear vehicle lane, with a pointed toe and sharply fitted slabs.",
+   "colours": [
+    {
+     "name": "traffic plate",
+     "at": {
+      "view": "approach",
+      "point": [
+       0.43333,
+       0.80741
+      ]
+     },
+     "hex": "#9b8a88"
+    }
+   ],
+   "boxes": {
+    "approach": [
+     0.29722,
+     0.71358,
+     0.22361,
+     0.17284
+    ]
+   },
+   "outlines": {
+    "approach": [
+     [
+      0.31667,
+      0.71358
+     ],
+     [
+      0.40556,
+      0.7284
+     ],
+     [
+      0.44306,
+      0.72593
+     ],
+     [
+      0.52083,
+      0.83951
+     ],
+     [
+      0.44583,
+      0.88642
+     ],
+     [
+      0.42222,
+      0.88148
+     ],
+     [
+      0.37778,
+      0.81235
+     ],
+     [
+      0.29722,
+      0.78025
+     ]
+    ]
+   }
+  },
+  {
+   "id": "west_fin",
+   "objects": [
+    "fin/*",
+    "polish/fin shoulder*"
+   ],
+   "form": "A broad asymmetrical rear blade with a steep interior face, swept outside shoulder and recessed energy accent.",
+   "colours": [
+    {
+     "name": "fin metal",
+     "at": {
+      "view": "approach",
+      "point": [
+       0.29583,
+       0.2
+      ]
+     },
+     "hex": "#c5afa4"
+    }
+   ],
+   "boxes": {
+    "approach": [
+     0.19861,
+     0.12346,
+     0.14028,
+     0.20741
+    ]
+   },
+   "outlines": {
+    "approach": [
+     [
+      0.19861,
+      0.3284
+     ],
+     [
+      0.24167,
+      0.23704
+     ],
+     [
+      0.26389,
+      0.16543
+     ],
+     [
+      0.29444,
+      0.12346
+     ],
+     [
+      0.33194,
+      0.12346
+     ],
+     [
+      0.33889,
+      0.33086
+     ]
+    ]
+   }
+  },
+  {
+   "id": "roof_socket",
+   "objects": [
+    "mount/*"
+   ],
+   "form": "An octagonal cannon socket in the center of an uninterrupted flat deck.",
+   "colours": [
+    {
+     "name": "socket curb",
+     "at": {
+      "view": "approach",
+      "point": [
+       0.56944,
+       0.37037
+      ]
+     },
+     "hex": "#b14f53"
+    }
+   ],
+   "boxes": {
+    "approach": [
+     0.42361,
+     0.3284,
+     0.18611,
+     0.06173
+    ]
+   },
+   "outlines": {
+    "approach": [
+     [
+      0.42361,
+      0.36543
+     ],
+     [
+      0.44722,
+      0.33827
+     ],
+     [
+      0.48333,
+      0.3284
+     ],
+     [
+      0.55556,
+      0.3284
+     ],
+     [
+      0.59167,
+      0.34568
+     ],
+     [
+      0.60972,
+      0.36543
+     ],
+     [
+      0.575,
+      0.38519
+     ],
+     [
+      0.46528,
+      0.39012
+     ]
+    ]
+   }
+  }
+ ],
+ "joints": [],
+ "tolerances": {},
+ "target_size": [
+  1672,
+  941
+ ],
+ "measures": {
+  "approach": {
+   "aspect": 2.284,
+   "parts": {
+    "vehicle_gate": {
+     "height": 0.4006,
+     "width": 1.0091,
+     "cx": 0.1025,
+     "cy": 0.3958,
+     "height_ref": 1.0,
+     "width_ref": 2.519
+    },
+    "left_ramp_cheek": {
+     "height": 0.4936,
+     "width": 0.4453,
+     "cx": -0.9066,
+     "cy": 0.5128,
+     "height_ref": 1.232,
+     "width_ref": 1.112
+    },
+    "left_apron_tongue": {
+     "height": 0.2244,
+     "width": 0.5157,
+     "cx": -0.2114,
+     "cy": 0.1186,
+     "height_ref": 0.56,
+     "width_ref": 1.287
+    },
+    "west_fin": {
+     "height": 0.2692,
+     "width": 0.3236,
+     "cx": -0.535,
+     "cy": 0.8622,
+     "height_ref": 0.672,
+     "width_ref": 0.808
+    },
+    "roof_socket": {
+     "height": 0.0801,
+     "width": 0.4293,
+     "cx": 0.0368,
+     "cy": 0.6907,
+     "height_ref": 0.2,
+     "width_ref": 1.072
+    }
+   },
+   "joints": {}
+  }
+ }
+}

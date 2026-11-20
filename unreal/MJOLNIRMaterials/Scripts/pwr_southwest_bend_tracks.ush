@@ -1,0 +1,9 @@
+    // Fine mineral grains are rolled into the surface of an unpaved wheel
+    // strip. Keep their value variation, without the protruding coarse faces
+    // and hard grey outlines of the loose bank between the tracks.
+    float3 packed=lerp(soil*float3(.51,.51,.53)+float3(.013,.012,.011),
+                       float3(.115,.081,.056)*lerp(.81,1.16,dryGrain),.22);
+    float clayFloor=1-smoothstep(.045,.16,soilL);
+    packed+=float3(.022,.019,.016)*clayFloor;
+    float fineMineral=saturate((gravelL-.031)*6.9);
+    packed*=lerp(.91,1.16,fineMineral)*float3(1.025,1.0,.985)*SweepTrackGain;

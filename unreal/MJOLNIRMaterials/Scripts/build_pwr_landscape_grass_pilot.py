@@ -13,7 +13,7 @@ import unreal
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT/"tools/level"))
-from landscape_grass_pilot import (ASSETS as V7_ASSETS, WORLD, CANYON_OBJECT, digest, dump,
+from landscape_grass_pilot import (ASSETS as V7_ASSETS, FIELD_WORLD, CANYON_OBJECT, digest, dump,
                                    validate_config, validate_readback, archive_owned_editor_assets)
 
 path = Path(os.environ["MJ_NATIVE_GRASS_PILOT"]).resolve()
@@ -23,6 +23,7 @@ if mode not in ("build", "verify"):
     raise RuntimeError("MJ_NATIVE_GRASS_MODE must be build or verify")
 validate_config(config,path.parent)
 ASSETS = config["asset_folder"]
+WORLD = config["world"]
 eal = unreal.EditorAssetLibrary
 les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 editor = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
@@ -60,7 +61,10 @@ def standin(row):
     mesh=unreal.MjolnirUIBuilderLibrary.create_stand_in_mesh(row["mesh"])
     if not mesh or mesh.get_path_name() != row["mesh"]:
         raise RuntimeError("Wrong stand-in object identity")
-    positions=[unreal.Vector(x,y,z) for x in (-100,100) for y in (-100,100) for z in (0,100)]
+    origin=row.get("origin",[0,0,50])
+    extent=row.get("extent",[100,100,50])
+    positions=[unreal.Vector(origin[0]+x*extent[0],origin[1]+y*extent[1],origin[2]+z*extent[2])
+               for x in (-1,1) for y in (-1,1) for z in (-1,1)]
     faces=((0,1,3,2),(4,6,7,5),(0,4,5,1),(2,3,7,6),(0,2,6,4),(1,5,7,3))
     indices=[i for a,b,c,d in faces for i in (a,b,c,a,c,d)]
     normals=[unreal.Vector(0,0,1)]*8
@@ -126,6 +130,72 @@ def variety_readback(grass):
             for variety in grass.get_editor_property("grass_varieties")]
 
 
+def understory(creating):
+    record=config.get("understory")
+    if not record: return
+    folder=path.parent
+    spec_path=folder/record["file"]
+    if digest(spec_path)!=record["sha256"]: raise RuntimeError("Understory specification changed")
+    spec=json.loads(spec_path.read_text())
+    binary=folder/spec["file"]
+    groups=spec["groups"]
+    if digest(binary)!=spec["binary_sha256"] or any(
+            digest(str(binary)+f".xf{i}")!=seal for i,seal in enumerate(spec["exact_sidecars"],1)):
+        raise RuntimeError("Understory PCG transforms changed")
+    actor_name="PWR_FieldUnderstory"
+    if creating:
+        for row in groups: standin(row)
+        count=unreal.MjolnirUIBuilderLibrary.bake_foliage(
+            editor.get_editor_world(),str(binary),actor_name,[r["mesh"] for r in groups],
+            [r["bands"] for r in groups],[unreal.Vector2D(*r["cull"]) for r in groups],
+            [34+int(r["shadow"]) for r in groups])
+        if count!=spec["count"]: raise RuntimeError("Understory bake omitted PCG instances")
+    target,=[a for a in actors.get_all_level_actors() if a.get_name()==actor_name]
+    components=target.get_components_by_class(unreal.HierarchicalInstancedStaticMeshComponent)
+    readback={}
+    for comp in components:
+        mesh=comp.get_editor_property("static_mesh").get_path_name()
+        readback[mesh]={"count":comp.get_instance_count(), "cull":[comp.get_editor_property(k) for k in
+                        ("instance_start_cull_distance","instance_end_cull_distance")]}
+        if comp.get_collision_enabled()!=unreal.CollisionEnabled.NO_COLLISION:
+            raise RuntimeError("Groundcover must not obstruct vehicles")
+    if readback!={r["mesh"]:{"count":r["count"],"cull":r["cull"]} for r in groups}:
+        raise RuntimeError("World HISM instances or cull ranges differ from the PCG bake")
+    dump(folder/("understory-built.json" if creating else "understory-saved.json"),readback)
+
+
+def cliff_materials(creating):
+    """Keep native exterior HISM shading on the same owned parent as the vista."""
+    old="/Game/MJOLNIR/CETrial/M_CE_PWRRock.M_CE_PWRRock"
+    new="/Game/MJOLNIR/World/PWR/Surfaces/M_CE_PWRRock.M_CE_PWRRock"
+    parent=unreal.load_asset(new)
+    if not parent: raise RuntimeError("Cook the map-owned rock shader before authoring LPE")
+    copied={}
+    affected={}
+    for actor in actors.get_all_level_actors():
+        for component in actor.get_components_by_class(unreal.HierarchicalInstancedStaticMeshComponent):
+            for i in range(component.get_num_materials()):
+                mic=component.get_material(i)
+                if not isinstance(mic,unreal.MaterialInstanceConstant): continue
+                master=mic.get_editor_property("parent")
+                if not master: continue
+                if master.get_path_name()==old:
+                    if not creating: raise RuntimeError("Saved HISM cliff retained a developer shader path")
+                    source=mic.get_path_name()
+                    if source not in copied:
+                        clone=eal.duplicate_asset(source,ASSETS+"/"+mic.get_name())
+                        if not clone: raise RuntimeError("Could not duplicate exterior rock MIC")
+                        unreal.MaterialEditingLibrary.set_material_instance_parent(clone,parent)
+                        unreal.MaterialEditingLibrary.update_material_instance(clone)
+                        if not eal.save_loaded_asset(clone): raise RuntimeError("Could not save exterior rock MIC")
+                        copied[source]=clone
+                    mic=copied[source]
+                    component.set_material(i,mic)
+                if mic.get_editor_property("parent").get_path_name()==new:
+                    affected[mic.get_path_name()]=affected.get(mic.get_path_name(),0)+component.get_instance_count()
+    dump(path.parent/("cliff-materials-built.json" if creating else "cliff-materials-saved.json"),affected)
+
+
 if mode == "build":
     # A scratch map releases only our prior pilot before deleting its exact folders.
     scratch="/Game/__MJOLNIR_GrassPilotScratch"
@@ -144,6 +214,9 @@ if mode == "build":
     source_material_path=source_material.get_path_name()
     material=eal.duplicate_asset(source_material_path,ASSETS+"/M_PWRPilot")
     if not isinstance(material,unreal.Material): raise RuntimeError("Could not clone landscape master")
+    if config.get("biome_color"):
+        import runpy
+        runpy.run_path(str(Path(__file__).with_name("pwr_biome_material.py")))["attach"](material,ASSETS,config["biome_color"],path.parent)
     task=unreal.AssetImportTask()
     task.set_editor_property("filename",str(path.parent/config["texture"]["file"]))
     task.set_editor_property("destination_path",ASSETS)
@@ -179,10 +252,13 @@ if mode == "build":
     # Preserve native evidence even if strict validation aborts before saving.
     dump(path.parent/"grass-build.raw.json",readback)
     result=validate_readback(config,path.parent,readback)
+    if WORLD==FIELD_WORLD:
+        understory(True)
+        cliff_materials(True)
     if not les.save_current_level(): raise RuntimeError("Pilot world save failed")
     label(world_folder,"PAL_PWRGrassPilotWorld")
     label(ASSETS,"PAL_PWRGrassPilotAssets")
-    if config.get("canyon_material") and eal.does_directory_exist(V7_ASSETS):
+    if WORLD != FIELD_WORLD and config.get("canyon_material") and eal.does_directory_exist(V7_ASSETS):
         # The new LPG world, V8 material and grass buffers are saved and verified
         # above. Archive only our superseded editor assets before removing their
         # AlwaysCook residue; frozen V7 cooked packages and QA remain untouched.
@@ -205,6 +281,9 @@ else:
     readback["varieties"] = variety_readback(grass)
     dump(path.parent/"grass-saved.raw.json",readback)
     result=validate_readback(config,path.parent,readback,require_saved=True)
+    if WORLD==FIELD_WORLD:
+        understory(False)
+        cliff_materials(False)
 
 readback["config_sha256"]=digest(path)
 readback["validation"]=result

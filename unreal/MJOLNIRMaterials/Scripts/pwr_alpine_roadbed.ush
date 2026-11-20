@@ -1,0 +1,89 @@
+// Begin PWR alpine roadbed finish
+[branch] if (alpineField.r>.002)
+{
+    // At full weight the earlier loose-earth scan block is bypassed. A short
+    // transition runs both variants only at the surveyed edge of these sites.
+    float3 survey = saturate(alpineField.gba / max(alpineField.r,.001));
+    float2 metres = WorldCM.xy*.01;
+    float2 grainUV = mul(float2x2(.8,-.6,.6,.8),metres)/2.65 + float2(.18,.45);
+    float2 grainDx = mul(float2x2(.8,-.6,.6,.8),earthDx)/2.65;
+    float2 grainDy = mul(float2x2(.8,-.6,.6,.8),earthDy)/2.65;
+    float3 aggregate = Texture2DSampleGrad(PathGravel,SiteEarthSampler,grainUV,grainDx,grainDy).rgb;
+    float2 agN = Texture2DSampleGrad(PathGravelNormal,SiteEarthSampler,grainUV,grainDx,grainDy).rg*2-1;
+    agN=mul(float2x2(.8,.6,-.6,.8),agN);
+    float2 pathUV = metres/3.55 + float2(.11,.64);
+    float3 path = Texture2DSampleGrad(SiteEarth,SiteEarthSampler,pathUV,earthDx/3.55,earthDy/3.55).rgb;
+    float2 pathN = Texture2DSampleGrad(SiteNormal,SiteEarthSampler,pathUV,earthDx/3.55,earthDy/3.55).rg*2-1;
+    float3 luma = float3(.2126,.7152,.0722);
+    float grain = dot(aggregate,luma);
+    float granular = smoothstep(.074,.174,grain);
+    float chips = smoothstep(.136,.24,grain);
+    float soilValue = dot(path,luma);
+    float earthGrain = clamp(.68+2.5*soilValue,.64,1.45);
+    float3 greyStone = lerp(float3(.091,.085,.075),float3(.212,.207,.187),granular);
+    greyStone = lerp(greyStone,aggregate * float3(1.13,1.12,1.10),.45) + .055*chips;
+    float3 soil = lerp(path * float3(.99,.86,.73),float3(.118,.087,.061)*earthGrain,.49);
+    float signedSide = (network.b-.5)*32;
+    float fineLOD = 1-smoothstep(.35,1.5,pixelMetres);
+    float side = abs(signedSide);
+    float2 bed = alpineFar ? float2(8.59,9.05) : float2(5.15,8.10);
+    float broadEdge = smoothstep(-.6,.6,soilValue-.11)*.82+.28*(granular-.5);
+    float road = (1-smoothstep(bed.x,bed.y,side+broadEdge)) * smoothstep(.22,.69,cover);
+    float tracks = exp2(-pow((abs(signedSide+.18*sin(dot(metres,float2(.06,-.08))))-1.40)/.52,2))*fineLOD;
+    float mineral = saturate(survey.x*(.88+.27*granular));
+    float duff = saturate(survey.y*(.91+.24*earthGrain-.1*grain));
+    float pool = saturate(smoothstep(.20,.62,survey.z)*(.91+.09*earthGrain));
+    float gravelEdge = smoothstep(.05,.67,mineral);
+    float3 surface = diffuse;
+    float roughness = GroundRough;
+    float2 normalXY = GroundNormal.xy;
+    float specular = GroundSpec;
+    float metallic = 0;
+    if (alpineFar)
+    {
+        // Retain all authored panel joints, inlay and worn slab markings. Cool
+        // concrete keeps a quiet micro-normal until its less polished outer edge.
+        float deckValue = dot(originalGround,luma);
+        float3 deck = lerp(originalGround,deckValue*float3(.91,.99,1.055),.86);
+        deck *= (.79+.28*granular)*(.98+.05*chips);
+        surface = lerp(surface,deck,road);
+        roughness = lerp(roughness,WetRough,road);
+        specular = lerp(specular,WetSpec,road);
+        normalXY = lerp(normalXY,WetNormal.xy + agN*.115*road,road);
+        metallic = RoadMetal*road;
+    }
+    else
+    {
+        float3 roadbed = lerp(soil,greyStone,mineral);
+        float polish = tracks*road;
+        roadbed = lerp(roadbed,soil*(.82+.055*earthGrain),polish*.84);
+        surface = lerp(surface,roadbed,road);
+        roughness = lerp(roughness,.88-.18*polish,road);
+        specular = lerp(specular,.23,road);
+        normalXY = lerp(normalXY,lerp(pathN*.56,agN*.71,mineral)*(1-.39*polish),road);
+    }
+    float stones = gravelEdge*(1-road*(alpineFar ? .96 : .72));
+    surface = lerp(surface,greyStone,stones);
+    roughness = lerp(roughness,.84-.045*chips,stones);
+    normalXY = lerp(normalXY,agN*.77,stones);
+    float shelter = smoothstep(.08,.77,duff);
+    float greenExcess = (path.g-path.r*.65) / max(.01,soilValue);
+    float moss = smoothstep(.043,.098,greenExcess) * (.49+.25*granular);
+    float3 needles = lerp(path*float3(.73,.64,.53),
+                          float3(.100,.068,.043)*earthGrain,.52);
+    needles = lerp(needles,float3(.063,.080,.040)*earthGrain,moss);
+    surface = lerp(surface,needles,shelter);
+    roughness = lerp(roughness,.93,shelter);
+    normalXY = lerp(normalXY,pathN*.81,shelter);
+    surface *= lerp(1.,.53,pool);
+    roughness = lerp(roughness,.135,pool);
+    specular = lerp(specular,.32,pool);
+    normalXY *= 1-.94*pool;
+    float3 surfaceNormal = normalize(float3(normalXY,sqrt(saturate(1-dot(normalXY,normalXY)))));
+    originalGround = lerp(originalGround,surface,alpineField.r);
+    WetNormal = normalize(lerp(WetNormal,surfaceNormal,alpineField.r));
+    WetRough = lerp(WetRough,roughness,alpineField.r);
+    WetSpec = lerp(WetSpec,specular,alpineField.r);
+    RoadMetal = lerp(RoadMetal,metallic*(1-stones),alpineField.r);
+}
+// End PWR alpine roadbed finish

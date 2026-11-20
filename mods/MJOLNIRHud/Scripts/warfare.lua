@@ -2,7 +2,7 @@
 -- Megalo owns capture/score/phase and the native adapter owns all movement.
 -- There are no world scans, gameplay writes, or inferred objective scores.
 local Warfare = {}
-local EVERY, STALE = 0.5, 2
+local EVERY, FLIGHT_EVERY, STALE = 0.5, 0.1, 2
 local OWNER = { [0] = "NEUTRAL", [1] = "RED", [2] = "BLUE" }
 local COLOUR = { [0] = "empty", [1] = "Red", [2] = "Blue" }
 
@@ -20,7 +20,7 @@ function Warfare.parse(text)
     if type(text) ~= "string" or #text > 16384 or text:sub(-1) ~= "\n" then return nil end
     text = text:gsub("\r\n", "\n")
     if text:sub(1, 16) ~= "warfare-state 2\n" then return nil end
-    local s = { players = {}, ordinals = {} }
+    local s = { players = {}, ordinals = {}, flight = {}, clearance = {} }
     local limits = {
         ready = {0, 1}, status = {-16, 16}, host = {0, 1}, tick = {0, 2147483647},
         sampled_ms = {0, 9007199254740991}, phase = {0, 3}, elapsed_ticks = {0, 32767},
@@ -30,7 +30,8 @@ function Warfare.parse(text)
         local words = {}
         for word in line:gmatch("%S+") do words[#words + 1] = word end
         local key = table.remove(words, 1)
-        if not key or (key ~= "player" and key ~= "ordinal" and s[key] ~= nil) then return nil end
+        if not key or (key ~= "player" and key ~= "ordinal" and key ~= "flight"
+            and key ~= "clearance" and s[key] ~= nil) then return nil end
         if limits[key] then
             if #words ~= 1 then return nil end
             s[key] = integer(words[1], limits[key][1], limits[key][2])
@@ -52,6 +53,22 @@ function Warfare.parse(text)
             local index, rank = integer(words[1], 0, 15), integer(words[2], 0, 15)
             if not index or not rank or s.ordinals[index] then return nil end
             s.ordinals[index] = rank
+        elseif key == "flight" then
+            if #words ~= 6 then return nil end
+            local index, brake = integer(words[1], 0, 15), integer(words[5], 0, 1)
+            if not index or not brake or s.flight[index] then return nil end
+            local f = { brake = brake == 1 }
+            for i, name in ipairs({"vx", "vy", "vz", "steer"}) do
+                local n = tonumber(words[i == 4 and 6 or i + 1])
+                if not n or n ~= n or math.abs(n) > (i == 4 and 1 or 2000) then return nil end
+                f[name] = n
+            end
+            s.flight[index] = f
+        elseif key == "clearance" then
+            if #words ~= 2 then return nil end
+            local index, value = integer(words[1], 0, 15), tonumber(words[2])
+            if not index or s.clearance[index] or not value or value ~= value or value < 0 or value > 100000 then return nil end
+            s.clearance[index] = value
         elseif key == "player" then
             if #words ~= 8 then return nil end
             local p = { index = integer(words[1], 0, 15), team = integer(words[2], -1, 7),
@@ -70,6 +87,12 @@ function Warfare.parse(text)
     end
     for key in pairs(limits) do if s[key] == nil then return nil end end
     if not (s.instance and s.score and s.owner and s.globals) then return nil end
+    for _, rows in ipairs({s.flight,s.clearance}) do
+        for index in pairs(rows) do
+            local p = s.players[index]
+            if not p or p.localUser < 0 or (p.stage ~= 3 and p.stage ~= 4) then return nil end
+        end
+    end
     if s.ready == 1 then
         local g = s.globals
         if s.status ~= 2 or s.instance == "0" or s.sampled_ms == 0 or s.rate < 10
@@ -103,7 +126,9 @@ end
 -- presentation helpers. `match` and the current world's code must agree.
 function Warfare.new(deps)
     local self = { next = 0, fields = {}, hills = {} }
-    if deps.Canopy and deps.bipedAt then self.canopy = deps.Canopy.new(deps.bipedAt) end
+    if deps.Canopy and deps.bipedAt then self.canopy = deps.Canopy.new(deps.bipedAt, deps.Grips) end
+    if deps.Input then self.input = deps.Input.new(deps.controls, deps.blocked) end
+    if deps.Instruments then self.instruments = deps.Instruments.new() end
     local pending, refreshedAt, line
 
     function self.start(code)
@@ -117,10 +142,16 @@ function Warfare.new(deps)
         return #self.hills
     end
 
-    function self.hide()
+    local function hideMarkers()
         if line then line.hide() end
+        if self.instruments then self.instruments.hide() end
         for _, field in ipairs(self.fields) do field.hide() end
+    end
+
+    function self.hide()
+        hideMarkers()
         if self.canopy then self.canopy.hide() end
+        if self.input then self.input.clear() end
     end
 
     -- Require two advancing samples before trusting a file found on disk.
@@ -157,14 +188,18 @@ function Warfare.new(deps)
             return false
         end
         if now < self.next then return false end
-        self.next = now + EVERY
+        local prev = self.snapshot and self.snapshot.players[me]
+        local activeFlight = prev and prev.localUser >= 0 and (prev.stage == 2 or prev.stage == 7 or prev.stage == 3 or prev.stage == 4)
+        self.next = now + (activeFlight and FLIGHT_EVERY or EVERY)
         local changed = false
         if not match.over then
+            if activeFlight and deps.pumpFlight then deps.pumpFlight() end
             local s = Warfare.parse(deps.readSnapshot())
             local accepted = self.accept(s, now)
             -- A verified terminal snapshot remains valid while the sim is
             -- stopped in postgame. Normal phases expire when ticks stop.
-            if refreshedAt and now - refreshedAt > STALE and self.snapshot and self.snapshot.phase ~= 3 then
+            local lifetime = activeFlight and deps.pumpFlight and .8 or STALE
+            if refreshedAt and now - refreshedAt > lifetime and self.snapshot and self.snapshot.phase ~= 3 then
                 self.snapshot, pending = nil, nil
             end
             if accepted then
@@ -174,14 +209,37 @@ function Warfare.new(deps)
                 match.warfareInstance = self.snapshot.instance
             end
         end
-        if hidden then self.hide(); return changed end
         local s = self.snapshot
-        if self.canopy then self.canopy.tick(match, s, pc, now) end
+        if self.input then
+            self.input.tick(not match.over and s or nil, pc, hidden)
+            if self.input.frame then self.input.frame(now) end
+        end
+        if self.canopy then self.canopy.tick(match, not match.over and s or nil, pc, now) end
+        if hidden then hideMarkers(); return changed end
         pcall(function()
             local world = line.worldOf(pc)
             if not world then return end
-            line.ensureLine(pc)
-            line.say(Warfare.describe(s, me) .. "   /   M: MAP")
+            local player = s and s.players[me]
+            local airborne = player and player.localUser >= 0 and (player.stage == 3 or player.stage == 4)
+            local blocked = deps.blocked and deps.blocked()
+            local instrumentsShown = false
+            if self.instruments then
+                if airborne and not blocked and not match.over and s.phase ~= 3 then
+                    local jump, brake
+                    if self.input and self.input.labels then jump, brake = self.input.labels(player.localUser) end
+                    local ok, shown = pcall(self.instruments.update, pc, player.stage, s.flight[me], s.clearance[me], jump, brake)
+                    instrumentsShown = ok and shown
+                else self.instruments.hide() end
+            end
+            if instrumentsShown or (airborne and blocked) then line.hideLine()
+            else
+                line.ensureLine(pc)
+                local text = Warfare.describe(s, me)
+                if player and player.stage == 2 and self.input and self.input.labels then
+                    text = "INSERTION  /  " .. self.input.labels(player.localUser) .. " TO JUMP"
+                end
+                line.say(text .. "   /   M: MAP")
+            end
             for i, field in ipairs(self.fields) do
                 local spot = self.hills[i]
                 if s and s.phase == 2 and spot and not match.over then
@@ -197,6 +255,9 @@ function Warfare.new(deps)
     end
 
     function self.frame(pc, now)
+        if self.input and self.input.frame then self.input.frame(now) end
+        if self.canopy and self.canopy.frame then self.canopy.frame(now, self.input) end
+        if self.instruments then self.instruments.frame(pc, now) end
         for _, field in ipairs(self.fields) do field.frame(pc, now) end
     end
     return self

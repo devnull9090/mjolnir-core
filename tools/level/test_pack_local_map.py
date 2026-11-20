@@ -82,6 +82,15 @@ class LocalPackTests(unittest.TestCase):
         stage = self.stage()
         self.assertEqual((stage / "pakchunk970-MJOLNIRROCK-TST_P.ucas").read_bytes(), b"native layers")
 
+    def test_extra_art_container_and_sidecar_survive_map_pack_discovery(self):
+        stem = self.conv / "pakchunk955-MJOLNIRTSTBASES_P"
+        self.config["extra_containers"] = [str(stem)]
+        for ext in ("ucas", "utoc", "pak"):
+            stem.with_suffix("." + ext).write_bytes(ext.encode())
+        stage = self.stage()
+        for ext in ("ucas", "utoc", "pak"):
+            self.assertEqual((stage / f"pakchunk955-MJOLNIRTSTBASES-TST_P.{ext}").read_bytes(), ext.encode())
+
     def test_auxiliary_path_cannot_escape_map(self):
         self.level["foliage"]["file"] = "../../outside.bin"
         with self.assertRaises(ValueError):

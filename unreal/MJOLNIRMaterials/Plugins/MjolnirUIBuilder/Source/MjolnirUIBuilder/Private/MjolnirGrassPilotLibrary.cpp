@@ -134,10 +134,11 @@ FString UMjolnirGrassPilotLibrary::ReadGrassData(ALandscapeProxy* Landscape, ULa
 {
     TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
     Root->SetStringField(TEXT("schema"), TEXT("mjolnir-native-grass-readback-v1"));
-    if (!Landscape || !IsPilotAsset(GrassType) || !Landscape->GetWorld()
-        || Landscape->GetWorld()->GetOutermost()->GetName() != TEXT("/Game/Levels/Halo1/Solo/LPG/LPG"))
+    const FString Map = Landscape && Landscape->GetWorld() ? Landscape->GetWorld()->GetOutermost()->GetName() : FString();
+    if (!IsPilotAsset(GrassType) ||
+        (Map != TEXT("/Game/Levels/Halo1/Solo/LPG/LPG") && Map != TEXT("/Game/Levels/Halo1/Solo/LPE/LPE")))
     {
-        Root->SetStringField(TEXT("error"), TEXT("Only the isolated LPG pilot world and grass asset are accepted"));
+        Root->SetStringField(TEXT("error"), TEXT("Expected an authored PWR grass world and grass asset"));
         return Json(Root);
     }
     Root->SetStringField(TEXT("world"), Landscape->GetWorld()->GetOutermost()->GetName());

@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "warfare_layout.h"
+#include "warfare_flight_terrain.h"
 
 #define WARFARE_PLAYERS 16
 #define WARFARE_NONE UINT32_MAX
@@ -14,19 +15,24 @@ enum warfare_stage { WF_GROUND, WF_BOARDING, WF_SEATED, WF_FALLING, WF_CANOPY,
                      WF_LANDED, WF_FAILED, WF_EXITING };
 enum warfare_command {
     WF_WARMUP = 1, WF_HOME = 2, WF_BOARD = 4, WF_EXIT = 8,
-    WF_PROTECT = 16, WF_UNPROTECT = 32, WF_VELOCITY = 64, WF_CLEAR_CABIN = 128
+    WF_PROTECT = 16, WF_UNPROTECT = 32, WF_VELOCITY = 64, WF_CLEAR_CABIN = 128,
+    WF_LOWER_WEAPON = 256, WF_RAISE_WEAPON = 512
 };
 typedef struct {
     uint32_t unit, parent;
     int valid, local_user, team, parent_is_transport, present;
     int velocity_valid, carrier_clear, support_world;
     uint16_t participant_salt;
-    float position[3], velocity[3];
+    float position[3], velocity[3], facing[2];
+    float forward_input, right_input;
+    int brake;
 } warfare_sample;
 typedef struct {
     uint32_t unit, carrier;
-    int stage, protected_fall, last_phase, saw_insertion;
+    int stage, protected_fall, last_phase, saw_insertion, weapon_lowered;
     float elapsed, retry, stable, departure_z;
+    float carrier_velocity[2], air_velocity[3], steering;
+    int air_initialized, braking, deploy_requested;
 } warfare_player;
 typedef struct { unsigned flags; float velocity[3]; } warfare_output;
 
@@ -196,9 +202,17 @@ static void warfare_player_reset(warfare_player *p) {
     memset(p, 0, sizeof *p); p->unit = p->carrier = WARFARE_NONE; p->last_phase = -1;
 }
 
+static void warfare_ready_weapon(warfare_player *p, warfare_output *o) {
+    if (p->weapon_lowered) {
+        o->flags |= WF_RAISE_WEAPON;
+        p->weapon_lowered = 0;
+    }
+}
+
 static void warfare_stop(warfare_player *p, const warfare_sample *s, warfare_output *o) {
     memset(o, 0, sizeof *o);
     if (s && s->valid && s->unit == p->unit && s->local_user >= 0) {
+        warfare_ready_weapon(p, o);
         if (p->protected_fall) o->flags |= WF_UNPROTECT;
         if (p->stage == WF_BOARDING || p->stage == WF_SEATED || p->stage == WF_EXITING)
             o->flags |= WF_EXIT | WF_HOME;
@@ -207,9 +221,83 @@ static void warfare_stop(warfare_player *p, const warfare_sample *s, warfare_out
 }
 
 static void warfare_fail(warfare_player *p, warfare_output *o) {
+    warfare_ready_weapon(p, o);
     o->flags |= WF_EXIT | WF_HOME;
     if (p->protected_fall) o->flags |= WF_UNPROTECT;
     p->protected_fall = 0; p->stage = WF_FAILED;
+}
+
+static float warfare_clamp(float x, float a, float b) { return fmaxf(a, fminf(b, x)); }
+
+/* The display interpolates the map surface; deployment uses the highest
+ * source vertex in the cell at the biped and along its near-future track. */
+static float warfare_terrain(float x, float y, int ceiling) {
+    float u = warfare_clamp((x - WF_TERRAIN_X0) / WF_TERRAIN_STEP, 0, WF_TERRAIN_CELLS);
+    float v = warfare_clamp((y - WF_TERRAIN_Y0) / WF_TERRAIN_STEP, 0, WF_TERRAIN_CELLS);
+    int i = (int)u, j = (int)v;
+    if (i == WF_TERRAIN_CELLS) --i;
+    if (j == WF_TERRAIN_CELLS) --j;
+    if (ceiling) return wf_terrain_ceiling[j][i];
+    u -= i; v -= j;
+    float south = (1-u)*wf_terrain_surface[j][i] + u*wf_terrain_surface[j][i+1];
+    float north = (1-u)*wf_terrain_surface[j+1][i] + u*wf_terrain_surface[j+1][i+1];
+    return (1-v)*south + v*north;
+}
+
+static int warfare_need_canopy(const warfare_player *p, const warfare_sample *s) {
+    float roof = warfare_terrain(s->position[0], s->position[1], 1);
+    float ahead = warfare_terrain(s->position[0] + p->air_velocity[0],
+                                  s->position[1] + p->air_velocity[1], 1);
+    float sink = fmaxf(0, -p->air_velocity[2]);
+    return s->position[2] - fmaxf(roof, ahead) <= fmaxf(38, 18 + sink * 1.05f);
+}
+
+static void warfare_air_motion(warfare_player *p, const warfare_sample *s, float dt, warfare_output *o) {
+    int canopy = p->stage == WF_CANOPY;
+    if (!p->air_initialized) {
+        /* Only velocity observed on the moving carrier can transfer. A
+         * stopped aircraft at the end of its run imparts no forward kick. */
+        for (int k = 0; k < 2; k++) p->air_velocity[k] = p->carrier_velocity[k];
+        p->air_velocity[2] = -6;
+        p->air_initialized = 1;
+    }
+    float throttle = warfare_clamp(s->forward_input, -1, 1);
+    float steer = warfare_clamp(s->right_input, -1, 1);
+    p->steering += (steer - p->steering) * (1 - expf(-dt / 0.22f));
+    p->braking = canopy && s->brake;
+    float facing_x = s->facing[0], facing_y = s->facing[1];
+    float norm = hypotf(facing_x, facing_y);
+    if (!isfinite(norm) || norm < 0.05f) {
+        facing_x = s->team ? -1.0f : 1.0f; facing_y = 0;
+    } else {
+        facing_x /= norm; facing_y /= norm;
+    }
+    /* Positive physical right is a clockwise turn in the map's +Y north
+     * frame. Normalization preserves speed on a diagonal. */
+    float lateral = p->steering * (canopy ? 1.0f : 0.85f);
+    float along = canopy ? 1 : throttle;
+    float direction_length = fmaxf(1, hypotf(along, lateral));
+    float speed = canopy ? (p->braking ? 12.0f : 21.0f + 7.0f * throttle) : 17.0f;
+    float target[2] = {(facing_x * along + facing_y * lateral) * speed / direction_length,
+                       (facing_y * along - facing_x * lateral) * speed / direction_length};
+    float response = 1 - expf(-dt / (canopy ? 0.72f : 1.30f));
+    for (int k = 0; k < 2; k++) {
+        p->air_velocity[k] += (target[k] - p->air_velocity[k]) * response;
+        /* Keep an early outward-facing exit flyable at the map boundary.
+         * Approach the edge gradually while preserving parallel steering. */
+        float low = fminf(0, warfare_play_min[k] + 3 - s->position[k]);
+        float high = fmaxf(0, warfare_play_max[k] - 3 - s->position[k]);
+        p->air_velocity[k] = warfare_clamp(p->air_velocity[k], low, high);
+    }
+    if (canopy) {
+        float sink = p->braking ? 10.5f : 16.0f + 2.5f * throttle;
+        p->air_velocity[2] += (-sink - p->air_velocity[2]) * (1 - expf(-dt / 0.38f));
+    } else {
+        float terminal = 55.0f + 8.0f * throttle;
+        p->air_velocity[2] += (-terminal - p->air_velocity[2]) * (1 - expf(-dt / 3.1f));
+    }
+    o->flags |= WF_VELOCITY;
+    memcpy(o->velocity, p->air_velocity, sizeof o->velocity);
 }
 
 /* Called once per unique simulation tick. A late join or respawn during
@@ -228,12 +316,15 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
     if (phase == 3) { warfare_stop(p, s, o); return; }
     if (phase == 0) {
         if (p->last_phase > 0) {
+            warfare_ready_weapon(p, o);
             if (p->protected_fall) o->flags |= WF_UNPROTECT;
             o->flags |= WF_EXIT | WF_WARMUP;
             p->protected_fall = 0; p->saw_insertion = 0; p->stage = WF_GROUND;
         }
         p->last_phase = phase; return;
     }
+    int started_seated = p->stage == WF_SEATED;
+    if (action && (p->stage == WF_EXITING || p->stage == WF_FALLING)) p->deploy_requested = 1;
     if (phase == 1 && !p->saw_insertion && p->stage == WF_GROUND) {
         p->saw_insertion = 1; p->stage = WF_BOARDING; p->elapsed = 0; p->retry = 0;
         p->protected_fall = 1; o->flags |= WF_PROTECT;
@@ -251,21 +342,27 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
         }
     }
     if (p->stage == WF_SEATED) {
+        if (s->parent_is_transport && s->velocity_valid) {
+            float speed = hypotf(s->velocity[0], s->velocity[1]);
+            float fraction = speed > 0 ? fminf(0.6f, 16.0f / speed) : 0;
+            for (int k = 0; k < 2; k++) p->carrier_velocity[k] = phase == 1 ? s->velocity[k] * fraction : 0;
+        }
         if (s->parent == WARFARE_NONE) {
             p->stage = WF_EXITING; p->elapsed = 0; p->retry = 0;
         } else if (phase == 2 || phase_seconds >= forced_exit
-                   || (action && phase_seconds >= fminf(3.0f, insertion_seconds * 0.05f))) {
+                   || (action && started_seated)) {
             p->stage = WF_EXITING; p->elapsed = 0; p->retry = 0;
         }
     }
     if (p->stage == WF_EXITING) {
         if (s->parent == WARFARE_NONE && s->carrier_clear) {
             p->stage = WF_FALLING; p->elapsed = 0; p->departure_z = s->position[2];
-            o->flags |= WF_PROTECT | WF_VELOCITY;
-            /* The verified ejection point is behind the complete carrier.
-             * Do not inherit forward route speed and fly back into a stopped
-             * cabin. Native air control resumes on subsequent ticks. */
-            o->velocity[2] = -1.0f;
+            p->air_initialized = 0;
+            if (!p->weapon_lowered) {
+                p->weapon_lowered = 1;
+                o->flags |= WF_LOWER_WEAPON;
+            }
+            o->flags |= WF_PROTECT;
         } else if (p->elapsed > 3.0f) { warfare_fail(p, o); return; }
         else {
             p->retry -= dt;
@@ -290,8 +387,10 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
     if (p->elapsed > WARFARE_DESCENT_TIMEOUT_SECONDS || !warfare_inside(s->position, warfare_play_min, warfare_play_max)) {
         warfare_fail(p, o); return;
     }
-    if (p->stage == WF_FALLING && (p->elapsed >= 2.0f || (action && p->elapsed >= 0.35f))) {
+    if (p->stage == WF_FALLING && p->elapsed >= 0.25f
+        && (p->deploy_requested || warfare_need_canopy(p, s))) {
         p->stage = WF_CANOPY;
+        p->deploy_requested = 0;
     }
     /* Real world support plus continuous sampled motion is required. This
      * rejects an airborne pause, stale samples, and a detached Pelican deck. */
@@ -300,21 +399,11 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
         p->stable += dt;
     else p->stable = 0;
     if (p->stable >= 0.3f) {
+        warfare_ready_weapon(p, o);
         o->flags |= WF_UNPROTECT; p->protected_fall = 0; p->stage = WF_LANDED; return;
     }
-    if (p->stage == WF_CANOPY) {
-        memcpy(o->velocity, s->velocity, sizeof o->velocity);
-        float horizontal = sqrtf(s->velocity[0] * s->velocity[0] + s->velocity[1] * s->velocity[1]);
-        if (horizontal > 8.0f) { o->velocity[0] *= 8.0f / horizontal; o->velocity[1] *= 8.0f / horizontal; }
-        /* Canopy drag sheds inherited aircraft momentum. Without drag a
-         * late exit could coast outside the authored play area before landing.
-         * Native air-control input is applied again on the following tick. */
-        o->velocity[0] *= 1.0f - 0.6f * dt;
-        o->velocity[1] *= 1.0f - 0.6f * dt;
-        /* Preserve native air control and contact response. Never force a
-         * downward speed at rest or replace the player's steering with aim. */
-        if (o->velocity[2] < -6.0f) o->velocity[2] = -6.0f;
-        if (horizontal > 0.05f || s->velocity[2] < -6.0f) o->flags |= WF_VELOCITY;
-    }
+    /* A real contact always wins over the velocity controller, including
+     * during the short stable-support window and on slopes. */
+    if (!s->support_world) warfare_air_motion(p, s, dt, o);
 }
 #endif

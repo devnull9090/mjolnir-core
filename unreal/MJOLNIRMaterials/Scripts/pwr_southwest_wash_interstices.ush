@@ -1,0 +1,16 @@
+    // Exposed fines in the channels between coarse sediment pockets. The
+    // soft lens is world-sized and warped by trampled-earth scan values.
+    float2 routeDelta=m-WASH_FRAME_ORIGIN;
+    float localStation=116.+dot(routeDelta,WASH_FRAME_AXIS);
+    float localCross=dot(routeDelta,float2(WASH_FRAME_AXIS.y,-WASH_FRAME_AXIS.x));
+    float finishScope=smoothstep(61.,77.,localStation)*(1-smoothstep(145.,154.,localStation))
+                     *(1-smoothstep(12.,15.,abs(localCross)));
+    float2 washUV=float2(dot(m,float2(6.70,1.93)),dot(m,float2(-2.42,8.13)));
+    float washNoise=.48*sin(washUV.x+.84*sin(.41*washUV.y))
+                   +.33*sin(washUV.y+.64*sin(.57*washUV.x))
+                   +.19*sin(1.64*washUV.x-.85*washUV.y)+1.15*clamp(soilL-.10,-.065,.13);
+    float bareLens=smoothstep(.015,.35,washNoise)*finishScope;
+    float3 exposed=lerp(trampled*float3(.99,.95,.92),
+                        soil*float3(.30,.33,.35)+float3(.017,.014,.011),.43);
+    trafficBed=lerp(trafficBed,exposed,bareLens*deposit);
+    bearing*=1-.995*bareLens;

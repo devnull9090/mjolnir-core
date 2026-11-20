@@ -1,0 +1,72 @@
+        float edgeMetres = side + raggedEdge + (chip.r-.40)*.38;
+        float course = 1. - smoothstep(8.42,8.88,edgeMetres);
+        float apron = (1. - smoothstep(10.1,13.1,edgeMetres))*cover;
+        float influence = saturate(mainRoute*apron);
+        float2 wheelDistances = (side-float2(2.65,5.30))/float2(1.08,.91);
+        float2 wheelTracks = exp2(-wheelDistances*wheelDistances);
+        float wheel = saturate(wheelTracks.x+wheelTracks.y);
+
+        // Metre-scale deposits remain visible farther up the approach than
+        // the individual chips. The spline-relative wheel bands clear some dust.
+        float2 wash = rotated*float2(.37,.26) + float2(.82*drift,-.46*drift);
+        float2 washCell = floor(wash);
+        float2 blend = frac(wash);
+        blend *= blend*(3.-2.*blend);
+        float4 values = frac(sin(dot(washCell,float2(127.1,311.7))
+                            +float4(0.,127.1,311.7,438.8))*43758.5453);
+        float field = lerp(lerp(values.x,values.y,blend.x),
+                           lerp(values.z,values.w,blend.x),blend.y);
+        float powder = smoothstep(.32,.77,field+.17*(dust-.5)+.13*drift-.15*wheel);
+        float3 binder = lerp(float3(.054,.055,.054),float3(.096,.091,.080),powder);
+        binder *= .93+.13*dust-.065*wheel;
+        float chipValue = dot(chip.rg,float2(.65,.35));
+        float exposed = smoothstep(.402,.553,chipValue);
+        float darkGrain = 1. - smoothstep(.29,.398,chipValue);
+        binder *= 1.-.16*darkGrain;
+        float3 aggregate = lerp(float3(.130,.129,.117),float3(.205,.200,.181),chip.r);
+        float coverage = (.065+.65*exposed)*(.81+.28*mineralGrain);
+        float3 asphalt = lerp(binder,aggregate,coverage)*.84;
+        asphalt += powder*float3(.020,.014,.009);
+        asphalt *= float3(1.08,1.25,1.71);
+
+        float dash = smoothstep(.18,.47,network.a*2.-1.)*(1.-smoothstep(.055,.15,side));
+        float paintSurvival = smoothstep(.44,.68,.54*dust+.25*mineralGrain
+                                        +.24*(1.-exposed)+.18*drift);
+        float paint = dash*smoothstep(.42,.82,hierarchy)*paintSurvival
+                    *(1.-smoothstep(.15,1.,pixelMetres));
+        asphalt = lerp(asphalt,float3(.21,.185,.144),paint*.27);
+
+        float lip = 1. - smoothstep(8.95,11.85,edgeMetres+(dust-.5)*.71);
+        float3 fines = lerp(float3(.089,.078,.067),float3(.173,.15,.122),dust);
+        float3 looseRock = lerp(stones*float3(1.16,1.23,1.38),
+                                float3(.21,.207,.193)*(.62+mineralGrain),.36);
+        float gravel = saturate(.15+.67*mineralGrain+.16*mineralFace+.28*lip);
+        float3 shoulder = lerp(fines,looseRock,gravel);
+        // Overlapping independent beds of angular aggregate sit partly in the
+        // broken lip; the larger fragments quickly die out across the apron.
+        [branch] if (edgeMetres>8.20 && lip>.001 && pixelMetres<.20)
+        {
+            float pebbleVisibility = 1.-smoothstep(.065,.20,pixelMetres);
+            float coarseBed = 1.-smoothstep(9.09,10.55,edgeMetres+.42*(field-.5));
+            float2 fineGrid = rotated*7.9 + (soil.rg-.12)*1.3;
+            float2 coarseGrid = mul(float2x2(.706,-.708,.708,.706),m)*4.8+float2(.84,.28);
+            [unroll] for (int layer=0; layer<2; ++layer)
+            {
+                float2 grid = layer==0 ? fineGrid : coarseGrid;
+                float2 cell = floor(grid);
+                float3 seed = frac(cell.xyx*float3(.1031,.11369,.13787));
+                seed += dot(seed,seed.yzx+19.19);
+                float3 variation = frac((seed.xxy+seed.yzz)*seed.zyx);
+                float2 facet = frac(grid)-.5-(variation.xy-.5)*.25;
+                float radius = max(abs(facet.x+.40*(variation.y-.5)*facet.y)*1.17
+                                 + abs(facet.y)*.29,abs(facet.y)*1.42+abs(facet.x)*.19);
+                float extent = .16+.24*variation.z;
+                float aaStone = clamp(pixelMetres*(layer==0 ? 3.9 : 2.4),.02,.34);
+                float pebble = 1.-smoothstep(extent-aaStone,extent+aaStone,radius);
+                float facetLight = saturate(.44+1.76*facet.x-2.05*facet.y+.19*chipN.y);
+                float3 stoneColour = lerp(float3(.057,.056,.051),float3(.38,.362,.301),
+                                          saturate(.12+.59*variation.x+.44*facetLight));
+                float bed = layer==0 ? lip : coarseBed*smoothstep(.09,.45,field+.30*mineralGrain);
+                shoulder = lerp(shoulder,stoneColour,pebble*bed*pebbleVisibility);
+            }
+        }

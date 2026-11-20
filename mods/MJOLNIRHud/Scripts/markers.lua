@@ -51,7 +51,9 @@ function Markers.new(deps)
                 at, body = biped:K2_GetActorLocation(), biped
             end
         end)
-        return at, at and body or nil
+        -- A rider's team marker follows the vehicle. Personal equipment
+        -- needs the actual Spartan, including while the rider is seated.
+        return at, at and body or nil, at and biped or nil
     end
     self.bipedAt = bipedAt
 
@@ -162,7 +164,9 @@ function Markers.new(deps)
             match.ball = deps.FlagMark.ball(deps.Hill)
         elseif family == "warfare" and not match.warfare then
             match.warfare = deps.Warfare.new({ Hill = deps.Hill, readLevel = deps.readLevel,
-                readSnapshot = deps.readWarfare, bipedAt = bipedAt, Canopy = deps.Canopy })
+                readSnapshot = deps.readWarfare, bipedAt = bipedAt, Canopy = deps.Canopy,
+                Grips = deps.Grips, Input = deps.WarfareInput, Instruments = deps.Instruments,
+                controls = deps.flightControls, pumpFlight = deps.pumpFlight, blocked = deps.flightBlocked })
             deps.log("warfare markers: " .. match.warfare.start(match.code) .. " site(s)")
         end
     end

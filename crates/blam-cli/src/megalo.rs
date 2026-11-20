@@ -121,6 +121,9 @@ pub struct WriteArgs {
     /// Warfare: seconds to capture a neutral site (twice this to take an enemy site).
     #[arg(long, default_value_t = 8)]
     pub capture_seconds: u16,
+    /// Warfare: let living vehicle occupants capture and contest sites.
+    #[arg(long)]
+    pub allow_mounted_capture: bool,
     /// Warfare: minutes of combat after deployment (independent of the base round timer).
     #[arg(long, default_value_t = 20)]
     pub warfare_minutes: u8,
@@ -337,6 +340,9 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                     .context("hill duration exceeds 32767 ticks")
             };
             let tick_rate = w.tick_rate as i16;
+            if w.allow_mounted_capture && !matches!(w.mode, Mode::Warfare) {
+                anyhow::bail!("--allow-mounted-capture requires --mode warfare");
+            }
             let v = match w.mode {
                 Mode::Warfare => Variant::warfare(blam_megalo::warfare::Warfare {
                     score_to_win: w.score.unwrap_or(500),
@@ -345,6 +351,7 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                     warmup_seconds: w.warmup_seconds,
                     insertion_seconds: w.insertion_seconds,
                     capture_seconds: w.capture_seconds,
+                    allow_mounted_capture: w.allow_mounted_capture,
                     match_minutes: w.warfare_minutes,
                 })
                 .map_err(|e| anyhow::anyhow!("{e}"))?,

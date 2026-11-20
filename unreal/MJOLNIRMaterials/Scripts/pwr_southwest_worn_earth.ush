@@ -1,0 +1,44 @@
+    // Wear and sediment are separate sides of the signed terrain survey. Both
+    // remain stable at distance, where sub-centimetre scan details disappear.
+    float compact=smoothstep(.51,.88,survey.x);
+    float deposit=1-smoothstep(.08,.48,survey.x);
+    float2x2 mineralRot=float2x2(.60,-.80,.80,.60);
+    float2 mineralUV=mul(mineralRot,m)/1.92+float2(.38,.63);
+    float3 nativeGravel=Texture2DSampleGrad(PathGravel,SiteEarthSampler,mineralUV,
+        mul(mineralRot,dx)/1.92,mul(mineralRot,dy)/1.92).rgb;
+    float2 mineralN=Texture2DSampleGrad(PathGravelNormal,SiteEarthSampler,mineralUV,
+        mul(mineralRot,dx)/1.92,mul(mineralRot,dy)/1.92).rg*2-1;
+    float3 coarse=stone.rgb*(stone.rgb*(stone.rgb*.305306011+.682171111)+.012522878);
+    float3 luma=float3(.2126,.7152,.0722);
+    float soilL=dot(soil,luma), gravelL=dot(nativeGravel,luma);
+    float dryGrain=saturate((soilL-.045)*4.8);
+    float highFace=smoothstep(.40,.81,stone.a);
+    float pocket=saturate(.56+1.65*(soilL-.11)+.21*sin(dot(m,float2(.36,-.29))+.64*sin(.53*m.y)));
+    float scattered=smoothstep(.11,.24,gravelL)*smoothstep(.53,.81,stone.a);
+
+    // The wheel strips have a relatively smooth, warm surface. Alongside
+    // them the loose earth includes darker mineral fines and bits of scree.
+    float3 trampled=(soil*float3(.34,.36,.39)+float3(.013,.012,.010))*SweepDirtGain;
+    float3 packed=lerp(soil*float3(.50,.51,.54)+float3(.013,.012,.011),
+                       float3(.112,.080,.057)*lerp(.83,1.14,dryGrain),.43)*SweepTrackGain;
+    float3 matrix=(soil*float3(.18,.21,.25)+float3(.018,.016,.014))*SweepGravelGain;
+    float3 trafficBed=lerp(lerp(trampled,matrix,deposit),packed,compact);
+    float3 pebbles=lerp(coarse*float3(.98,.98,.99),nativeGravel*float3(1.09,1.04,1.02),.31);
+    // Optical separation comes from actual scanned faces and normals. Keep
+    // silt visible in the low pockets and retain individual stones at crests.
+    float bearing=deposit*(.54+.46*pocket);
+    float stoneFraction=saturate(.035+.07*scattered+bearing*(.32+.64*highFace))*(1-.94*compact);
+    float3 mineralFace=lerp(matrix*.89,pebbles*SweepGravelGain,.48+.52*highFace);
+    float3 color=lerp(trafficBed,mineralFace,stoneFraction);
+    float lip=4*compact*(1-compact);
+    color*=1-.10*lip;
+
+    // Two field samples recover the gradient of the shallow cross section.
+    // Their axes are the same world X/Y axes used by the landscape normal.
+    float2 localUV=float2(.75+alpineOffset.x/512.,.5-alpineOffset.y/256.);
+    float lod=clamp(log2(max(.50,pixelMetres)*2.),0.,3.);
+    float2 fieldX=Texture2DSampleLevel(AlpineRoadbed,RoadAtlasSampler,localUV+float2(1./1024.,0),lod).rg;
+    float2 fieldY=Texture2DSampleLevel(AlpineRoadbed,RoadAtlasSampler,localUV+float2(0,1./512.),lod).rg;
+    float2 rutSlope=(smoothstep(.51,.88,float2(fieldX.g/max(.001,fieldX.r),fieldY.g/max(.001,fieldY.r)))
+                     - compact)*.085;
+    float finishWeight=lerp(alpineField.r,smoothstep(.025,.46,alpineField.r),max(compact,deposit));

@@ -46,6 +46,29 @@ def prepare(code, config, work, staging):
                            f"pakchunk{config['chunk']}-MJOLNIRLAND-{code}_P"))
     if config.get("native_rock_materials"):
         containers.append((bake / f"pakchunk970-MJOLNIRROCK-{code}_P", None))
+    # The map pack reads -<CODE>_P pairs. Keep the editor chunk number for
+    # shader libraries, including map-specific art cooked outside the landscape.
+    extras = config.get("extra_containers", [])
+    if not isinstance(extras, list):
+        raise ValueError("extra_containers must be a list of map-owned container stems")
+    names = {rename or source.name for source, rename in containers}
+    for stem in extras:
+        if not isinstance(stem, str):
+            raise ValueError("Invalid extra container stem")
+        source = REPO / stem
+        match = re.fullmatch(r"pakchunk\d+-([A-Za-z0-9_-]+)_P", source.name)
+        if not match or code not in match[1] or "MJOLNIRREG" in match[1]:
+            raise ValueError(f"Expected a map-owned extra container for {code}: {source.name}")
+        name = source.name
+        if not name.endswith(f"-{code}_P"):
+            name = name[:-2] + f"-{code}_P"
+        if name in names:
+            raise ValueError(f"Duplicate map container: {name}")
+        names.add(name)
+        containers.append((source, name))
+        if source.with_suffix(".pak").is_file():
+            # map pack reads audio banks from a sidecar and validates its contents.
+            copies.append((source.with_suffix(".pak"), name + ".pak"))
     for source, rename in containers:
         for extension in ("utoc", "ucas"):
             copies.append((Path(f"{source}.{extension}"), f"{rename or source.name}.{extension}"))

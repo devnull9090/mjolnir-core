@@ -110,3 +110,8 @@ mods/MJOLNIRHud/discord_match.txt
 /.dream-loop/
 # Locally extracted Blender reference geometry/textures; never redistribute.
 **/.mjolnir-cache/
+
+# Packed base authoring scene and exported Halo texture. See the PWR handoff.
+/levels/warfare/pwr/bases_v1/forerunner_bases.blend
+/levels/warfare/pwr/bases_v1/textures/native-fr-diagonal-orhg.png
+/levels/warfare/pwr/canopy/v2/pwr_insertion.blend

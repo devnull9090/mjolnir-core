@@ -1,0 +1,8 @@
+{
+  "asset": "/Game/MJOLNIR/GrassPilot/Playable/SM_PWR_CutbankRoots.SM_PWR_CutbankRoots",
+  "material": "/Game/MJOLNIR/GrassPilot/Playable/M_PWR_CutbankRoots.M_PWR_CutbankRoots",
+  "actor": "PWR_CutbankRootToe",
+  "triangles": 115528,
+  "source_sha256": "8fd4da2bcfe3136ddd718d2847157cd8ee8d321fb87ab25a8db9c0a53c3af9d9",
+  "native_support_sha256": "f633f129bc9bc1ec17b4554ec3572bbf50bd78efb0aa9239f2363518569d3736"
+}

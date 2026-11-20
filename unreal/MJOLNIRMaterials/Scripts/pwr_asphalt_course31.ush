@@ -1,0 +1,57 @@
+        // A running lane sweeps gradually as the wheels move across it.
+        float sweep=sin(dot(m,float2(.115,.077))+.83*drift);
+        float wander=.25*sweep;
+        float2 wheels=(abs(pavedOffset+wander)-float2(2.65,5.30))/float2(.95,.84);
+        float2 tracks=exp2(-wheels*wheels);
+        float wheel=saturate(tracks.x+tracks.y);
+
+        // Long connected stretches of binder run between asymmetric deposits.
+        // Signed road offset shapes the short axis through curves. Domain warp
+        // changes their width and length independently of the fine mineral.
+        float2 wash=float2(.355,-.22)*pavedOffset+rotated*float2(.125,.103);
+        wash+=float2(.43,-.31)*drift+float2(.29,.34)*sweep+float2(.14,-.21)*(dust-.5);
+        float2 washCell=floor(wash);
+        float2 blend=frac(wash);
+        blend=blend*blend*(3.-2.*blend);
+        // Insert shared integer corner values.
+        float field = lerp(lerp(values.x,values.y,blend.x),
+                           lerp(values.z,values.w,blend.x),blend.y);
+        float deposit=smoothstep(.39,.76,field+.15*(dust-.5)+.09*(mineralGrain-.35)+.07*drift);
+        float distantWear=smoothstep(.055,.225,groundMajor);
+        float wear=(.207+.070*distantWear)*(deposit-.407)
+                  -(.105+.039*distantWear)*(wheel-.40);
+        float3 asphalt=float3(.076,.086,.109)*(1.+clamp(wear,-.155,.174));
+        asphalt+=(deposit-.407)*float3(.0035,.0013,-.0023);
+
+        // Fine mineral is a contrast-normalized sample of real scree RGB and
+        // relief. The softer response to deep pockets keeps a stone embedded.
+        float mineralLuma=dot(chip.rgb,float3(.2126,.7152,.0722));
+        float colourDelta=mineralLuma-.370;
+        float heightDelta=chip.a-.476;
+        float grainStrength=.84+.22*deposit+.10*(1.-wheel);
+        float mineralTone=clamp(.180*colourDelta+.079*heightDelta,-.040,.061);
+        float exposed=smoothstep(.593,.747,chip.a+.30*colourDelta);
+        float pocket=1.-smoothstep(.219,.378,chip.a+.23*colourDelta);
+        asphalt+=grainStrength*(mineralTone*float3(1.04,1.,.91)
+                              +exposed*float3(.026,.024,.019)-pocket*float3(.011,.012,.013));
+
+        // Both flanks of each 24 m atlas sine lobe carry pigment. The gap at
+        // the crest splits the old long stripe, and a narrow zero-crossing
+        // remnant survives intermittently between consecutive lobes.
+        float phase=abs(network.a*2.-1.);
+        float phaseAA=clamp(.017+.093*pixelMetres,.017,.09);
+        float onset=.67+.053*(field-.5);
+        float endPhase=.938+.020*(dust-.5);
+        float flank=smoothstep(onset-phaseAA,onset+phaseAA,phase)
+                   *(1.-smoothstep(endPhase-phaseAA,endPhase+phaseAA,phase));
+        float intermediate=(1.-smoothstep(.065,.185+phaseAA,phase))
+                          *(.16+.37*smoothstep(.27,.72,field+.17*(dust-.5)));
+        float width=.096+.041*clamp(4.4*heightDelta+.84*(field-.5),-1.,1.);
+        float widthAA=clamp(.45*length(offsetChange),.012,.065);
+        float stroke=1.-smoothstep(width-widthAA,width+widthAA,side);
+        float pitting=smoothstep(.443,.645,chip.a+.77*colourDelta);
+        float adhesion=smoothstep(.19,.65,.44+.31*(field-.5)+.32*(dust-.5)
+                                      +.22*(mineralGrain-.35)-.26*pitting);
+        float paint=max(flank,intermediate)*stroke*smoothstep(.42,.82,hierarchy)
+                   *(.145+.38*adhesion)*(1.-.87*pitting)*(1.-smoothstep(.29,1.27,pixelMetres));
+        asphalt=lerp(asphalt,float3(.245,.179,.116),paint);

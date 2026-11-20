@@ -54,6 +54,22 @@ def source(point, *, scale=2.5, prime=False, mode=2, volume=1, role=""):
             "scale": scale, "prime": prime, "mode": mode, "volume": volume, "role": role}
 
 
+def headwater_controls(field, lake, rectangle):
+    """Keep the basin level away from the feeder and the rocky outlet."""
+    polygon = np.asarray(lake["polygon_m"])
+    stage = lake["water_z_m"]
+    x0, y0, x1, y1 = rectangle
+    lo = np.maximum(polygon.min(axis=0), [x0, y0]) + 8
+    hi = np.minimum(polygon.max(axis=0), [x1, y1]) - 8
+    xx, yy = np.meshgrid(np.arange(lo[0], hi[0], 22), np.arange(lo[1], hi[1], 22))
+    points = np.column_stack((xx.ravel(), yy.ravel()))
+    safe = np.ones(len(points), dtype=bool)
+    for dx, dy in ((0, 0), (-8, 0), (8, 0), (0, -8), (0, 8)):
+        probe = points + [dx, dy]
+        safe &= inside(probe, polygon) & (field.sample(probe[:, 0], probe[:, 1]) < stage - .5)
+    return [source([x, y, stage], scale=1.3, role="headwater_level_hold") for x, y in points[safe]]
+
+
 def capture_domain(field, rectangle, resolution):
     x0, y0, x1, y1 = rectangle
     if not math.isclose(x1-x0, y1-y0):
@@ -94,28 +110,39 @@ def plan(master, geometry, out, resolution=1024, package=False):
     seam = points[i]*(1-t)+points[i+1]*t
     rectangles = [("upper_river", [-732, 0, 268, 1000]), ("lower_lake", [-232, -1000, 768, 0])]
     entries, measurements = [], []
+    has_headwater = any(lake["id"] == "north_headwater_lake" for lake in data["lakes"])
     for name, rectangle in rectangles:
         domain, measurement = capture_domain(field, rectangle, resolution)
         x0, y0, x1, y1 = rectangle
         sources = []
         for course in data["watercourses"]:
-            profile = profile_samples(course["surface_centreline_m"])
+            spring = course["id"] == "headwater_spring"
+            profile = profile_samples(course["surface_centreline_m"], 3. if spring else 20.)
             selected = profile[(profile[:, 0] >= x0) & (profile[:, 0] <= x1)
                                & (profile[:, 1] >= y0) & (profile[:, 1] <= y1)]
             for p in selected:
-                sources.append(source(p, prime=True, role="profile_primer"))
-            if len(selected) and course["id"] == "central_river":
+                sources.append(source(p, scale=.35 if spring else 2.5, prime=True, role="profile_primer"))
+            if len(selected) and spring:
+                sources.append(source(selected[0], scale=.35, mode=0, volume=.10, role="spring_inlet"))
+            elif (len(selected) and course["id"] == "central_river"
+                    and (not has_headwater or name != "upper_river")):
                 sources.append(source(selected[0], mode=0, volume=2, role="inlet_flow"))
         # Identical boundary head on both grids. These are authoring controls;
         # no implicit cross-domain fluid transfer is claimed or required later.
         sources.append(source(seam, scale=4, role="shared_seam_head"))
-        if name == "lower_lake":
-            for lake in data["lakes"]:
-                polygon = np.asarray(lake["polygon_m"])
+        for lake in data["lakes"]:
+            polygon = np.asarray(lake["polygon_m"])
+            if (polygon[:, 0].max() < x0 or polygon[:, 0].min() > x1
+                    or polygon[:, 1].max() < y0 or polygon[:, 1].min() > y1):
+                continue
+            if lake["id"] == "north_headwater_lake":
+                sources.extend(headwater_controls(field, lake, rectangle))
+            else:
                 gx = np.arange(math.ceil(polygon[:, 0].min()/60)*60, polygon[:, 0].max(), 60)
                 gy = np.arange(math.ceil(polygon[:, 1].min()/60)*60, polygon[:, 1].max(), 60)
                 xx, yy = np.meshgrid(gx, gy); xy = np.stack((xx, yy), -1).reshape(-1, 2)
                 wet = inside(xy, polygon) & (field.sample(xy[:, 0], xy[:, 1]) < lake["water_z_m"]-.25)
+                wet &= (xy[:, 0]>=x0)&(xy[:, 0]<=x1)&(xy[:, 1]>=y0)&(xy[:, 1]<=y1)
                 for island in lake.get("islands", []):
                     wet &= ~inside(xy, island["polygon_m"])
                 # A broad lake Adjust modifier at55 must not intersect an
@@ -141,6 +168,7 @@ def plan(master, geometry, out, resolution=1024, package=False):
                     upstream=upstream[upstream[:,2]>lake["water_z_m"]+.5]
                     if len(upstream):near|=np.linalg.norm(xy[:,None,:]-upstream[None,:,:2],axis=2).min(axis=1)<110
                 safe=inside(xy,polygon)&near
+                safe &= (xy[:, 0]>=x0)&(xy[:, 0]<=x1)&(xy[:, 1]>=y0)&(xy[:, 1]<=y1)
                 for dx in (-12,0,12):
                     for dy in (-12,0,12):
                         safe&=field.sample(xy[:,0]+dx,xy[:,1]+dy)<lake["water_z_m"]-.5

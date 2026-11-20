@@ -24,6 +24,8 @@ VERSION = 1
 # relative to these colors, not a new overall exposure or color grade.
 PROFILES = {
     'alloy': dict(color=(.242, .246, .244), metal=.66, rough=(.32, .50), variance=.060, normal=.17, streak=.030, aniso=.06),
+    # Exterior ramp casings use the warm .7 pewter base with a more legible cast grain.
+    'ridge_alloy': dict(color=(.22385, .213036, .19886), metal=.66, rough=(.345, .465), variance=.15, normal=.17, streak=.030, aniso=.06),
     'dark': dict(color=(.033, .047, .064), metal=.48, rough=(.41, .57), variance=.065, normal=.13, streak=.035, aniso=.03),
     'trim': dict(color=(.255, .270, .282), metal=.72, rough=(.28, .44), variance=.045, normal=.18, streak=.020, aniso=.10),
     'floor': dict(color=(.110, .121, .132), metal=.48, rough=(.32, .52), variance=.055, normal=.12, streak=.025, aniso=.10),
@@ -32,6 +34,16 @@ PROFILES = {
     'interior_finish': dict(color=(.105, .117, .129), metal=.55, rough=(.31, .48), variance=.055, normal=.10, streak=.020, aniso=.16),
     'apron_finish': dict(color=(.145, .154, .164), metal=.56, rough=(.34, .52), variance=.060, normal=.14, streak=.028, aniso=.08),
 }
+
+# Keep the nose facets at their existing slab B/C midtones; their coarser cast
+# grain is quieter than the vertical flanks. Both authoring and export use these.
+PROFILES['ridge_crown'] = {**PROFILES['ridge_alloy'], 'variance': .08}
+PROFILES['ridge_toe_b'] = {
+    **PROFILES['apron_finish'], 'color': (.145*.925*.66, .154*.866*.66, .164*.815*.66),
+    'metal': .36, 'rough': (.485, .605), 'variance': .075}
+PROFILES['ridge_toe_c'] = {
+    **PROFILES['ridge_toe_b'], 'color': tuple(1.03*c for c in PROFILES['ridge_toe_b']['color']),
+    'rough': (.575, .695)}
 
 # Slab-to-slab response is deliberately separate from the accepted armor shader.
 # Adjacent serialized slabs alternate through A/B/C/B, giving a .09 roughness

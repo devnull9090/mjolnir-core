@@ -1,0 +1,95 @@
+        float edgeMetres = side + raggedEdge + (chip.r-.40)*.38;
+        float course = 1. - smoothstep(8.42,8.88,edgeMetres);
+        float apron = (1. - smoothstep(10.1,13.1,edgeMetres))*cover;
+        float influence = saturate(mainRoute*apron);
+        float2 wheels = (side-float2(2.65,5.30))/float2(1.08,.91);
+        float2 tracks = exp2(-wheels*wheels);
+        float wheel = saturate(tracks.x+tracks.y);
+
+        // Signed distance gives the field its short lateral scale on every
+        // approach, even through bends. World position advances it slowly.
+        float2 wash = float2(.47,-.21)*pavedOffset + rotated*float2(.083,.067);
+        float2 washCell = floor(wash);
+        float2 blend = frac(wash);
+        blend = blend*blend*(3.-2.*blend);
+        // Insert shared integer corner values.
+        float field = lerp(lerp(values.x,values.y,blend.x),
+                           lerp(values.z,values.w,blend.x),blend.y);
+        float wear = clamp(.115*(field-.5) + .044*(dust-.5) -
+                           .033*(wheel-.45),-.073,.073);
+
+        // Midpoint of the measured .26 binder/mineral mix in linear colour.
+        // The entire low-frequency contribution is bounded independently of grit.
+        float3 asphalt = float3(.076,.086,.109)*(1.+wear);
+        float chipValue = dot(chip.rg,float2(.65,.35));
+        float exposed = smoothstep(.396,.53,chipValue);
+        float relief = clamp(chipValue-.388,-.105,.136);
+        asphalt += relief*float3(.082,.087,.10);
+        // Pepper and occasional creamy grains cut across all bands of wear.
+        // Sites and coverage are fixed in metres and fade to their mean at LOD.
+        [branch] if (pixelMetres<.043 && course>.001)
+        {
+            float2 grainGrid = rotated*41.3 + float2(.163,.423);
+            uint2 grainID = asuint(int2(floor(grainGrid)));
+            uint g = (grainID.x * 0x9e3779b9u) ^ (grainID.y * 0x85ebca6bu);
+            g ^= g >> 16u; g *= 0x7feb352du; g ^= g >> 15u;
+            g *= 0x846ca68bu; g ^= g >> 16u;
+            float3 grainSeed = float3(uint3(g,g>>10u,g>>20u)&1023u)/1023.;
+            float2 p = frac(grainGrid)-.5-(grainSeed.xy-.5)*.54;
+            float radius = max(abs(p.x)+.36*abs(p.y),.42*abs(p.x)+1.27*abs(p.y));
+            float aa = clamp(pixelMetres*15.,.025,.39);
+            float size = .09+.14*grainSeed.z;
+            float spot = 1.-smoothstep(size-aa,size+aa,radius);
+            float reflectance = lerp(-.037,.095,smoothstep(.57,.88,grainSeed.z));
+            asphalt += spot*reflectance*float3(1.09,1.,.85)*(1.-smoothstep(.015,.043,pixelMetres));
+        }
+
+        // The atlas sets dash spacing. A small worn base keeps several dashes
+        // legible at distance when filtering averages away the pigment islands.
+        float dash = smoothstep(.24,.57,network.a*2.-1.)*(1.-smoothstep(.058,.151,side));
+        float abrasion = smoothstep(.30,.62,chipValue+.24*(field-.5)+.14*(mineralGrain-.35));
+        float paint = dash*smoothstep(.42,.82,hierarchy)*(.16+.37*abrasion)
+                   *(1.-smoothstep(.27,1.25,pixelMetres));
+        asphalt = lerp(asphalt,float3(.245,.179,.116),paint);
+
+        float lip = 1. - smoothstep(8.95,11.85,edgeMetres+(dust-.5)*.71);
+        float3 fines = lerp(float3(.060,.054,.049),float3(.106,.092,.075),dust);
+        float3 looseRock = lerp(stones*float3(.86,.94,1.03),
+                                float3(.136,.130,.112)*(.62+mineralGrain),.28);
+        float gravel = saturate(.16+.64*mineralGrain+.12*mineralFace+.21*lip);
+        float3 shoulder = lerp(fines,looseRock,gravel);
+        [branch] if (edgeMetres>8.20 && lip>.001 && pixelMetres<.20)
+        {
+            float pebbleVisibility = 1.-smoothstep(.065,.20,pixelMetres);
+            float coarseBed = 1.-smoothstep(9.09,10.55,edgeMetres+.42*(dust-.5));
+            float2 fineGrid = rotated*7.9 + (soil.rg-.12)*1.3;
+            float2 coarseGrid = mul(float2x2(.706,-.708,.708,.706),m)*4.8+float2(.84,.28);
+            [unroll] for (int layer=0; layer<2; ++layer)
+            {
+                float2 grid = layer==0 ? fineGrid : coarseGrid;
+                uint2 id = asuint(int2(floor(grid)));
+                uint bits = (id.x*0x68bc21ebu) ^ (id.y*0x02e5be93u);
+                bits ^= bits>>16u; bits *= 0x7feb352du; bits ^= bits>>15u;
+                bits *= 0x846ca68bu; bits ^= bits>>16u;
+                float3 variation = float3(uint3(bits,bits>>10u,bits>>20u)&1023u)/1023.;
+                float2 facet = frac(grid)-.5-(variation.xy-.5)*.36;
+                float rotSin, rotCos;
+                sincos(6.2831853*variation.z,rotSin,rotCos);
+                facet = mul(float2x2(rotCos,-rotSin,rotSin,rotCos),facet);
+                float radius = max(abs(facet.x+.36*(variation.y-.5)*facet.y)*1.19
+                                  + abs(facet.y)*.29,abs(facet.y)*1.52+abs(facet.x)*.22);
+                float extent = .13+.22*variation.y;
+                float aa = clamp(pixelMetres*(layer==0 ? 3.9 : 2.4),.02,.34);
+                float pebble = 1.-smoothstep(extent-aa,extent+aa,radius);
+                float facetLight = saturate(.39+1.76*facet.x-2.05*facet.y+.16*chipN.y);
+                float3 stoneColour = lerp(float3(.051,.052,.048),float3(.34,.31,.25),
+                                  saturate(.075+.55*variation.x+.43*facetLight));
+                float bed = layer==0 ? lip : coarseBed;
+                float scatter = smoothstep(.16,.70,variation.x+.29*(mineralGrain-.34));
+                shoulder = lerp(shoulder,stoneColour,pebble*bed*scatter*pebbleVisibility);
+            }
+        }
+        // The coarse gravel scan contains broad slopes. Keep the relief of
+        // loose gravel on the shoulder and limit it within the compacted binder.
+        stonesN *= lerp(1.,.32,course);
+        chipN *= lerp(1.,.87,course);

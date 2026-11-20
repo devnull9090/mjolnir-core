@@ -1,0 +1,9 @@
+# Keep the exact bytes used by the .43 cook receipts and screenshot verification.
+out/pwr/river-riparian/** -text
+out/pwr/alpine-target/bench/riparian-control-39/** -text
+out/pwr/alpine-target/bench/riparian-shore-43/** -text
+out/pwr/alpine-target/bench/river-shore-39/** -text
+.dream-loop/river-erosion/** -text
+unreal/MJOLNIRMaterials/Scripts/apply_pwr_cutbank_roots.py -text
+unreal/MJOLNIRMaterials/Scripts/apply_pwr_riparian_canopy.py -text
+unreal/MJOLNIRMaterials/Scripts/apply_pwr_spring_cascade.py -text

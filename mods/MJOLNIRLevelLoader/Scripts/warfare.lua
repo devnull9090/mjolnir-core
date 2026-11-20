@@ -8,7 +8,7 @@ function M.init(dir, log, every)
     M.nativeDir = (dir:match("^(.*)\\[^\\]+$") or dir) .. "\\MJOLNIRLobby\\native"
     if package and package.loadlib then
         local dll = M.nativeDir .. "\\mjolnir_lobby.dll"
-        for _, name in ipairs({ "open", "close", "action", "pump" }) do
+        for _, name in ipairs({ "open", "close", "action", "pump", "controls" }) do
             M[name .. "Native"] = package.loadlib(dll, "mjolnir_warfare_" .. name)
         end
     end
@@ -16,11 +16,13 @@ function M.init(dir, log, every)
         log("Pelican Warfare: native transport exports unavailable; deployment will not be enabled")
         return
     end
-    -- Space is edge-triggered by UE4SS. On ground it is a harmless no-op;
-    -- the native state machine accepts jump/deploy only in the right state.
-    pcall(RegisterKeyBind, 0x20, {}, function()
-        if M.active then pcall(M.actionNative) end
-    end)
+    -- With the flight controls export the HUD tracks the local rider's
+    -- remapped Jump action. Older native builds keep the keyboard fallback.
+    if not M.controlsNative then
+        pcall(RegisterKeyBind, 0x20, {}, function()
+            if M.active then pcall(M.actionNative) end
+        end)
+    end
     pcall(RegisterConsoleCommandHandler, "mjolnir_warfare_jump", function()
         if M.active then pcall(M.actionNative) end
         return true

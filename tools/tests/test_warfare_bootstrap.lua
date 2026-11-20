@@ -36,14 +36,14 @@ assert(calls.mjolnir_warfare_open == 1, "duplicate travel must not reset deploym
 assert(#loops == 1)
 loops[1]()
 assert(calls.mjolnir_warfare_pump == 1)
-bound[0x20]()
+assert(not bound[0x20], "modern local controller handles remapped Jump")
 bound.console()
-assert(calls.mjolnir_warfare_action == 2)
+assert(calls.mjolnir_warfare_action == 1)
 w.select(nil, nil)
 assert(not w.active and calls.mjolnir_warfare_close == 1)
-bound[0x20]()
+bound.console()
 loops[1]()
-assert(calls.mjolnir_warfare_action == 2 and calls.mjolnir_warfare_pump == 1)
+assert(calls.mjolnir_warfare_action == 1 and calls.mjolnir_warfare_pump == 1)
 local configs = 0
 for path, content in pairs(files) do
     assert(path == "C:\\Mods\\MJOLNIRLobby\\native\\warfare_config.txt")

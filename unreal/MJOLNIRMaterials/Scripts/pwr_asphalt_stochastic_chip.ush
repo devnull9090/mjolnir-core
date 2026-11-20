@@ -1,0 +1,38 @@
+        // Assign one continuous relief field to each lattice vertex. Adjacent
+        // triangles share both samples on their edge, including their rotations.
+        float4 chip = float4(.401,.365,.5,.5);
+        float2 chipN = 0.;
+        float chipVisibility = 1. - smoothstep(.065,.18,pixelMetres);
+        [branch] if (chipVisibility > .001)
+        {
+            float2 lattice = rotated * 1.57;
+            float2 vertex = floor(lattice);
+            float2 f = frac(lattice);
+            float2 middleCorner = f.x >= f.y ? float2(1.,0.) : float2(0.,1.);
+            float3 weights = float3(1.-max(f.x,f.y),abs(f.x-f.y),min(f.x,f.y));
+            weights *= weights;
+            weights /= dot(weights,float3(1.,1.,1.));
+            float2 atlasScale = float2(1008./2048.,1008./1024.);
+            float2 relief = 0.;
+            [unroll] for (int i = 0; i < 3; ++i)
+            {
+                float2 v = vertex + (i == 0 ? float2(0.,0.) : (i == 1 ? middleCorner : float2(1.,1.)));
+                float3 h = frac(v.xyx * float3(.1031,.11369,.13787));
+                h += dot(h,h.yzx + 19.19);
+                h = frac((h.xxy+h.yzz)*h.zyx);
+                float sine, cosine;
+                sincos(h.z * 6.2831853,sine,cosine);
+                float2x2 spin = float2x2(cosine,-sine,sine,cosine);
+                float frequency = lerp(1.33,1.93,h.y);
+                float2 uv = mul(spin,(lattice-v)*(frequency/1.57)) + h.xy;
+                // Explicit derivatives exclude the wrap and random cell offsets.
+                float4 grain = Texture2DSampleGrad(SweepFloorDetail,SiteEarthSampler,
+                    frac(uv)*atlasScale + float2(8./2048.,8./1024.),
+                    mul(spin,dX)*(atlasScale*frequency),mul(spin,dY)*(atlasScale*frequency));
+                relief += weights[i]*grain.rg;
+                float2 localSlope = (grain.ba-float2(.332,.476))*2.;
+                chipN += weights[i]*mul(localSlope,spin);
+            }
+            chip.rg = lerp(chip.rg,relief,chipVisibility);
+            chipN = mul(unpack,chipN)*chipVisibility;
+        }

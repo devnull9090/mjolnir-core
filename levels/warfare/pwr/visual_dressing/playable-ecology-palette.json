@@ -1,0 +1,61 @@
+{
+  "kinds": {
+    "fern": {
+      "meshes": [
+        "/Game/Megascans/3D_Plants/BeechFern/SM_BeechFern_14.SM_BeechFern_14",
+        "/Game/Megascans/3D_Plants/BeechFern/SM_BeechFern_15.SM_BeechFern_15"
+      ],
+      "cull": [
+        3800,
+        6500
+      ],
+      "rule": "fern",
+      "bands": 1,
+      "shadow": false,
+      "static": true
+    },
+    "birch": {
+      "meshes": [
+        "/Game/Megascans/3D_Plants/Dwarf_Birch_xblnaabqx/S_Dwarf_Birch_xblnaabqx_Var3_lod0.S_Dwarf_Birch_xblnaabqx_Var3_lod0",
+        "/Game/Megascans/3D_Plants/Dwarf_Birch_xblnaabqx/S_Dwarf_Birch_xblnaabqx_Var5_lod0.S_Dwarf_Birch_xblnaabqx_Var5_lod0"
+      ],
+      "cull": [
+        6000,
+        10500
+      ],
+      "rule": "birch",
+      "bands": 1,
+      "shadow": true,
+      "static": true
+    },
+    "balsam": {
+      "meshes": [
+        "/Game/Megascans/3D_Plants/Small_Balsam_xefmcgrqx/SM_Small_Balsam_xefmcgrqx_03.SM_Small_Balsam_xefmcgrqx_03",
+        "/Game/Megascans/3D_Plants/Small_Balsam_xefmcgrqx/SM_Small_Balsam_xefmcgrqx_06.SM_Small_Balsam_xefmcgrqx_06"
+      ],
+      "cull": [
+        3500,
+        6000
+      ],
+      "rule": "balsam",
+      "bands": 1,
+      "shadow": false,
+      "static": true
+    },
+    "stone": {
+      "meshes": [
+        "/Game/Megascans/3D_Assets/Mossy_stones_pack_tliiadmva/SM_Mossy_Stones_Pack_tliiadmva_Var_01.SM_Mossy_Stones_Pack_tliiadmva_Var_01",
+        "/Game/Megascans/3D_Assets/Mossy_stones_pack_tliiadmva/SM_Mossy_Stones_Pack_tliiadmva_Var_02.SM_Mossy_Stones_Pack_tliiadmva_Var_02",
+        "/Game/Megascans/3D_Assets/Mossy_stones_pack_tliiadmva/SM_Mossy_Stones_Pack_tliiadmva_Var_04.SM_Mossy_Stones_Pack_tliiadmva_Var_04"
+      ],
+      "cull": [
+        4000,
+        7500
+      ],
+      "rule": "stone",
+      "bands": 1,
+      "shadow": false,
+      "static": true
+    }
+  }
+}

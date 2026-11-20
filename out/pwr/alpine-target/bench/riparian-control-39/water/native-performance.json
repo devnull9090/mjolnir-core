@@ -1,0 +1,163 @@
+{
+  "camera": [
+    -27300,
+    -78500,
+    15200,
+    -4.5376,
+    -122.9694,
+    73
+  ],
+  "settings": {
+    "viewport_w": "3840.0",
+    "viewport_h": "2160.0",
+    "world": "World /Game/Levels/Halo1/Solo/PWR/PWR.PWR",
+    "hud": "false",
+    "display_mode": "1",
+    "saved_vsync": "false",
+    "saved_fps_limit": "0.0",
+    "dynamic_resolution_setting": "false",
+    "saved_frame_generation": "false",
+    "sg.ViewDistanceQuality": "3",
+    "sg.AntiAliasingQuality": "3",
+    "sg.ShadowQuality": "3",
+    "sg.GlobalIlluminationQuality": "3",
+    "sg.ReflectionQuality": "3",
+    "sg.PostProcessQuality": "3",
+    "sg.TextureQuality": "3",
+    "sg.EffectsQuality": "3",
+    "sg.FoliageQuality": "3",
+    "sg.ShadingQuality": "3",
+    "r.ScreenPercentage": "66.666999816895",
+    "sg.ResolutionQuality": "0.0",
+    "t.MaxFPS": "59.997001647949",
+    "r.VSync": "1.0",
+    "t.IdleWhenNotForeground": "0.0",
+    "r.DynamicRes.OperationMode": "0.0",
+    "r.DynamicRes.MinScreenPercentage": "50.0",
+    "r.DynamicRes.MaxScreenPercentage": "100.0",
+    "r.AntiAliasingMethod": "4.0",
+    "r.TemporalAA.Upsampling": "1.0",
+    "r.NGX.DLSS.Enable": "1.0",
+    "r.Streamline.DLSSG.Enable": "0.0",
+    "r.FidelityFX.FSR3.Enabled": "0.0",
+    "r.FidelityFX.FI.Enabled": "0.0",
+    "r.ViewDistanceScale": "1.0",
+    "r.Nanite": "1.0",
+    "r.Shadow.Virtual.Enable": "1.0",
+    "foliage.DensityScale": "1.0",
+    "grass.DensityScale": "1.0",
+    "r.Streaming.PoolSize": "1800.0"
+  },
+  "module_sha256": "48ddd5fd9c403e6851d0e20451dc7a85929ed12382f633234285a0d3c1e5c77b",
+  "windows": [
+    {
+      "frames": 900,
+      "seconds": 15.009,
+      "engine_clock_seconds": 15.0097619,
+      "fps": 59.96402158704777,
+      "mean_frame_ms": 16.676666666666666,
+      "p50_frame_ms": 17.0,
+      "p95_frame_ms": 18.0,
+      "p99_frame_ms": 18.0,
+      "worst_frame_ms": 21.0,
+      "native_mean": {
+        "game_ms": 16.601,
+        "game_critical_ms": 16.67,
+        "draw_ms": 3.58,
+        "draw_critical_ms": 14.954,
+        "rhit_ms": 3.399,
+        "gpu_ms": 6.907
+      },
+      "frame_histogram_tenths_ms": {
+        "120": 1,
+        "140": 3,
+        "150": 21,
+        "160": 309,
+        "170": 502,
+        "180": 56,
+        "190": 7,
+        "210": 1
+      }
+    },
+    {
+      "frames": 900,
+      "seconds": 15.012,
+      "engine_clock_seconds": 15.0102904,
+      "fps": 59.95203836930455,
+      "mean_frame_ms": 16.68,
+      "p50_frame_ms": 17.0,
+      "p95_frame_ms": 18.0,
+      "p99_frame_ms": 18.0,
+      "worst_frame_ms": 20.0,
+      "native_mean": {
+        "game_ms": 16.6,
+        "game_critical_ms": 16.674,
+        "draw_ms": 3.723,
+        "draw_critical_ms": 14.93,
+        "rhit_ms": 3.5,
+        "gpu_ms": 7.65
+      },
+      "frame_histogram_tenths_ms": {
+        "150": 14,
+        "160": 313,
+        "170": 524,
+        "180": 46,
+        "190": 2,
+        "200": 1
+      }
+    },
+    {
+      "frames": 900,
+      "seconds": 15.009,
+      "engine_clock_seconds": 15.0101752,
+      "fps": 59.96402158704777,
+      "mean_frame_ms": 16.676666666666666,
+      "p50_frame_ms": 17.0,
+      "p95_frame_ms": 18.0,
+      "p99_frame_ms": 18.0,
+      "worst_frame_ms": 20.0,
+      "native_mean": {
+        "game_ms": 16.604,
+        "game_critical_ms": 16.676,
+        "draw_ms": 3.739,
+        "draw_critical_ms": 14.919,
+        "rhit_ms": 3.412,
+        "gpu_ms": 6.968
+      },
+      "frame_histogram_tenths_ms": {
+        "140": 2,
+        "150": 20,
+        "160": 312,
+        "170": 506,
+        "180": 54,
+        "190": 5,
+        "200": 1
+      }
+    }
+  ],
+  "aggregate": {
+    "frames": 2700,
+    "measured_seconds": 45.03,
+    "fps": 59.96002664890073,
+    "mean_frame_ms": 16.677777777777777,
+    "p50_frame_ms": 17.0,
+    "p95_frame_ms": 18.0,
+    "p99_frame_ms": 18.0,
+    "worst_frame_ms": 21.0,
+    "native_mean": {
+      "game_ms": 16.601666666666667,
+      "game_critical_ms": 16.673333333333332,
+      "draw_ms": 3.6806666666666663,
+      "draw_critical_ms": 14.934333333333333,
+      "rhit_ms": 3.437,
+      "gpu_ms": 7.175
+    },
+    "pass_means_ms": [
+      16.676666666666666,
+      16.68,
+      16.676666666666666
+    ],
+    "hitches_over_33ms": 0,
+    "hitches_over_50ms": 0
+  }
+}

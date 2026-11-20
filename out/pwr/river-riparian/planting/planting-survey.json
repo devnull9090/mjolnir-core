@@ -1,0 +1,142 @@
+{
+  "Rye": {
+    "left_outlet": {
+      "in_frame": 128,
+      "median_height_cm": 105.42,
+      "median_projected_height_px": 20.14,
+      "max_distance_m": 86.48
+    },
+    "right_outlet": {
+      "in_frame": 142,
+      "median_height_cm": 102.95,
+      "median_projected_height_px": 21.73,
+      "max_distance_m": 86.05
+    },
+    "lake_margin": {
+      "in_frame": 417,
+      "median_height_cm": 93.65,
+      "median_projected_height_px": 6.23,
+      "max_distance_m": 238.92
+    }
+  },
+  "RushFan": {
+    "left_outlet": {
+      "in_frame": 178,
+      "median_height_cm": 103.46,
+      "median_projected_height_px": 20.61,
+      "max_distance_m": 86.54
+    },
+    "right_outlet": {
+      "in_frame": 189,
+      "median_height_cm": 103.18,
+      "median_projected_height_px": 20.71,
+      "max_distance_m": 89.45
+    },
+    "lake_margin": {
+      "in_frame": 584,
+      "median_height_cm": 99.85,
+      "median_projected_height_px": 6.61,
+      "max_distance_m": 239.33
+    }
+  },
+  "RushStem": {
+    "left_outlet": {
+      "in_frame": 147,
+      "median_height_cm": 107.33,
+      "median_projected_height_px": 23.54,
+      "max_distance_m": 84.42
+    },
+    "right_outlet": {
+      "in_frame": 150,
+      "median_height_cm": 108.99,
+      "median_projected_height_px": 21.72,
+      "max_distance_m": 88.93
+    },
+    "lake_margin": {
+      "in_frame": 424,
+      "median_height_cm": 97.42,
+      "median_projected_height_px": 6.46,
+      "max_distance_m": 239.53
+    }
+  },
+  "WillowCrown": {
+    "left_outlet": {
+      "in_frame": 26,
+      "median_height_cm": 159.02,
+      "median_projected_height_px": 32.36,
+      "max_distance_m": 77.95
+    },
+    "right_outlet": {
+      "in_frame": 19,
+      "median_height_cm": 155.77,
+      "median_projected_height_px": 27.55,
+      "max_distance_m": 79.84
+    },
+    "lake_margin": {
+      "in_frame": 103,
+      "median_height_cm": 147.48,
+      "median_projected_height_px": 10.12,
+      "max_distance_m": 238.43
+    }
+  },
+  "WillowTall": {
+    "left_outlet": {
+      "in_frame": 21,
+      "median_height_cm": 251.37,
+      "median_projected_height_px": 52.77,
+      "max_distance_m": 82.5
+    },
+    "right_outlet": {
+      "in_frame": 17,
+      "median_height_cm": 283.93,
+      "median_projected_height_px": 53.32,
+      "max_distance_m": 81.18
+    },
+    "lake_margin": {
+      "in_frame": 54,
+      "median_height_cm": 215.93,
+      "median_projected_height_px": 14.53,
+      "max_distance_m": 239.16
+    }
+  },
+  "SunRye": {
+    "left_outlet": {
+      "in_frame": 431,
+      "median_height_cm": 95.43,
+      "median_projected_height_px": 19.23,
+      "max_distance_m": 91.76
+    },
+    "right_outlet": {
+      "in_frame": 417,
+      "median_height_cm": 96.58,
+      "median_projected_height_px": 19.75,
+      "max_distance_m": 89.07
+    },
+    "lake_margin": {
+      "in_frame": 1699,
+      "median_height_cm": 88.14,
+      "median_projected_height_px": 5.81,
+      "max_distance_m": 245.43
+    }
+  },
+  "SunWild": {
+    "left_outlet": {
+      "in_frame": 268,
+      "median_height_cm": 65.47,
+      "median_projected_height_px": 12.95,
+      "max_distance_m": 89.74
+    },
+    "right_outlet": {
+      "in_frame": 271,
+      "median_height_cm": 62.44,
+      "median_projected_height_px": 12.64,
+      "max_distance_m": 88.7
+    },
+    "lake_margin": {
+      "in_frame": 1157,
+      "median_height_cm": 58.79,
+      "median_projected_height_px": 3.68,
+      "max_distance_m": 245.97
+    }
+  }
+}

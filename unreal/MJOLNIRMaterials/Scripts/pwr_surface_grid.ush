@@ -1,0 +1,12 @@
+        // Hash the four absolute integer vertices. Two cells which share
+        // an edge must arrive at exactly the same values on that edge.
+        uint2 vertexID = asuint(int2(GRID_CELL));
+        uint4 vertexX = vertexID.x + uint4(0,1,0,1);
+        uint4 vertexY = vertexID.y + uint4(0,0,1,1);
+        uint4 cornerHash = (vertexX * 0x68bc21ebu) ^ (vertexY * 0x02e5be93u);
+        cornerHash ^= cornerHash >> 16u;
+        cornerHash *= 0x7feb352du;
+        cornerHash ^= cornerHash >> 15u;
+        cornerHash *= 0x846ca68bu;
+        cornerHash ^= cornerHash >> 16u;
+        float4 GRID_VALUES = float4(cornerHash >> 8u) * (1.0 / 16777216.0);

@@ -1,0 +1,29 @@
+8.1 / 10
+Tier 3
+
+Independent visual review of all ten v16 images: red-hero, blue, blue-oblique, green, green-rear, roof, interior, gallery, passage-left and passage-right, against concept-team-refined.png. Continuity checked against judge-r8.txt and the actual v14 blue-oblique, both passages, interior and gallery images. Architecture only. Terrain, forest, sky and presentation are excluded. Native 6 m Warthog scale remains accepted. Ground-level views are authoritative for interior ceiling coverage. No game or FPS gate applies while game testing is paused.
+
+The architecture reaches the requested 8-level visual threshold. This is a modest, visible improvement over 7.8: both short-passage floors now form continuous walking surfaces, and the left passage no longer ends in a defective black rectangle. The paired recessed bulkheads read as intentional shaded assemblies with angular surrounds and restrained header lights. Additional low fixtures make the chamber floor more legible without lifting the entire interior. Main-tunnel ribbing, ceiling layers, paving, roof coverage and exterior materials retain their previously accepted quality. Tier 4 is not fully passed: crown overlap construction remains weak, and the short-passage fixture sequence is still incomplete. The score does not imply a complete concept match or pixel-level finish.
+
+PREVIOUS DIRECTIVES
+1. Dominant armor, upper deck and apron material response — LANDED, retained. Broad panel variation, bevel response and substantial hard-surface forms remain coherent. No broad material regression is visible.
+2. Dark facade inserts and channel cuts — LANDED, retained. Recessed blue-gray panels remain distinct from the lighter shell; trim is restrained.
+3. Ramps and main-interior paving — LANDED, retained. The accepted main tunnel and gallery stay fitted and reflective. The formerly separate short-passage threshold defect is now resolved as well.
+4. Separated cool passage pools and small entrances — PARTIAL, improved. New low fixtures under the chamber ribs produce discrete floor contributions beyond each passage mouth. Within the short entrance itself, however, the near floor still reads mostly as one broad reflected pool around a single clearly legible paired wall-light station. Two sequential stations within that passage are not yet convincingly visible. Preserve the current main-tunnel and chamber exposure.
+5. Layered ceiling, readable right ribs and polygonal rear aperture — LANDED, retained. interior-v16.png shows the continuous layered ceiling, supported ribs and shaded polygonal aperture. The low gallery view also retains its covered ceiling. Elevated exterior occlusion does not reopen this issue.
+6. Overlapping crown and fin construction — PARTIAL, retained. Supported thickness and seated shoulders survive. The front crown still reads as a mostly level lip with butt seams; deliberate stepped interlocks and their short return faces remain difficult to distinguish in both hero and oblique views.
+7. Blue roof surface integrity — LANDED, retained. The repaired continuous deck and closed front corners remain present in the oblique and roof images. No broad missing region has returned.
+8. Roof seam finish — LANDED, retained. Visible long highlights follow the accepted slab grid. No return of the unrelated diagonal partitions.
+
+R8 LOCALIZED BLOCKERS
+1. Front crown construction — PARTIAL. The accepted structural backing is preserved, but there is no clear visual completion of the requested purposeful laps.
+2. Small-passage floor joins — LANDED. Both v16 ground-level passage images remove the wide dark undercut and isolated raised foreground plates visible in v14. Seams now read as fitted joints across one continuous floor; the threshold no longer resembles floating paving sheets.
+3. Small-passage light rhythm — PARTIAL, improved. The added chamber-rib foot lights create separated pools farther into the assembly. They improve the overall progression but do not fully establish the requested two-station sequence down each short entrance.
+4. Left passage terminal opening/surface — LANDED. The v14 black rectangle and stray warm pixels are gone. passage-left-v16.png shows a continuously shaded inset plate, a polygonal surround with visible depth, and an integrated header fixture. The right terminal and gallery retain a coherent shaded counterpart. This satisfies the previous allowed closed-plate alternative.
+
+BLOCKING: NEXT GATE IS TIER 4, FINE DETAIL
+1. Front crown articulation: retain the solid deck backing and add two or three clearly designed laps per wing. Each should overlap roughly 0.6–1.0 m, step 0.10–0.18 m, and end in a short 0.12–0.20 m return face. At present the hero and blue oblique mainly show a horizontal strip broken by vertical seams. The revised construction must expose a restrained occluded pocket and a visibly stepped silhouette from those same cameras, without recreating unsupported black wedges. Apply the same treatment only to exposed fin-shoulder lap ends that need it.
+2. Short-passage fixture sequence: the new chamber foot lights are useful, but add or reposition one restrained recessed fixture station within the near half of each short passage so that two stations are legible along its depth, approximately one structural bay apart. Use 3–6 cm-deep fixture recesses and localized lower-wall/floor pools about 0.6–1.0 m long with a darker interval between them. The near passage should not depend on one broad reflected floor highlight to imply that sequence. Keep current gallery, terminal and main-tunnel lighting unchanged.
+
+FURTHER DIRECTIVES
+None. The two carried-forward detail gaps explain why this remains Tier 3 despite crossing the requested numeric threshold. No accepted broad gate is reversed, and no runtime/FPS conclusion is made.

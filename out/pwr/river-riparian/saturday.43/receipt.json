@@ -1,0 +1,168 @@
+{
+  "archive": "pelican-warfare-0.1.0-playtest.43.mjolnir",
+  "sha256": "c150968c5c0a689d0582f2c6279ad4951000fc5cfbc8d3c8763320d92687492f",
+  "bytes": 571317309,
+  "ce_content_runtime": "=1.24.0",
+  "variants": {
+    "fireteam": {
+      "warfare.mglo": "0845ca420111f318cb80bd56336fee4cadd59778bace541e51a9a7dc53e764c7",
+      "warfare.layout.json": "aac75c7320bef8e534d479b17e549e67773b41810e4298d6e42dd63e8d9ab3b1"
+    },
+    "solo-rehearsal": {
+      "warfare.mglo": "5fdab91db27c01fb1d274efb81a734a56f42f5a29e735b97dbcfd553ae53cb9c",
+      "warfare.layout.json": "aac75c7320bef8e534d479b17e549e67773b41810e4298d6e42dd63e8d9ab3b1"
+    }
+  },
+  "baseline_sha256": "dc06be35b9549104baaba411eb86395651630b1011db4009918f08d1c76d8f0e",
+  "members_sha256": {
+    "content/pakchunk954-MJOLNIRPORTALGUIDES-PWR_P.utoc": "0ca0811bd3241150cfea5538aa6dbf600b55a60cb69a506c2da1334f5a08c04a",
+    "content/pakchunk954-MJOLNIRPORTALGUIDES-PWR_P.ucas": "8820fc8f68bec94d68ba3f3c15f5e2a764dbe0bdfa8296f212a7140c2bdfa9c2",
+    "content/pakchunk955-MJOLNIRPWRBASES-PWR_P.utoc": "970f7191fb7bafbd0f89b7307662ea9ecfaa2f8b076d3e7f64288c07d920ea49",
+    "content/pakchunk955-MJOLNIRPWRBASES-PWR_P.ucas": "efe37bc07f1b23e92f046036d48922983a1bd14a37d7e2e636bc34f09de66199",
+    "content/pakchunk957-MJOLNIRPWRCHUTEV2-PWR_P.utoc": "2d8648975f4e9dcd4c121f8881890af6be343d75ef3e5e621cc92242825c28fc",
+    "content/pakchunk957-MJOLNIRPWRCHUTEV2-PWR_P.ucas": "7e7773d4722438f5bdf2be69afe88da0b49f08da4c4c15d6c84e5d61aaec0e69",
+    "content/pakchunk959-MJOLNIRPWRMATUREPINE-PWR_P.utoc": "e898d8ae125cb8539619b0d0174e9be1085d1e2946b6248ce2f684488e4999ae",
+    "content/pakchunk959-MJOLNIRPWRMATUREPINE-PWR_P.ucas": "56475d76d051cc7b100f2ac5e790bac28cce166f223706ea437adcdd6d2cf5b6",
+    "content/pakchunk963-MJOLNIRPWRVISTA-PWR_P.utoc": "a73f4d9a3810f23da52c6e6df8265cec7ad8570ba6a37db0c372fbc04c093e23",
+    "content/pakchunk963-MJOLNIRPWRVISTA-PWR_P.ucas": "41c8ed28f837149418feb0297aaac1938bb501be331cf28f4820dc2728624618",
+    "content/pakchunk964-MJOLNIRPWRCHUTE-PWR_P.utoc": "028d288805d65d9890f7d12081d8bc5b73e33802bc9739a84185fa5a90109939",
+    "content/pakchunk964-MJOLNIRPWRCHUTE-PWR_P.ucas": "c7373c56a8a81041d7dab2a70b1c9268e42bd0d3071fc077244d952910b1e458",
+    "content/pakchunk965-MJOLNIRLAND-PWR_P.utoc": "83339ffba25649988fdd82560e5cc6edb050542502b022fd0defdb302e773b48",
+    "content/pakchunk965-MJOLNIRLAND-PWR_P.ucas": "143d706011860932e7b1d7b88ce942f86b10404a52a469ca3411e2eb4c61b18e",
+    "content/pakchunk966-MJOLNIRGRASS-PWR_P.utoc": "3ed68aaab1c08c2391c3e41cd6983fbe6c9e02b7a174827ed79801625f3e04cd",
+    "content/pakchunk966-MJOLNIRGRASS-PWR_P.ucas": "f009a24c36279eb9874c5f535430d0d462bc69f51f55d62e5b0594e60d6652bb",
+    "content/pakchunk971-MJOLNIRPWRPELICAN-PWR_P.utoc": "cde79f25a2c051400809c97a8714804658e0af913d738ae8ed375db712ff0a2d",
+    "content/pakchunk971-MJOLNIRPWRPELICAN-PWR_P.ucas": "edab72a2498d7d326b340899e262a19fc4c445da36f1d4eac73105a35599fa06",
+    "content/pakchunk985-MJOLNIRCOOK-PWR_P.utoc": "d70db97508e62bf35aff150a2f73eb0db6a745a65519034fb7ab6a90c674b95d",
+    "content/pakchunk985-MJOLNIRCOOK-PWR_P.ucas": "7b7a359e26011570460943e2020e22bcdd201d35a8ca38302398e6f79f412b80",
+    "content/pakchunk986-MJOLNIRMESH-PWR_P.utoc": "ba2167c415ebb41be54cc7b8f32e5880b78d02eb54a25109c0c79cf27d11b668",
+    "content/pakchunk986-MJOLNIRMESH-PWR_P.ucas": "74ee41bb101fcf516c6209081e805879d4290c389402d0f3be53b67f4cea601f",
+    "content/pakchunk997-MJOLNIRMAP-PWR_P.utoc": "80cf681f6c4c9bc91a212f454a8a2713af8d3c53588472a5f789957983aaac5f",
+    "content/pakchunk997-MJOLNIRMAP-PWR_P.ucas": "688216830cf509d61bee2777cf5f164300489dd4b13d857527a6bce788f1b441",
+    "map/level.json": "df0cb712da6a2a3df74ae9ff23439bd3c2c033a7fab3b6e6ff64e284032c25f7",
+    "map/registration.json": "35669cbac6e4741c4d7faa7a2f46a30c2c0bd866d3d7865c927cad87c729d489",
+    "map/foliage.bin": "123a22fb1ff1ef4c2938c4564a503e5d9d4699a470e20e01ecb67b28e1ab4d21",
+    "map/flux_state/upper_river/state.json": "ac91ca6891f1110720c31ebac234d06d649636993cb0cc49aed65fbb714c4afb",
+    "map/flux_state/upper_river/height.exr": "6bbfc6f8543b6b7ee9de35665b6c16ad43fae587814bddb462073df6c4453b6d",
+    "map/flux_state/upper_river/velocity.exr": "b97993b05979ac8940068d3bffcc714205a128dc39882bf1aefbe94da9a41bf9",
+    "map/flux_state/upper_river/ground.exr": "1b9d39a04d031c15afb1211765a6499bf1a04a4554262ef4256253b978871aa8",
+    "map/flux_state/lower_lake/state.json": "491b51ef38304d7919b813f862dd4bcf657a05ce3416f8b2c370a52ab528e71d",
+    "map/flux_state/lower_lake/height.exr": "813af334eff23f36173112d1b37a8ee36aa14920a804e65241fffc60375072c2",
+    "map/flux_state/lower_lake/velocity.exr": "0a50c38f8f70c3fef8f5db5a9acc13f3de42181a95fa7abf5a3f299ca4cab5c0",
+    "map/flux_state/lower_lake/ground.exr": "6d6bf0bd722d5ec518d063ccbf632c8ecf5a708110ef6f394a99a102ddcc4b20",
+    "content/pakchunk956-MJOLNIRPWRSURFACES-PWR_P.utoc": "4544d3c9950fb7f5ff87f62e13ded8a7ed47861b7247a46f7f063db5fbcf2da6",
+    "content/pakchunk956-MJOLNIRPWRSURFACES-PWR_P.ucas": "23a9b8d14003cb18305b353d96643064a0ccff768691dd87d3324e1cce0379ab",
+    "content/pakchunk953-MJOLNIRBASEPOLISH-PWR_P.utoc": "3521ff2f9e7dc48ab941d0fde7f7c73d23c067351acfca55a961ced7e28905da",
+    "content/pakchunk953-MJOLNIRBASEPOLISH-PWR_P.ucas": "d0f1a5ecb4e7c858aa142e2c6e35f6f8b3b570640d2a486e30b3fdc64e8ce946",
+    "content/pakchunk952-MJOLNIRPWRAPPROACHES-PWR_P.utoc": "89ebacef4baa0597d24703c549b6e5968591edac71931ea0be75a6e4bdcafb61",
+    "content/pakchunk952-MJOLNIRPWRAPPROACHES-PWR_P.ucas": "462aed8ead2c257ac75db281771857ffe524b6993a8f7f698ba5a0f04d5bad6c",
+    "content/pakchunk951-MJOLNIRPWRSITEFINISH-PWR_P.utoc": "aa50c5a3a7a19f076a58be27678df71f1da7b2fbcb1c5304fec12dffc966739c",
+    "content/pakchunk951-MJOLNIRPWRSITEFINISH-PWR_P.ucas": "09009892eea3004f2e8617fab7570b2296fe177f03db02d64f5d025605ddc370"
+  },
+  "installed": false,
+  "modified_members": [
+    "content/pakchunk965-MJOLNIRLAND-PWR_P.ucas",
+    "content/pakchunk965-MJOLNIRLAND-PWR_P.utoc",
+    "content/pakchunk997-MJOLNIRMAP-PWR_P.ucas",
+    "content/pakchunk997-MJOLNIRMAP-PWR_P.utoc"
+  ],
+  "riparian_shore": {
+    "native_members": {
+      "pakchunk965-MJOLNIRLAND-PWR_P.ucas": "143d706011860932e7b1d7b88ce942f86b10404a52a469ca3411e2eb4c61b18e",
+      "pakchunk965-MJOLNIRLAND-PWR_P.utoc": "83339ffba25649988fdd82560e5cc6edb050542502b022fd0defdb302e773b48",
+      "pakchunk997-MJOLNIRMAP-PWR_P.ucas": "688216830cf509d61bee2777cf5f164300489dd4b13d857527a6bce788f1b441",
+      "pakchunk997-MJOLNIRMAP-PWR_P.utoc": "80cf681f6c4c9bc91a212f454a8a2713af8d3c53588472a5f789957983aaac5f"
+    },
+    "editor": {
+      "assets": {
+        "M_PWR_SpringCascade": "/Game/MJOLNIR/GrassPilot/Playable/M_PWR_SpringCascade.M_PWR_SpringCascade",
+        "SM_PWR_SpringCascade": "/Game/MJOLNIR/GrassPilot/Playable/SM_PWR_SpringCascade.SM_PWR_SpringCascade",
+        "M_PWR_CutbankRoots": "/Game/MJOLNIR/GrassPilot/Playable/M_PWR_CutbankRoots.M_PWR_CutbankRoots",
+        "SM_PWR_CutbankRoots": "/Game/MJOLNIR/GrassPilot/Playable/SM_PWR_CutbankRoots.SM_PWR_CutbankRoots",
+        "M_PWR_RiparianSun": "/Game/MJOLNIR/GrassPilot/Playable/M_PWR_RiparianSun.M_PWR_RiparianSun",
+        "MI_PWR_RiparianCanyon": "/Game/MJOLNIR/GrassPilot/Playable/MI_PWR_RiparianCanyon.MI_PWR_RiparianCanyon",
+        "MI_PWR_RiparianWild": "/Game/MJOLNIR/GrassPilot/Playable/MI_PWR_RiparianWild.MI_PWR_RiparianWild",
+        "MI_PWR_RiparianWillow": "/Game/MJOLNIR/GrassPilot/Playable/MI_PWR_RiparianWillow.MI_PWR_RiparianWillow",
+        "T_PWR_RiparianWillow": "/Game/MJOLNIR/GrassPilot/Playable/T_PWR_RiparianWillow.T_PWR_RiparianWillow"
+      },
+      "modules": {
+        "apply_pwr_cutbank_roots": "1734b642eeb329cda1b04dc7a2905415d8c248cb533ef90a62c7446d5137d232",
+        "apply_pwr_riparian_canopy": "e308d15b467008f80db213f7d67d37efc0e1e3bd374f2eed722c499c11ff4b44",
+        "apply_pwr_spring_cascade": "1df543f98be3c78e5244b855f868d226c2fca4e740feb4c017f589abe04d870a"
+      }
+    },
+    "land_packages": {
+      "ShaderArchive-Meteorite_Chunk965-PCD3D_SM6-PCD3D_SM6.ushaderbytecode": [
+        "30167be862eebfabac8ad51992e8e1efaaabfa6f801edf6375c524b33a7e64f0",
+        "1f9ad3ac6b5dc64acff3fc5992fac1ca947bc432eaefbec06d0b288ca3f4d724"
+      ],
+      "MJOLNIR/GrassPilot/Playable/MI_PWR_RiparianCanyon.uasset": [
+        null,
+        "ce7ec25dfc5638d65b921bf55715ad4422aa3d1bb12f393bb12dad081a2fb89c"
+      ],
+      "MJOLNIR/GrassPilot/Playable/MI_PWR_RiparianWild.uasset": [
+        null,
+        "09bd47b9b6612486d0a93fa6b3bec49bd6d6039af1a3242455bcd2281825a546"
+      ],
+      "MJOLNIR/GrassPilot/Playable/SM_PWR_SpringCascade.uasset": [
+        null,
+        "f3b4b592e297be86a6d01456aa70281aa25394571944f8e115f7f0134447aa4b"
+      ],
+      "MJOLNIR/GrassPilot/Playable/MI_PWR_RiparianWillow.uasset": [
+        null,
+        "2393eaba30ebd636d524796fb07680257782de0bf61acc386a1df05669023b03"
+      ],
+      "MJOLNIR/GrassPilot/Playable/T_PWR_RiparianWillow.uasset": [
+        null,
+        "15848d40d73ee1694c5dffa66360adc5d53eb1b536308469297c4ec1bbeb5d2d"
+      ],
+      "MJOLNIR/GrassPilot/Playable/M_PWR_CutbankRoots.uasset": [
+        null,
+        "36a0c7c5b7c663d82f87a3225a1db6b90fd463b4ec5f097ffe4c06abb09a7776"
+      ],
+      "MJOLNIR/GrassPilot/Playable/M_PWR_RiparianSun.uasset": [
+        null,
+        "87e3df306fe1c54154060a4516210b1ff6645aae1c4693a1a9ac75e14163976d"
+      ],
+      "MJOLNIR/GrassPilot/Playable/T_PWR_RiparianWillow.ubulk": [
+        null,
+        "223c5e44d0c5d15a17ba7c49fcf368f069c89877225f01c0411cf5c6825e3083"
+      ],
+      "MJOLNIR/GrassPilot/Playable/M_PWR_SpringCascade.uasset": [
+        null,
+        "d27652a62f54a8d7678af7aa9672b37894a3afaf8102858a54240dc6a325dff6"
+      ],
+      "MJOLNIR/GrassPilot/Playable/SM_PWR_CutbankRoots.uasset": [
+        null,
+        "9c9bd1d425afba79d38eeefc002e7bad0f55cd455b32ddd3186650d92be51551"
+      ],
+      "Levels/Halo1/Solo/LPE/LPE.umap": [
+        "8d401b474085526f7b2a1a2e9da1ee09d869349211d69c2fad087ac877f3b87f",
+        "da4aabf0601909aae292cf5245c82a3b6cff4c02fbe0ab40ad715d96e21d2a78"
+      ]
+    },
+    "world_packages": {
+      "Meteorite/Content/Tags/Levels/Halo1/Solo/PWR/_Generated_/BSP_01_1_Start-scenario_structure_bsp.uasset": [
+        "42fb0b59230c62e36246c1e14b8193f54b0b889677352928f2cb67efb24a56da",
+        "5f4c25898065a975a30a9d5e667e6343b271495080bb3eab8c3292b339d1a95f"
+      ],
+      "Meteorite/Content/Tags/Levels/Halo1/Solo/PWR/_Generated_/BSP_01_1_Start-scenario_structure_bsp.ubulk": [
+        "e1968b78e8f19d66331bb52fa0db2e1f0b533f2fe0da56cb04be75adfd6824e2",
+        "a0f30149eeb7593dcf7872e76be8b1ec36ed1d37f96b619c779bf59868aa110f"
+      ],
+      "Meteorite/Content/Levels/Halo1/Solo/PWR/PWR.umap": [
+        "bc0fd3b65f6b6a23ccedff4a779f4be92e20d00a4f21209c5fef0eb4ca91864a",
+        "0fcf9181bb22e002636d9516158ab905925a6616cc4bf3c2e96ebc8382315945"
+      ]
+    },
+    "base_bsp_sha256": "942786ce890213faae40ed54aaa024dbd4098bd8cb65277347762217e60aedce",
+    "compiled_bsp_sha256": "b03b92e641c2ca1f6d6ec4254f0b69a197eafc9d90ab07ac6b4e9ed7c23a1dfe",
+    "shore_support": {
+      "previous_scene_sha256": "f3f3ab0c55e8ac0a8dc2e0c6bf540eba273bf96ee16a30db37858050924a339d",
+      "source_support_sha256": "7bd7cee38c9ee886aefbd554bbc0b13c19007f444f45b9366bea83e9402850c5",
+      "support_sha256": "f633f129bc9bc1ec17b4554ec3572bbf50bd78efb0aa9239f2363518569d3736",
+      "changed_faces": 72
+    }
+  },
+  "compiled_bsp_sha256": "b03b92e641c2ca1f6d6ec4254f0b69a197eafc9d90ab07ac6b4e9ed7c23a1dfe"
+}

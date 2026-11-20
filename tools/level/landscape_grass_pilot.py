@@ -18,6 +18,8 @@ SCHEMA = "mjolnir-landscape-grass-pilot-v1"
 ASSETS = "/Game/MJOLNIR/GrassPilot/PWRV7"
 ASSETS_V8 = "/Game/MJOLNIR/GrassPilot/PWRV8"
 WORLD = "/Game/Levels/Halo1/Solo/LPG/LPG"
+FIELD_WORLD = "/Game/Levels/Halo1/Solo/LPE/LPE"
+FIELD_ASSETS = "/Game/MJOLNIR/GrassPilot/Playable"
 CANYON_SOURCE = "/Game/Env/Bio/Grass/CanyonPrinceWildRye/MI_Grass_CanyonPrinceWildRye"
 CANYON_TARGET = "/Game/MJOLNIR/GrassMaterials/PWRV8/MI_PWR_Canyon_Offset10"
 CANYON_OBJECT = CANYON_TARGET + "." + CANYON_TARGET.rsplit("/", 1)[-1]
@@ -244,10 +246,11 @@ def filter_existing_foliage(source, output):
 def validate_config(config, folder):
     """Fail before editor mutations if input hashes, scope, density or bounds changed."""
     folder = Path(folder)
-    if config.get("schema") != SCHEMA or config.get("world") != WORLD:
+    production = config.get("world") == FIELD_WORLD
+    if config.get("schema") != SCHEMA or config.get("world") not in (WORLD, FIELD_WORLD):
         raise ValueError("Not the isolated PWR grass pilot")
     material_inputs = material_cook_inputs(config, folder)
-    expected_assets = ASSETS_V8 if material_inputs else ASSETS
+    expected_assets = FIELD_ASSETS if production else ASSETS_V8 if material_inputs else ASSETS
     if config.get("asset_folder") != expected_assets or config.get("source_world") == WORLD:
         raise ValueError("Pilot source/destination must remain separate")
     if config.get("chunk") != 965:
@@ -268,7 +271,9 @@ def validate_config(config, folder):
         abs(a-b) > 1e-8 for a, b in zip(grid["scale"], [12500/63, 12500/63, 100.])):
         raise ValueError("Landscape transform changed")
     selected = {tuple(v) for v in config["section_bases"]}
-    if selected != {(567, 693), (630, 693)} or len(config["section_bases"]) != 2:
+    if production and (len(selected) != len(config["section_bases"]) or not 3 <= len(selected) <= 256):
+        raise ValueError("Full-field support must name distinct Landscape components")
+    if not production and (selected != {(567, 693), (630, 693)} or len(config["section_bases"]) != 2):
         raise ValueError("Exactly the two reviewed components are permitted")
     for key in ("mask", "texture", "heights"):
         entry = config[key]
@@ -364,9 +369,9 @@ def validate_readback(config, folder, readback, *, require_saved=False):
             "saved_buffers_verified":require_saved}
 
 
-def prepare(output, land, scenery=None):
+def ground_support(land, scenery, *, include_dry_banks=False):
+    """Playable ground after terrain, paving, measured scenery and gameplay clearances."""
     import numpy as np
-    from PIL import Image
     from scipy.ndimage import distance_transform_edt
     import shapely
     from shapely.geometry import MultiPoint, box, shape
@@ -375,8 +380,6 @@ def prepare(output, land, scenery=None):
     import b30_collision, pcg_tree_decor
     from authored_decor import expand_background_trees
 
-    output, land = Path(output).resolve(), Path(land).resolve()
-    output.mkdir(parents=True, exist_ok=True)
     master = ROOT/"levels/warfare/pwr/terrain/runtime-v5/runtime-master.json"
     scenery = Path(scenery).resolve() if scenery else ROOT/"out/pwr/visual-v6/scenery"
     paving_path = ROOT/"out/pwr/visual-v5/base-paving-v3/footprints.geojson"
@@ -387,8 +390,6 @@ def prepare(output, land, scenery=None):
     field = load_heightfield(master)
     if field.dimensions != (1009,1009): raise ValueError("Native field dimensions changed")
     sources = {master, spec_path, land/spec["heights"], paving_path, trees_path, rocks_path, recipes_path}
-    filtered,foliage_sources,filter_receipt=filter_existing_foliage(scenery/"grass/foliage.json",output/"filtered-foliage")
-    sources.update(foliage_sources)
     for item in [field.metadata["height"], *field.metadata["masks"].values()]:
         sources.add((master.parent/item["path"]).resolve())
     trees, rocks, recipes = [json.loads(p.read_text()) for p in (trees_path, rocks_path, recipes_path)]
@@ -430,16 +431,30 @@ def prepare(output, land, scenery=None):
     eligible = np.ones(x.shape,dtype=bool)
     for name in ("road","bases","water"):
         eligible &= field.sample_mask(name,x,y) == 0
-    eligible &= field.sample_mask("shore",x,y) < .25
+    if not include_dry_banks:
+        eligible &= field.sample_mask("shore",x,y) < .25
     eligible &= field.sample_mask("walkable",x,y) > .5
     dy,dx = np.gradient(field.heights_m,field.spacing_m[0])
     normal_z = 1/np.sqrt(1+dx*dx+dy*dy)
     eligible &= field._sample(normal_z,x,y,True) > .8
     eligible = distance_transform_edt(eligible,sampling=spec["scale"][0]/100) > clearance
+    eligible &= ~shapely.intersects_xy(exclusion,x,y)
+    return field, spec, scenery, sources, x, y, eligible, clearance
+
+
+def prepare(output, land, scenery=None):
+    import numpy as np
+    import shapely
+    from PIL import Image
+    from shapely.geometry import box
+    output, land = Path(output).resolve(), Path(land).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    field,spec,scenery,sources,x,y,eligible,clearance = ground_support(land,scenery)
+    filtered,foliage_sources,filter_receipt=filter_existing_foliage(scenery/"grass/foliage.json",output/"filtered-foliage")
+    sources.update(foliage_sources)
     # The whole adjacent pair is one region: its internal shared edge may carry grass.
     region = box(125,-500,375,-375).buffer(-clearance)
     eligible &= shapely.contains_xy(region,x,y)
-    eligible &= ~shapely.intersects_xy(exclusion,x,y)
     # This first structural pilot deliberately uses full density wherever eligible.
     # Production ecology modulation is separate; no PCG/tree/rock selection is modified.
     weights = (eligible.astype(np.uint8)*255)

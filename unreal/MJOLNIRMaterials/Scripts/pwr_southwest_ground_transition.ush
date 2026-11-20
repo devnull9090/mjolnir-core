@@ -1,0 +1,11 @@
+    // The forest survey already distinguishes humus near roots from the
+    // open verge. Dry mineral soil and living greens meet in multi-metre
+    // patches, while the shaded needles keep their smaller colour variation.
+    float grassPatch=smoothstep(.17,.78,standMoisture+.14*(litter.r-.44));
+    float openGround=1-smoothstep(.79,.965,survey.y);
+    float green=saturate(.16+.62*grassPatch+.28*moss+.18*openGround);
+    float3 roughEarth=lerp(soil*float3(.37,.35,.29),humus*float3(1.09,.99,.86),.65);
+    float3 lowGrass=lerp(float3(.054,.070,.031),float3(.126,.156,.073),saturate(.20+.55*litter.r+.24*grassPatch));
+    float3 transition=lerp(roughEarth,lowGrass,green);
+    transition=lerp(transition,russet,pine*(.44+.33*(1-openGround)));
+    forest=lerp(forest,transition,forestMix*(.59+.25*openGround));

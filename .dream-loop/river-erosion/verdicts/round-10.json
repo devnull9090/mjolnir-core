@@ -1,0 +1,31 @@
+{
+  "score": 3.9,
+  "first_failed_gate": "light_colour",
+  "previous_score": 3.8,
+  "regressions": [
+    {"where": "A3-B4 left bank", "what": "A nearly continuous black slit and regularly spaced fans of pale roots now trace the turf edge, making its outline more conspicuous than before."}
+  ],
+  "previous_directives": [
+    {"id": "r9-b1", "status": "not_done"},
+    {"id": "r9-b2", "status": "partial"},
+    {"id": "r9-b3", "status": "not_done"},
+    {"id": "r9-b4", "status": "not_done"},
+    {"id": "r9-n1", "status": "partial"},
+    {"id": "r9-n2", "status": "not_done"},
+    {"id": "r9-n3", "status": "not_done"}
+  ],
+  "blockers": [
+    {"id": "r10-b1", "where": "A4-F4 outlet water", "target": "Broken blue-grey sky reflections follow the current around all three rocks and continue over visible gravel to the bottom edge.", "current": "Brown gravel dominates the foreground and diffuse grey patches beside the rocks provide the only visible indication of flow.", "change": "Carry narrow blue-grey reflections around both flanks of each rock and spread them toward both lower corners with clear gravel between the streaks."},
+    {"id": "r10-b2", "where": "C3-D3 large outlet rocks", "target": "The shaded downstream faces retain grey stone colour and individual fissures are visible.", "current": "The downstream faces are nearly black across their lower halves while the upper faces are bright.", "change": "Lift indirect illumination of the downstream faces until their major fissures are legible at the comparison-sheet size."},
+    {"id": "r10-b3", "where": "A3-B4 exposed left bank", "target": "Dark brown earth extends from the hanging turf down to a shaded gravel toe.", "current": "A thin black slit sits over a brightly lit tan shelf.", "change": "Spread soft shadow from the turf lip down most of the earth face and let it fade across the lower cobbles."},
+    {"id": "r10-b4", "where": "B2-F3 lake", "target": "Soft olive reflections from the far shore reach toward the middle of the lake in vertical patches cut by fine horizontal ripples.", "current": "A narrow dark shoreline reflection gives way to broad blue and tan patches, including a conspicuous pale patch near the right bank.", "change": "Extend the olive reflection roughly halfway to the outlet rocks and break up the right-hand tan patch with short horizontal ripples."},
+    {"id": "r10-b5", "where": "C2-D2 waterfall", "target": "Two turquoise drops have white centers and cast a soft pale reflection broken into horizontal bands.", "current": "The falls contain disconnected white wedges and the reflection repeats their sharp contours.", "change": "Connect the white centers down both tiers, add a thin white impact line at the lake and blur the reflection horizontally."}
+  ],
+  "next": [
+    {"id": "r10-n1", "where": "A3-B4 left turf and roots", "target": "Fine roots hang down a recessed earth face and scattered rounded stones are embedded at its foot.", "current": "Coarse pale roots lie in repeated fans across an almost flat shelf and cobbles follow its upper surface.", "change": "Cut a steeper recessed face, hang roots of varied lengths from irregular gaps and embed separated cobbles at the toe."},
+    {"id": "r10-n2", "where": "E3-F4 right bank", "target": "A widening apron of overlapping grey pebbles separates irregular pockets of upright reeds from the water.", "current": "A thin band of pale flat gravel meets an almost continuous carpet of rounded grass clumps.", "change": "Widen the pebble apron into the grass in uneven pockets, give the cobbles visible overlap and place taller reeds at the intervening waterside points."},
+    {"id": "r10-n3", "where": "B3-D4 outlet rocks and foam", "target": "Sloping shoulders emerge from bright broken foam that wraps each flank and narrows into trails.", "current": "The two tallest rocks have abrupt shoulders and the visible foam forms broad smoky patches near their bases.", "change": "Bevel the upper shoulders and concentrate brighter foam into thin branching lines that hug both flanks before trailing downstream."}
+  ],
+  "excluded": ["Distant mountains and sky are outside this pass."],
+  "unverifiable": ["Water motion and vegetation motion cannot be judged from still captures."]
+}

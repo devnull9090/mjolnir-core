@@ -1,12 +1,13 @@
 """Cook-only UMG tactical overview; all live tracking comes from native code.
 
-Run through tools/ue/editor_cmd.ps1. Owns only /Game/MJOLNIR/TacticalMap,
-chunk 958; never rebuilds the shared lobby/HUD or the landscape.
+Run through tools/ue/editor_cmd.ps1. Chunk 958 owns the tactical widget under
+/Game/MJOLNIR/UI and its map-specific textures in /Game/MJOLNIR/TacticalMap.
 """
 from pathlib import Path
 import unreal
 
 ROOT = "/Game/MJOLNIR/TacticalMap"
+WIDGET_ROOT = "/Game/MJOLNIR/UI"
 NAME = "WBP_MJOLNIRTacticalMap"
 REPO = Path(__file__).resolve().parents[3]
 ART = REPO / "levels/warfare/pwr/tactical-map"
@@ -69,9 +70,9 @@ for name in ("overview", "player", "hog", "tank", "banshee", "pelican", "base", 
     eal.save_loaded_asset(tex)
     textures[name] = tex
 
-if eal.does_asset_exist(f"{ROOT}/{NAME}"):
-    eal.delete_asset(f"{ROOT}/{NAME}")
-bp = ui.create_widget_blueprint(ROOT, NAME, None)
+if eal.does_asset_exist(f"{WIDGET_ROOT}/{NAME}"):
+    eal.delete_asset(f"{WIDGET_ROOT}/{NAME}")
+bp = ui.create_widget_blueprint(WIDGET_ROOT, NAME, None)
 viewport = add(unreal.CanvasPanel, "Viewport")
 viewport.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
 fit = add(unreal.ScaleBox, "Fit", "Viewport")
@@ -148,6 +149,7 @@ rules.set_editor_property("chunk_id", 958)
 rules.set_editor_property("apply_recursively", True)
 rules.set_editor_property("cook_rule", unreal.PrimaryAssetCookRule.ALWAYS_COOK)
 label.set_editor_property("rules", rules)
-label.set_editor_property("label_assets_in_my_directory", True)
+label.set_editor_property("label_assets_in_my_directory", False)
+label.set_editor_property("explicit_assets", [bp, *textures.values()])
 eal.save_loaded_asset(label)
 unreal.log("MJOLNIR tactical map built: 64 pooled markers, north-up 2km bounds, chunk958")
