@@ -342,7 +342,27 @@ static void test_owned_inventory(void) {
     puts("inventory: once on exit/ground, additive retry only on rejection, salt/instance reset and rejected clear passed");
 }
 
+/* Another machine's rider, stepped on the host: accepted only as remote, it
+ * boards (the host seats it), leaves on a relayed jump, and a stop releases it. */
+static void test_remote_rider(void) {
+    warfare_player p; warfare_player_reset(&p); warfare_output o;
+    warfare_sample s = sample(77); s.local_user = -1;
+    assert(!warfare_finite_sample(&s));
+    s.remote = 1; assert(warfare_finite_sample(&s));
+    step(&p, &s, 0, 0, 0, &o);
+    step(&p, &s, 1, 0, 0, &o);
+    assert(p.stage == WF_BOARDING && (o.flags & WF_BOARD) && (o.flags & WF_PROTECT));
+    s.parent = 900; s.parent_is_transport = 1; s.carrier_clear = 0;
+    step(&p, &s, 1, 1, 0, &o); assert(p.stage == WF_SEATED);
+    step(&p, &s, 1, 2, 0, &o); assert(p.stage == WF_SEATED);
+    step(&p, &s, 1, 3, 1, &o);
+    assert(p.stage == WF_EXITING && (o.flags & WF_EXIT));
+    warfare_stop(&p, &s, &o);
+    assert((o.flags & WF_EXIT) && (o.flags & WF_UNPROTECT));
+}
+
 int main(void) {
+    test_remote_rider();
     test_flight_controls();
     test_owned_inventory();
     test_routes(); test_nonflat_drop(); test_high_altitude_late_exit();

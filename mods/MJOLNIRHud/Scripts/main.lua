@@ -158,6 +158,8 @@ end
 
 --- What the match marks in the world: the hill, the next flag, the Juggernaut, the flags.
 local warfareDll = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native\\mjolnir_lobby.dll"
+-- Pelican Warfare jumps (filled in after the match helpers, below).
+local WarfareJump = {}
 local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua"),
     Waypoint = dofile(MOD_DIR .. "\\Scripts\\waypoint.lua"),
@@ -171,6 +173,8 @@ local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     Instruments = dofile(MOD_DIR .. "\\Scripts\\warfare_instruments.lua"),
     flightControls = package.loadlib(warfareDll, "mjolnir_warfare_controls"),
     pumpFlight = package.loadlib(warfareDll, "mjolnir_warfare_pump"),
+    warfareJump = function(index) if WarfareJump.request then WarfareJump.request(index) end end,
+    warfareJumped = function(index, team) if WarfareJump.jumped then WarfareJump.jumped(index, team) end end,
     flightBlocked = function() return Chat.inputActive() or (Tactical and Tactical.open) end,
     readWarfare = function()
         return readFile((MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR)
@@ -1042,6 +1046,7 @@ local function applyBotNames()
 end
 
 local function relayed(text)
+    if WarfareJump.heard and WarfareJump.heard(text) then return end
     local teams = Relay.decodeTeams(text)
     if teams then
         -- The host's own hook sees what it sends: never take it there.
@@ -1330,6 +1335,7 @@ local function hookMatchLog()
         RegisterHook("/Script/Engine.PlayerController:ServerExecRPC", function(self, msg)
             local okM, text = pcall(function() return msg:get():ToString() end)
             if okM and Chat.heardSay(self:get(), text) then return end
+            if okM and WarfareJump.take and WarfareJump.take(text) then return end
             -- A fireteam player asking for the bots' names (Relay.BOTS_ASK).
             if okM and text == Relay.BOTS_ASK then
                 local asker = self:get()
@@ -2066,6 +2072,69 @@ Bench.init({
     end,
 })
 Hitches.listen(Bench.frame)
+--- Pelican Warfare jumps. A fireteam client's rider asks its host to leave
+--- the cabin (MJOLNIR|wjump|<seat>, ServerExecRPC): the host owns
+--- vehicle seats, so only its native code can detach a rider. When any rider
+--- leaves a Pelican the host tells that rider's team, and only that team, in
+--- the feed (MJOLNIR|wjumped|<Red|Blue>|<name>, ClientMessage), the way a
+--- team chat line goes.
+do
+    local JUMP_ASK, JUMP_LINE = "MJOLNIR|wjump|", "MJOLNIR|wjumped|"
+    local remoteJump = package.loadlib(warfareDll, "mjolnir_warfare_remote_jump")
+    local function jumperTeam(name)
+        if not (Match and name) then return nil end
+        for _, p in pairs(Match.players) do
+            if p.name == name then return Scoreboard.team(p.team) end
+        end
+        return nil
+    end
+    local function line(side, name)
+        feedPush({ lead = short(name), leadColor = TEAM_COLORS[side] or FEED.name,
+            tail = "jumped from the Pelican", tailColor = FEED.words })
+    end
+    function WarfareJump.request(index)
+        local pc = playerController()
+        if pc then pcall(function() pc:ServerExecRPC(JUMP_ASK .. tostring(index)) end) end
+    end
+    --- On the host, from the RPC hook: true when `text` was a jump request.
+    function WarfareJump.take(text)
+        if type(text) ~= "string" or text:sub(1, #JUMP_ASK) ~= JUMP_ASK then return false end
+        local index = text:match("^MJOLNIR|wjump|(%d+)$")
+        if index and remoteJump then
+            ExecuteInGameThread(function()
+                if not (Match and Match.host) then return end
+                local ok, queued = pcall(remoteJump, tonumber(index))
+                Log("warfare: player " .. index .. " jump " .. ((ok and queued) and "relayed" or "ignored (not a seated remote rider)"))
+            end)
+        end
+        return true
+    end
+    function WarfareJump.jumped(index, team)
+        if not (Match and Match.host) then return end
+        local side = TEAM_NAMES[team]
+        if not side then return end
+        local name = nameOf(index)
+        local msg = JUMP_LINE .. side .. "|" .. (tostring(name):gsub("[|%c]", ""))
+        local kind = FName("MJOLNIR")
+        local sent = 0
+        for _, pc in ipairs(Relay.controllers()) do
+            local okN, pname = pcall(function() return pc.PlayerState:GetPlayerName():ToString() end)
+            if okN and jumperTeam(pname) == side then
+                if pcall(function() pc:ClientMessage(msg, kind, 0) end) then sent = sent + 1 end
+            end
+        end
+        if Scoreboard.team(stats(LOCAL_PLAYER).team) == side then line(side, name) end
+        Log("warfare: " .. tostring(name) .. " (" .. side .. ") jumped; told " .. sent .. " teammate(s)")
+    end
+    --- On a client, from the relay: true when `text` was a jump line.
+    function WarfareJump.heard(text)
+        if type(text) ~= "string" or text:sub(1, #JUMP_LINE) ~= JUMP_LINE then return false end
+        local side, name = text:match("^MJOLNIR|wjumped|(%a+)|(.*)$")
+        if side and Match and not Match.host then line(side, name) end
+        return true
+    end
+end
+
 -- Match chat (Scripts/chat.lua): what it needs of the match, read as used.
 Chat.init({
     dir = MOD_DIR,

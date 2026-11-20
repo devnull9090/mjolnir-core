@@ -18,6 +18,10 @@ typedef struct {
 static SRWLOCK warfare_snapshot_lock = SRWLOCK_INIT;
 static warfare_snapshot warfare_published;
 static volatile LONG warfare_enabled, warfare_action, warfare_recheck;
+/* A remote rider's jump, relayed to the host (mjolnir_warfare_remote_jump):
+ * the host's handle of the unit that was seated when it was asked, consumed
+ * by the next simulation tick. */
+static volatile LONG warfare_remote_jump[WARFARE_PLAYERS];
 typedef struct {
     uint64_t instance, updated_ms;
     uint32_t unit;
@@ -182,7 +186,7 @@ static int warfare_clear_cabin(unsigned char *tls, int i, const warfare_sample *
     return warfare_outside_carrier(tls, warfare.player[i].carrier, unit);
 }
 
-static int warfare_samples(unsigned char *tls, float dt, warfare_sample out[WARFARE_PLAYERS]) {
+static int warfare_samples(unsigned char *tls, float dt, int host, warfare_sample out[WARFARE_PLAYERS]) {
     unsigned char *players = *(unsigned char **)(tls + 0x30);
     unsigned char *users = *(unsigned char **)(tls + 0x118);
     memset(out, 0, sizeof(warfare_sample) * WARFARE_PLAYERS);
@@ -197,6 +201,7 @@ static int warfare_samples(unsigned char *tls, float dt, warfare_sample out[WARF
         if (!unit || s->team < 0 || s->team > 1) { warfare.previous_valid[i] = 0; continue; }
         s->local_user = users ? *(int *)(users + 0x34 + i * 4) : -1;
         if (s->local_user < 0 || s->local_user > 1) s->local_user = -1;
+        s->remote = host && s->local_user < 0;
         s->parent = *(uint32_t *)(unit + 0x14);
         unsigned char *parent = fd_object(tls, s->parent);
         s->parent_is_transport = warfare_transport(parent);
@@ -229,10 +234,26 @@ static int warfare_samples(unsigned char *tls, float dt, warfare_sample out[WARF
 #include "warfare_inventory.h"
 static warfare_inventory warfare_kits[WARFARE_PLAYERS];
 
+/* Who applies what in a distributed game. The host owns vehicle seats,
+ * damage and inventory, so it seats, detaches, protects and re-arms every
+ * rider; a client's own seat command lasted under a second before the host's
+ * state replaced it (two copies, 2026-11-19). The machine that owns a biped
+ * owns its movement: its velocity, its teleports and the cabin clearance. */
+/* Cabin clearance is both: right after the host detaches a rider it still
+ * places the biped, and a client's clearance alone snapped back five times in
+ * two seconds until the host's state timed out (two copies, 2026-11-19). */
+#define WF_HOST_AUTHORITY (WF_BOARD | WF_EXIT | WF_CLEAR_CABIN | WF_PROTECT | WF_UNPROTECT | WF_LOWER_WEAPON | WF_RAISE_WEAPON)
+#define WF_OWNER_AUTHORITY (WF_VELOCITY | WF_HOME | WF_WARMUP | WF_CLEAR_CABIN)
+
 static void warfare_apply(unsigned char *tls, const warfare_sample all[WARFARE_PLAYERS], int i,
-                          const warfare_output *out) {
+                          const warfare_output *requested, int host) {
     const warfare_sample *s = &all[i];
-    if ((!out->flags && !warfare_kits[i].restoring) || !warfare_finite_sample(s)) return;
+    warfare_output masked = *requested;
+    if (s->remote) masked.flags &= WF_HOST_AUTHORITY;
+    else if (!host) masked.flags &= WF_OWNER_AUTHORITY;
+    const warfare_output *out = &masked;
+    int inventory = host;
+    if ((!out->flags && !(inventory && warfare_kits[i].restoring)) || !warfare_finite_sample(s)) return;
     int hs_player = warfare_hs_rank(all, i);
     if (hs_player < 0) return;
     unsigned char *unit = fd_object(tls, s->unit);
@@ -266,7 +287,7 @@ static void warfare_apply(unsigned char *tls, const warfare_sample all[WARFARE_P
     if (out->flags & WF_PROTECT) {
         snprintf(line, sizeof line, "(unit_falling_damage_disable (player_get %d) true)", hs_player); warfare_hs(line);
     }
-    warfare_inventory_apply(&warfare_kits[i], warfare.instance, s->unit, hs_player, out->flags, warfare_hs);
+    if (inventory) warfare_inventory_apply(&warfare_kits[i], warfare.instance, s->unit, hs_player, out->flags, warfare_hs);
     if (out->flags & WF_BOARD) {
         /* Prefer the four stock player-capable positions. Live l04/l01 A/B
          * removed the first-person geometry clipping for the first rider.
@@ -414,7 +435,7 @@ static void warfare_tick_inner(void) {
         warfare.insertion_seconds = (float)s.globals[3]; warfare.duration_valid = 1;
     }
     s.insertion_seconds = (int)warfare.insertion_seconds;
-    warfare_samples(tls, dt, s.sample);
+    warfare_samples(tls, dt, s.host, s.sample);
     if (!s.host) warfare.was_client = 1;
     if (warfare.was_client && s.host) warfare.disabled = 1; /* explicit rehost required */
     int valid_mode = s.globals[2] == WARFARE_MAGIC && s.globals[0] >= 0 && s.globals[0] <= 3
@@ -422,7 +443,7 @@ static void warfare_tick_inner(void) {
     if (!warfare_enabled || warfare.disabled || !valid_mode) {
         for (int i = 0; i < WARFARE_PLAYERS; i++) {
             warfare_output out; warfare_stop(&warfare.player[i], &s.sample[i], &out);
-            warfare_apply(tls, s.sample, i, &out);
+            warfare_apply(tls, s.sample, i, &out, s.host);
         }
         if (warfare.transport_created) {
             warfare_snapshot stopping = s; stopping.globals[0] = 3; stopping.globals[1] = 0;
@@ -452,6 +473,10 @@ static void warfare_tick_inner(void) {
             player_phase = 2;
         warfare_sample *sample = &s.sample[i];
         int jump = action && sample->local_user == 0;
+        if (sample->remote) {
+            LONG asked = InterlockedExchange(&warfare_remote_jump[i], 0);
+            jump = asked != 0 && (uint32_t)asked == sample->unit;
+        }
         if (sample->valid && sample->local_user >= 0 && sample->local_user < 2) {
             const warfare_controls *c = &controls[sample->local_user];
             if (c->instance == instance && c->unit == sample->unit && controls_read_ms - c->updated_ms <= 350) {
@@ -467,7 +492,7 @@ static void warfare_tick_inner(void) {
         }
         warfare_step(&warfare.player[i], sample, player_phase, (float)s.globals[1] / (float)rate,
                      warfare.insertion_seconds, dt, jump, &out);
-        warfare_apply(tls, s.sample, i, &out);
+        warfare_apply(tls, s.sample, i, &out, s.host);
         s.stage[i] = warfare.player[i].stage;
         s.steering[i] = warfare.player[i].steering;
         s.braking[i] = warfare.player[i].braking;
@@ -537,6 +562,31 @@ __declspec(dllexport) int mjolnir_warfare_close(void *L) {
 }
 __declspec(dllexport) int mjolnir_warfare_action(void *L) {
     (void)L; if (warfare_enabled) InterlockedExchange(&warfare_action, 1); return 0;
+}
+
+/* On the host: a remote rider pressed Jump (relayed by MJOLNIRHud). Only a
+ * seated rider of another machine, during insertion, can be asked for; the
+ * host's own players cannot. Object handles differ between machines, so the
+ * request names the player's absolute index, and the host's handle of the
+ * unit seated now is what the tick checks. Returns true when queued. */
+__declspec(dllexport) int mjolnir_warfare_remote_jump(void *L) {
+    lc_frame f;
+    if (!warfare_enabled || !lc_begin(&f, L)) return 0;
+    long long index = lc_take_integer(&f, 1, -1);
+    int queued = 0;
+    uint32_t unit = WARFARE_NONE;
+    if (index >= 0 && index < WARFARE_PLAYERS) {
+        AcquireSRWLockShared(&warfare_snapshot_lock);
+        const warfare_sample *p = &warfare_published.sample[index];
+        queued = warfare_published.ready && warfare_published.host && warfare_published.globals[0] == 1
+            && p->valid && p->remote && warfare_published.stage[index] == WF_SEATED;
+        unit = p->unit;
+        ReleaseSRWLockShared(&warfare_snapshot_lock);
+        if (queued) InterlockedExchange(&warfare_remote_jump[index], (LONG)unit);
+    }
+    lc_push_bool(&f, queued);
+    lc_end(&f);
+    return 1;
 }
 
 /* One local controller's intent. The simulation owns the flight law and all

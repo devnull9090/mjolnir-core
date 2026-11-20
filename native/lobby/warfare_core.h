@@ -22,6 +22,10 @@ typedef struct {
     uint32_t unit, parent;
     int valid, local_user, team, parent_is_transport, present;
     int velocity_valid, carrier_clear, support_world;
+    /* Another machine's player, sampled on the host. The host steps it too:
+     * vehicle seats, damage and inventory are the host's in a distributed
+     * game, while the owning machine applies its biped's movement. */
+    int remote;
     uint16_t participant_salt;
     float position[3], velocity[3], facing[2];
     float forward_input, right_input;
@@ -190,7 +194,7 @@ static void warfare_lock_roster(const warfare_sample all[WARFARE_PLAYERS], uint1
 }
 
 static int warfare_finite_sample(const warfare_sample *s) {
-    if (!s || !s->valid || s->unit == WARFARE_NONE || s->local_user < 0 || s->local_user > 1
+    if (!s || !s->valid || s->unit == WARFARE_NONE || (s->local_user < 0 && !s->remote) || s->local_user > 1
         || s->team < 0 || s->team > 1) return 0;
     for (int k = 0; k < 3; k++)
         if (!isfinite(s->position[k]) || !isfinite(s->velocity[k])
@@ -211,7 +215,7 @@ static void warfare_ready_weapon(warfare_player *p, warfare_output *o) {
 
 static void warfare_stop(warfare_player *p, const warfare_sample *s, warfare_output *o) {
     memset(o, 0, sizeof *o);
-    if (s && s->valid && s->unit == p->unit && s->local_user >= 0) {
+    if (s && s->valid && s->unit == p->unit && (s->local_user >= 0 || s->remote)) {
         warfare_ready_weapon(p, o);
         if (p->protected_fall) o->flags |= WF_UNPROTECT;
         if (p->stage == WF_BOARDING || p->stage == WF_SEATED || p->stage == WF_EXITING)

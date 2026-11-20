@@ -127,7 +127,28 @@ end
 function Warfare.new(deps)
     local self = { next = 0, fields = {}, hills = {} }
     if deps.Canopy and deps.bipedAt then self.canopy = deps.Canopy.new(deps.bipedAt, deps.Grips) end
-    if deps.Input then self.input = deps.Input.new(deps.controls, deps.blocked) end
+    -- A fireteam client's rider asks its host to leave the cabin: the host
+    -- owns vehicle seats, so only it can detach the rider (requestJump).
+    local controls = deps.controls
+    if controls and deps.requestJump then
+        controls = function(user, unit, forward, right, brake, yaw, edge)
+            local result = deps.controls(user, unit, forward, right, brake, yaw, edge)
+            local s = self.snapshot
+            if edge and s and s.host == 0 then
+                for index, p in pairs(s.players) do
+                    if p.localUser == user and p.unit == unit and p.stage == 2 then
+                        pcall(deps.requestJump, index)
+                        break
+                    end
+                end
+            end
+            return result
+        end
+    end
+    if deps.Input then self.input = deps.Input.new(controls, deps.blocked) end
+    -- On the host, every rider's cabin exit (2 seated -> 7 exiting, 3 falling
+    -- or 4 canopy) once an insertion, for the feed (onJump).
+    local seated, jumped = {}, {}
     if deps.Instruments then self.instruments = deps.Instruments.new() end
     local pending, refreshedAt, line
 
@@ -203,6 +224,18 @@ function Warfare.new(deps)
                 self.snapshot, pending = nil, nil
             end
             if accepted then
+                local snap = self.snapshot
+                if snap.host == 1 and deps.onJump then
+                    if jumped.instance ~= snap.instance then seated, jumped = {}, { instance = snap.instance } end
+                    for index, p in pairs(snap.players) do
+                        if p.stage == 2 then seated[index] = p.unit
+                        elseif seated[index] == p.unit and not jumped[index]
+                            and (p.stage == 7 or p.stage == 3 or p.stage == 4) then
+                            jumped[index] = true
+                            pcall(deps.onJump, index, p.team)
+                        end
+                    end
+                end
                 local score = self.snapshot.score
                 changed = match.teams[0] ~= score[1] or match.teams[1] ~= score[2]
                 match.teams[0], match.teams[1] = score[1], score[2]

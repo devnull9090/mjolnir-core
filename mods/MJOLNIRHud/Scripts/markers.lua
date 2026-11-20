@@ -166,7 +166,8 @@ function Markers.new(deps)
             match.warfare = deps.Warfare.new({ Hill = deps.Hill, readLevel = deps.readLevel,
                 readSnapshot = deps.readWarfare, bipedAt = bipedAt, Canopy = deps.Canopy,
                 Grips = deps.Grips, Input = deps.WarfareInput, Instruments = deps.Instruments,
-                controls = deps.flightControls, pumpFlight = deps.pumpFlight, blocked = deps.flightBlocked })
+                controls = deps.flightControls, pumpFlight = deps.pumpFlight, blocked = deps.flightBlocked,
+                requestJump = deps.warfareJump, onJump = deps.warfareJumped })
             deps.log("warfare markers: " .. match.warfare.start(match.code) .. " site(s)")
         end
     end
