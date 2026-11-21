@@ -25,7 +25,7 @@ LINE = (0.24, 0.49, 0.63, 0.55)
 RED = (1.0, 0.32, 0.28, 1.0)
 BLUE = (0.3, 0.65, 1.0, 1.0)
 GLASS = (0.01, 0.025, 0.04, 0.80)
-TILE = (168, 88)
+TILE = (168, 100)  # tall enough for 10 px between the state word and the capture bar
 TRACK = 144        # TILE width less the 2 px rim and 10 px of padding each side
 
 
@@ -95,15 +95,14 @@ def tile(i, letter):
     slot.set_padding(unreal.Margin(0, 4, 0, 0))
     text(add(unreal.TextBlock, f"Zone{i}Letter", words.get_name()), letter, 30, WHITE)
     state = text(add(unreal.TextBlock, f"Zone{i}State", words.get_name()), "NEUTRAL", 13, GREY)
-    state.get_editor_property("slot").set_padding(unreal.Margin(0, -2, 0, 0))
     # The capture bar along the foot of the tile.
     foot = fill(add(unreal.VerticalBox, f"Zone{i}Foot", body.get_name()))
     spacer = add(unreal.Spacer, f"Zone{i}Lift", foot.get_name())
     spacer.get_editor_property("slot").set_size(unreal.SlateChildSize(1.0, unreal.SlateSizeRule.FILL))
-    track = sized(f"Zone{i}Track", foot.get_name(), TRACK, 5)
+    track = sized(f"Zone{i}Track", foot.get_name(), TRACK, 6)
     slot = track.get_editor_property("slot")
     slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
-    slot.set_padding(unreal.Margin(0, 0, 0, 9))
+    slot.set_padding(unreal.Margin(0, 0, 0, 10))
     lanes = add(unreal.Overlay, f"Zone{i}Lanes", track.get_name())
     fill(rounded(add(unreal.Border, f"Zone{i}TrackBack", lanes.get_name()), 3, (0.0, 0.0, 0.0, 0.55)))
     lane = fill(add(unreal.HorizontalBox, f"Zone{i}Lane", lanes.get_name()))
