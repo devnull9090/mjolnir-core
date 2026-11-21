@@ -39,6 +39,27 @@
   ],
   "releases": [
     {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.24.1",
+      "tag": "launcher-v0.24.1",
+      "title": "Large maps download on any connection",
+      "date": "2026-11-21",
+      "summary": "A map of several hundred megabytes no longer fails to install on a connection that needs more than three minutes to download it.",
+      "body": "### Fixed\n\n- **Large map downloads.** The launcher gave every download three minutes in\n  all. The Pelican Warfare map is 685 MB, which needs 30 Mbit/s to arrive in\n  that time, so on a slower connection the install stopped with an error. A\n  map or content download now has an hour.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Large map downloads. The launcher gave every download three minutes in all. The Pelican Warfare map is 685 MB, which needs 30 Mbit/s to arrive in that time, so on a slower connection the install stopped with an error. A map or content download now has an hour."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.24.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.24.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.24.1"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.54.0",
