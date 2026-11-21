@@ -137,7 +137,7 @@ def stage(art, version):
             member = "map/"+rel
             hashes[member] = p.sha(inputs/stage_name(member))
         seal_release(args,folder,inputs,parent,hashes,manifest,dict(
-            modified_members=sorted(k for k in hashes if hashes[k]!=original[k]),
+            modified_members=sorted(k for k in hashes if hashes[k]!=original.get(k)),
             riparian_shore=art,compiled_bsp_sha256=art["compiled_bsp_sha256"],flux_wrap_safe=flux_report,forerunner_surfaces=surface_report,vista=vista_report,interiors=interiors))
         folder.rename(output)
     print(output)
