@@ -44,7 +44,7 @@ export const MAX_MULTIPART_ARCHIVE_BYTES = 1024 * 1024 * 1024;
 /** Zip-bomb guard: decompressed total may not exceed this. */
 const MAX_UNPACKED_BYTES = 2 * 1024 * 1024 * 1024;
 
-export const SCANNER_VERSION = "ts-6";
+export const SCANNER_VERSION = "ts-7";
 
 /** File kinds a content archive may carry, by extension. */
 const ALLOWED = new Set(["utoc", "ucas", "json", "md", "txt", "png", "jpg", "jpeg", "webp"]);
@@ -68,7 +68,9 @@ const FluxProvenanceSchema = z.object({
   schema: z.literal("mjolnir-flux-provenance-v1"),
   terrain_manifest_sha256: FluxHash, terrain_samples_sha256: FluxHash,
   water_geometry_sha256: FluxHash, capture_bed_sha256: FluxHash, settings_sha256: FluxHash,
-}).strict();
+  // A bake may seal further inputs (an erosion solve, rock geometry, a shore
+  // source): any other key is one more SHA-256 and nothing else.
+}).catchall(FluxHash);
 const NamedFluxStateSchema = z.object({
   schema: z.literal("mjolnir-flux-state-v2"),
   height: z.string(), velocity: z.string(), ground: z.string(),
@@ -76,6 +78,8 @@ const NamedFluxStateSchema = z.object({
   height_cm: z.number().positive().max(32000), capture: z.number(), origin: FluxVector,
   provenance: FluxProvenanceSchema,
   height_sha256: FluxHash.optional(), velocity_sha256: FluxHash.optional(), ground_sha256: FluxHash.optional(),
+  // Cells of border the bake made safe to sample with wrap addressing.
+  wrap_safe_band: z.number().int().min(0).max(64).optional(),
 }).strict();
 const NamedFluxDomainsSchema = z.array(z.object({
   id: z.string().regex(/^[a-z][a-z0-9_]*$/), playback: z.literal("baked"),
