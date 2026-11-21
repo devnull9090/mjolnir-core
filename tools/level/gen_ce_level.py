@@ -1224,6 +1224,13 @@ def landing_nudge(tris, pos, facing):
 CE_MUSIC_CLASSES = (32, 38)
 
 
+# Halo 2's ambience over Unreal's audio: the game mixes its own sound far
+# louder than its tags' gains (Zanzibar's ocean bed is -19 dB, 0.112), and
+# at those gains through Unreal's audio, outside that mix, nothing was heard
+# (2026-11-18). One lift for every Halo 2 ambient sound keeps their balance.
+H2_AMBIENT_LIFT_DB = 10.0
+
+
 def ambient_sounds(sounds_dir, root, to_ue):
     """The level's ambient sound, for MJOLNIRLevelLoader: the BSP's background
     loops (2D, map-wide) and the sound scenery (3D loops at their CE
@@ -1244,6 +1251,23 @@ def ambient_sounds(sounds_dir, root, to_ue):
         return out
 
     halo2 = manifest.get("source") == "halo2_mcc"
+    lift = 10 ** (H2_AMBIENT_LIFT_DB / 20) if halo2 else 1.0
+
+    def detail_sounds(lsnd, **where):
+        """A looping sound's detail sounds (Halo 2's lsnd: one-shots at
+        random times, each a random one of its sound's variants), for the
+        loader to play: at `pos`, falling off as its emitter does, or with
+        none, around the listener, in its background set."""
+        out = []
+        for d in manifest["loops"].get(lsnd, {}).get("details", []):
+            snd = manifest["sounds"].get(d.get("sound") or "")
+            if not snd or not snd.get("files"):
+                continue
+            out.append({"waves": [wave(f) for f in snd["files"]],
+                        "gain": round(snd.get("gain", 1.0) * lift, 3),
+                        "period": [round(d["period"][0], 2), round(max(d["period"]), 2)],
+                        "source": d["sound"], **where})
+        return out
 
     def category(snd):
         """The loader scales a sound by the game's Master slider and one more:
@@ -1256,7 +1280,7 @@ def ambient_sounds(sounds_dir, root, to_ue):
         and its sound class's, crate::h2::sound; CE's sounds carry none),
         and its pitch when it is not 1 (Halo 2's
         random pitch bounds, as a multiplier)."""
-        out = {"gain": round(track["gain"] * snd.get("gain", 1.0), 3)}
+        out = {"gain": round(track["gain"] * snd.get("gain", 1.0) * lift, 3)}
         if abs(snd.get("pitch", 1.0) - 1.0) > 1e-3:
             out["pitch"] = round(snd["pitch"], 3)
         return out
@@ -1265,8 +1289,9 @@ def ambient_sounds(sounds_dir, root, to_ue):
     # of its loops carries the set it belongs to, and `zones` are the
     # clusters' bounds with their set (the loader fades between sets).
     zoned = manifest.get("background_zones") or []
-    background, emitters = [], []
+    background, emitters, details = [], [], []
     for k, lsnd in enumerate(manifest["background"]):
+        details += detail_sounds(lsnd, **({"set": k} if zoned else {}))
         for track, snd in loops(lsnd):
             background.append({"wave": wave(snd["loop"]), **tuned(track, snd),
                                "fade_in": round(track["fade_in"], 2), "source": lsnd,
@@ -1292,6 +1317,11 @@ def ambient_sounds(sounds_dir, root, to_ue):
         lsnd = manifest["loops"].get(e["sound"], {})
         lo, hi = e.get("distance") or ((lsnd["min_distance"], lsnd["max_distance"]) if "min_distance" in lsnd else
                                        (None, None))
+        # Its details (Zanzibar's shore waves are nothing else), at the
+        # emitter, over its own distance bounds.
+        if lo is not None:
+            details += detail_sounds(e["sound"], pos=to_ue(e["pos"]), inner=round(lo * WU_CM, 1),
+                                     falloff=round(max(hi - lo, 0.1) * WU_CM, 1))
         for track, snd in loops(e["sound"]):
             near = snd["min_distance"] if lo is None else lo
             far = snd["max_distance"] if hi is None else hi
@@ -1313,7 +1343,87 @@ def ambient_sounds(sounds_dir, root, to_ue):
                                      "s0": m["s0"], "s1": m["s1"], "period": m["period"],
                                      "position": m["position"]}
             emitters.append(emitter)
-    return {"background": background, "emitters": emitters, **({"zones": zones} if zones else {})}
+    return {"background": background, "emitters": emitters, **({"details": details} if details else {}),
+            **({"zones": zones} if zones else {})}
+
+
+def add_gears(level, decor, gear_actors):
+    """Halo 2's turning parts whose machines wear them (h2_machines.py
+    actors: each placement's actor draws its part on its moving bone): the
+    part meshes leave the decor for the level's `gears`, one a mesh, each
+    with its actor's class, its materials (lit by Unreal, as a moving part
+    is: prop_lit.py) and its turn (`motion`: period, keys, axis, its sounds'
+    events), for the loader to dress the actor once and play the sounds."""
+    from prop_lit import prop_lit
+    gears = []
+    for item in decor:
+        motion = item.get("motion") or {}
+        own = gear_actors.get(motion.get("entry"))
+        if not own:
+            continue
+        mats = [prop_lit(m, {}) if isinstance(m, dict) else m for m in item.get("materials") or []]
+        gears.append({"id": item.get("id"), "class": own["class"], "mesh": item.get("mesh"), "materials": mats,
+                      "motion": {k: v for k, v in motion.items() if k != "follow"}})
+    if gears:
+        worn = {g["id"] for g in gears}
+        decor[:] = [item for item in decor if item.get("id") not in worn]
+        level["gears"] = gears
+        print(f"  {len(gears)} turning part mesh(es) worn by {len(gear_actors)} machine actor(s)")
+
+
+def add_doors(level, decor, doors_json, sounds_dir, sound_root):
+    """Halo 2's machines that move in parts (h2_door_machines.py doors.json):
+    their machines and controls into the scenario's objects, their device
+    groups (one a Halo 2 position group), and the level's `doors` for the
+    loader (doors.lua): each placement's machines and the decor ids of its
+    part meshes (build_terrain_meshes.py `door_part`, by staging entry), and
+    its sounds as waves."""
+    manifest = (json.load(open(os.path.join(sounds_dir, "sounds.json"), encoding="utf-8"))["sounds"]
+                if sounds_dir else {})
+
+    def waves(sid):
+        snd = manifest.get(sid) or {}
+        if not snd.get("files"):
+            return None
+        return {"paths": [f"{sound_root}/{os.path.splitext(f)[0]}.{os.path.splitext(f)[0]}" for f in snd["files"]],
+                "gain": round(snd.get("gain", 1.0), 3), "source": sid}
+
+    from prop_lit import prop_lit
+    # A part that moves is lit by Unreal where it is, not by the light baked
+    # where it was placed (Triplicate's trains, parked in a dark tunnel,
+    # drew black all the way through the station).
+    lit = 0
+    for item in decor:
+        if item.get("door_part") and isinstance(item.get("materials"), list):
+            item["materials"] = [prop_lit(m, {}) if isinstance(m, dict) else m for m in item["materials"]]
+            lit += 1
+    blam = level["blam"]
+    groups = blam.setdefault("device_groups", [])
+    out = []
+    for d in json.load(open(doors_json, encoding="utf-8")):
+        blam["objects"] += d["blam"]["objects"]
+        for g in d["blam"]["device_groups"]:
+            if not any(x["name"] == g["name"] for x in groups):
+                groups.append(g)
+        # Its parts are worn by its machines' actors (h2_door_machines.py
+        # actors), not spawned as decor: each carries its mesh and materials
+        # for the loader to dress the actor's components with.
+        parts = [{"id": item["id"], "node": item["door_part"]["node"], "mesh": item.get("mesh"),
+                  "materials": item.get("materials")} for item in decor
+                 if (item.get("door_part") or {}).get("entry") == d["entry"]]
+        sounds = {k: w for k, w in ((k, waves(v)) for k, v in (d.get("sounds") or {}).items()) if w}
+        if d.get("press_sound") and waves(d["press_sound"]):
+            sounds["press"] = waves(d["press_sound"])
+        rec = {"asset": d["asset"], "seconds": d["seconds"], "at_cm": d["at_cm"], "parts": parts,
+               "machines": d["machines"], "sounds": sounds}
+        if d.get("sim_control"):
+            rec["sim_control"], rec["control_cm"] = d["sim_control"], d["control_cm"]
+        out.append(rec)
+    if out:
+        decor[:] = [item for item in decor if not item.get("door_part")]
+        level["doors"] = out
+        print(f"  {len(out)} moving machine(s), {sum(len(r['machines']) for r in out)} simulation machine(s), "
+              f"{sum(len(r['parts']) for r in out)} part mesh(es) ({lit} lit by Unreal), {len(groups)} device group(s)")
 
 
 def machine_sounds(decor, sounds_dir, root):
@@ -1334,7 +1444,7 @@ def machine_sounds(decor, sounds_dir, root):
                 continue
             stem = os.path.splitext(snd["files"][0])[0]
             near, far = snd["min_distance"], snd["max_distance"]
-            out.append({"t": t, "wave": f"{root}/{stem}.{stem}", "gain": round(snd.get("gain", 1.0), 3),
+            out.append({"t": t, "wave": f"{root}/{stem}.{stem}", "gain": round(snd.get("gain", 1.0), 3), "source": path,
                         "inner": round(near * WU_CM, 1), "falloff": round(max(far - near, 0.1) * WU_CM, 1)})
         item["motion"]["events"] = out
 
@@ -1365,6 +1475,10 @@ def main():
     ap.add_argument("--machines", help="tools/level/h2_machines.py's machines.json: Halo 2's turning parts as "
                                        "machines of the simulation's own, placed where the parts are, each "
                                        "part's mesh riding its machine (motion.follow)")
+    ap.add_argument("--doors", help="tools/level/h2_door_machines.py's doors.json: Halo 2's machines that move "
+                                    "in parts (doors, platforms, gears of several parts), placed with their "
+                                    "controls and device groups, the level loader attaching each part's mesh "
+                                    "(merge_ce_scene.py --doors) to its machine")
     ap.add_argument("--scene", help="the merged scene glTF, for the sun's direction "
                                     "(default: scene.gltf beside --terrain)")
     ap.add_argument("--bake", help="lightmap_bake's output, for the lightmap levels in CE's shadow and sun "
@@ -1687,16 +1801,22 @@ def main():
     # tilted). The mesh merge_ce_scene.py wrote for each part names its
     # staging entry; it rides that machine's Unreal actor.
     machines = json.load(open(a.machines, encoding="utf-8")) if a.machines else {}
-    sim_machines, follow = [], {}
+    sim_machines, follow, gear_actors = [], {}, {}
     for n, e in enumerate(placement["entries"]):
         m = machines.get(e.get("asset")) if e.get("h2_motion") else None
         if not m:
             continue
         rot = e.get("rot") or [0.0, 0.0, 0.0]
-        sim_machines.append({"tag": m["tag"], "group": "machines", "pos": to_ue(e["pos"]),
+        # A placement's own machine tag names its own actor, which wears the
+        # part (h2_machines.py actors); an older machines.json has one tag
+        # for every placement and the loader rides the mesh on its actor.
+        own = (m.get("placements") or {}).get(str(n))
+        sim_machines.append({"tag": own["tag"] if own else m["tag"], "group": "machines", "pos": to_ue(e["pos"]),
                              "rot": [0, yaw_ue(rot), 0],
                              "set": {"object data.rotation": "({}, {}, {})".format(*rot)}})
-        follow[n] = {"class": m["class"], "pos": to_ue(e["pos"])}
+        follow[n] = {"class": own["class"] if own else m["class"], "pos": to_ue(e["pos"])}
+        if own:
+            gear_actors[n] = own
 
     decor = []
     if a.terrain:
@@ -1816,6 +1936,10 @@ def main():
         sound_root =f"/Game/MJOLNIR/Maps/{a.code.upper()}/Sounds" if a.code else f"/Game/MJOLNIR/Levels/{name}/Sounds"
         level["environment"]["sounds"] = ambient_sounds(a.sounds, sound_root, to_ue)
         machine_sounds(decor, a.sounds, sound_root)
+    if gear_actors:
+        add_gears(level, decor, gear_actors)
+    if a.doors:
+        add_doors(level, decor, a.doors, a.sounds, sound_root if a.sounds else None)
     with open(a.out, "w") as f:
         json.dump(level, f, indent=2)
         f.write("\n")

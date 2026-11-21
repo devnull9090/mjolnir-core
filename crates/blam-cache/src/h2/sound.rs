@@ -502,10 +502,13 @@ impl<'c> Sounds<'c> {
                 "output_effect": t.i16(0x3C),
             }));
         }
+        // Detail sounds: one-shots the loop plays at random times, yaws,
+        // pitches and distances (Zanzibar's waves, gulls and horn), staged
+        // as one-shots for the loader to play (gen_ce_level ambient_sounds).
         let mut details = Vec::new();
         for d in root.block(0x2C, 0x34).iter() {
             details.push(json!({
-                "sound": follow(d, 0x04, false, false),
+                "sound": follow(d, 0x04, false, true),
                 "period": [d.f32(0x0C), d.f32(0x10)],
                 "yaw": [d.f32(0x1C), d.f32(0x20)], "pitch": [d.f32(0x24), d.f32(0x28)],
                 "distance": [d.f32(0x2C), d.f32(0x30)],

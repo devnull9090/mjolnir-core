@@ -1,0 +1,15 @@
+{
+ "_about": "Function names for tools/crash/analyze.py, by module and function start RVA (from the module's .pdata, as analyze.py prints FUN_<address>). Found with tools/ghidra/decompile.ps1 against the CU4 exe. `_skip` lists names left out of crash signatures: helpers every fatal error passes through.",
+ "_skip": [
+  "FatalErrorLog",
+  "CrashHandler",
+  "IoDispatcherFatalOnError"
+ ],
+ "HaloCampaignEvolved": {
+  "0x3617050": "FatalErrorLog",
+  "0x3645e80": "CrashHandler",
+  "0x52a4750": "IoDispatcherFatalOnError",
+  "0x46f2c20": "PSOPrecache_LightMapPolicy",
+  "0x46ca608": "PSOPrecache_Request"
+ }
+}

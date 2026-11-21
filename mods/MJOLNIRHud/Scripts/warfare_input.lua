@@ -20,8 +20,8 @@ local function combatContext(subsystem, assets)
         local action = assets[suffix]
         if valid(action) then
             for _, value in ipairs(subsystem:QueryKeysMappedToAction(action) or {}) do
-                local key = type(value)=="userdata" and value.get and value:get() or value
-                local name = key.KeyName:ToString()
+                local mapped = type(value)=="userdata" and value.get and value:get() or value
+                local name = mapped.KeyName:ToString()
                 if name ~= "None" then keys[name] = true end
             end
         end

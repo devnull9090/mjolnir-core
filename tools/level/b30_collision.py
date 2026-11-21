@@ -417,7 +417,9 @@ def main():
         counts[material] = counts.get(material, 0) + 1
 
     kinds = set((a.only or "swap,foliage,cladding").split(","))
-    skip = set()
+    # Placed scenery the swap removed (`remove_scenery`) takes its CE
+    # collision with it.
+    skip = set(swap.get("removed") or [])
     for item in swap.get("decor", []) if "swap" in kinds else []:
         ident = str(item.get("id", ""))
         if ident.startswith("swap_"):

@@ -161,8 +161,8 @@ local function spatialPainter(api,world,entry,domains)
     local sample=source.MaterialInstances[1]
     assert(alive(sample) and #instances>0,"Incomplete painter materials")
     local state=entry.surface.SimulationState
-    local centre,area=state.AreaLocation,state.AreaSize
-    local x0,y0=centre.X-area.X*.5,centre.Y-area.Y*.5
+    local middle,area=state.AreaLocation,state.AreaSize
+    local x0,y0=middle.X-area.X*.5,middle.Y-area.Y*.5
     assert(y0<=p.start_ue_y_cm and p.end_ue_y_cm<=y0+area.Y,"Painter ramp lies outside the river tile")
     local render=api.findObject("/Script/Engine.Default__KismetRenderingLibrary")
     local rows=1024
@@ -290,7 +290,7 @@ function Flux.start(api,world,spec)
                     local d=s.domain
                     dom.AreaResolution={X=d.res[1],Y=d.res[2]}; dom.AreaWorldPixelSize=d.cell
                     dom.AreaWorldHeight=d.height; dom.SurfaceActorReference=surf
-                    for key,value in pairs(s.simulation or {}) do dom[key]=value end
+                    for field,value in pairs(s.simulation or {}) do dom[field]=value end
                     dom.HeightmapUpdateFrequency=1000000
                     local visibility=dom.SceneVisibility
                     -- Strict component allowlist: a tag exclusion list cannot
@@ -305,7 +305,7 @@ function Flux.start(api,world,spec)
                     gs:FinishSpawningActor(dom,xf(c),0)
                     local capture=dom.FluxHeightMapComponent.CaptureComponent
                     capture:ClearShowOnlyComponents()
-                    for _,id in ipairs(s.ground) do capture:ShowOnlyActorComponents(current.actors[id],true) end
+                    for _,ground in ipairs(s.ground) do capture:ShowOnlyActorComponents(current.actors[ground],true) end
                     entry.domain=dom; entry.status="simulating"
                     local primers,modifiers={},{}
                     for i,q in ipairs(s.sources or {}) do if not (baked and q.prime) then
@@ -337,8 +337,8 @@ function Flux.start(api,world,spec)
                             api.color(surf,s)
                             if type(s.surface_scalars)=="table" then
                                 local materials=surf.MaterialInstances
-                                for i=1,#materials do for key,value in pairs(s.surface_scalars) do
-                                    materials[i]:SetScalarParameterValue(api.name(key),value)
+                                for i=1,#materials do for scalar,value in pairs(s.surface_scalars) do
+                                    materials[i]:SetScalarParameterValue(api.name(scalar),value)
                                 end end
                             end
                             if wave then waveMaterial(api,surf) end

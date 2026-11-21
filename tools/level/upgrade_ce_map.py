@@ -35,8 +35,10 @@ then rebuilds the shared registration and menu with `mjolnir level register`.
 Set MJOLNIR to the CLI executable when it is not in this checkout's target.
 """
 import argparse
+from ce_objectives import drop_teleporters, park
 from cooked_map_container import cooked_map_container
 import dev_paks
+from machine_containers import map_tag_containers
 from owned_map_cook import snapshot_owned_cook, verified_owned_cook
 from owned_map_cook import snapshot_owned_cook, verified_owned_cook, flux_bed_requires_mesh, landscape_lod_policy_path, landscape_lod_cook_inputs, render_only_hism_path, render_only_hism_cook_inputs, render_only_pines_path, render_only_pines_cook_inputs, native_grass_pilot_config, native_grass_pilot_cook_inputs
 import glob
@@ -184,15 +186,38 @@ def generated_mesh(code, m, suffix):
     return f"{root}/{name}.{name}"
 
 
-def moved_level(path, moves, extra=None):
+def moved_level(path, moves, extra=None, groups=None, bots=None, gone=None):
     """`vehicle_moves` ({megalo label: [x, y, z] cm, or {"pos", "yaw"}}): the base level with
     those vehicles placed again, written beside it as <stem>.moved.level.json
     (the bake reads files beside the level). Zanzibar's east Shade spawned
     82 cm from a parapet chunk (an object baked into the terrain, 1.7 m
     tall) that stands on its platform alone: pushed out of it, the turret
     slid off the platform every spawn. It moves to the middle of the clear
-    part of the platform (2026-11-14)."""
-    level = json.load(open(path, encoding="utf-8"))
+    part of the platform (2026-11-14).
+
+    Every teleporter end goes on the eighth team too (ce_objectives.park):
+    conversions made before 2026-11-07 left them on none, team 0, and red
+    respawned on the pads (#346). `bots` (defs/level/bots.json, as
+    add_bots.py gives every hub map) goes in as `blam.bots` when the level
+    has none, so the bake makes the bots' squads, objective and pathfinding
+    and writes <CODE>.bots.json. `gone` (`remove_teleporters`, channel
+    names) takes those teleporters out: a map's design dropped them after
+    its conversion (Proving Ground's two ground pairs, 2026-11-17); the
+    pads' scenery goes with `remove_scenery`. The base level comes back as
+    it is when nothing changes."""
+    level, parked = park(json.load(open(path, encoding="utf-8")))
+    dropped = 0
+    if gone:
+        try:
+            level, dropped = drop_teleporters(level, gone)
+        except ValueError as e:
+            sys.exit(f"remove_teleporters: {e} in {path}")
+    blam = level.setdefault("blam", {})
+    botted = bool(bots) and "bots" not in blam
+    if botted:
+        blam["bots"] = bots
+    if not (moves or extra or groups or parked or botted or dropped):
+        return path
     found = set()
     for v in (level.get("blam") or {}).get("vehicles") or []:
         label = (v.get("set") or {}).get("multiplayer data.megalo label")
@@ -211,6 +236,11 @@ def moved_level(path, moves, extra=None):
     # blown about).
     if extra:
         level.setdefault("blam", {}).setdefault("objects", []).extend(extra)
+    # `doors`' device groups (a Halo 2 door's machines and its control
+    # share one, h2_door_machines.py).
+    if groups:
+        have = {g["name"] for g in level.setdefault("blam", {}).setdefault("device_groups", [])}
+        level["blam"]["device_groups"].extend(g for g in groups if g["name"] not in have)
     out = path[:-len(".level.json")] + ".moved.level.json" if path.endswith(".level.json") else path + ".moved.json"
     text = json.dumps(level, indent=1)
     if not os.path.exists(out) or open(out, encoding="utf-8").read() != text:
@@ -218,13 +248,98 @@ def moved_level(path, moves, extra=None):
     return out
 
 
+# `physics_props`: placed scenery that becomes a physics object of its own,
+# each entry {"asset": the placement's tag path, "crate": the crate tag the
+# simulation moves in its place, "actor_class": that crate's actor Blueprint
+# class, "mesh": the prop's own mesh (built into the map's mesh container, as
+# terrain.json lists it), "terrain": that terrain.json}. The prop's copy
+# merged into the terrain mesh must be gone (remove_placed_props.py, and
+# `mesh_container` naming the container built from it); this places the
+# crates, leaves the prop's collision out of the level, and has the loader
+# draw each crate as the prop (level `dress`). Zanzibar's fusion coils
+# (2026-11-15): a melee or a shot knocks them about.
+PROP_LIFT = 0.02  # world units the crate starts above the prop's origin
+
+
+from prop_lit import (PLAIN_GLOW_BRIGHTNESS, PROP_FUSION, PROP_GLOW, PROP_GLOW_PULSE, PROP_HIDDEN,  # noqa: E402,F401
+                      PROP_LIT, PROP_OVERLAY, prop_lit)
+
+
+def physics_props(m):
+    """The map's `physics_props`: a list, or the path of the
+    physics_props.json tools/level/h2_physics_props.py writes from a Halo 2
+    map's own tag data (every crate Halo 2 moves)."""
+    v = m.get("physics_props") or []
+    if isinstance(v, str):
+        return json.load(open(v, encoding="utf-8"))
+    return v
+
+
+def prop_placements(m, asset):
+    """The conversion's placement entries of `asset`, with their indices."""
+    conv = m["conversion"]
+    own = os.path.join(m.get("scene", conv), "staging")
+    st = own if os.path.isdir(os.path.join(own, "models")) else os.path.join(conv, "staging")
+    placement = json.load(open(os.path.join(st, "placement.json"), encoding="utf-8"))
+    return [(n, e) for n, e in enumerate(placement["entries"]) if e.get("asset") == asset]
+
+
+def physics_prop_objects(m):
+    """blam.objects entries: one crate a placed prop. Positions are the level
+    file's Unreal centimetres (Halo world units x 304.8, y flipped); the bake
+    turns only the yaw (ue_yaw_to_blam), so a prop lying on its side starts
+    upright."""
+    out = []
+    for prop in physics_props(m):
+        for _n, e in prop_placements(m, prop["asset"]):
+            x, y, z = e["pos"]
+            yaw = (e.get("rot") or [0, 0, 0])[0]
+            out.append({"tag": prop["crate"], "group": "crates",
+                        "pos": [round(x * 304.8, 1), round(-y * 304.8, 1), round((z + PROP_LIFT) * 304.8, 1)],
+                        "rot": [0, round(-math.degrees(yaw), 2), 0],
+                        "set": dict(prop.get("set") or {})})
+    return out
+
+
+# cm: a Flux coast's haze reaches past its far ocean (stage_assemble).
+COAST_HAZE_CUTOFF = 6000000
+# A Halo 2 planar fog's fill over a remaster (stage_assemble): from the eye,
+# opaque, thin at the plane and thickening fast under it, so the rocks'
+# lower ends fade out over tens of metres as Halo 2's do (Ascension, tuned
+# live 2026-11-17).
+# Cut off where the CE haze is (the map's reach), short of the sky mesh.
+H2_FILL_UNDER_PBR = {"density": 0.01, "falloff": 4.0, "start": 0.0, "max_opacity": 1.0}
+# cm the fill sits under the plane: at the plane it hid the rocks up to
+# their tops; 30 m down they stand out of the cloud sheet and still end in
+# it (Ascension, 2026-11-17).
+H2_FILL_BELOW = 3000.0
+
+BOTS = os.path.join(REPO, "defs", "level", "bots.json")
+
+
+def map_bots(m):
+    """The bots a map bakes: defs/level/bots.json's, unless its entry says
+    `"bots": false` (a map whose floors give the bots no way round)."""
+    if m.get("bots") is False:
+        return None
+    with open(BOTS, encoding="utf-8") as f:
+        return {k: v for k, v in json.load(f).items() if not k.startswith("_")}
+
+
 def paths(code, m, work):
     conv = m["conversion"]
     scene = m.get("scene", conv)
     w = os.path.join(work, code)
     level = m.get("base_level") or os.path.join(conv, m["level"])
-    if m.get("vehicle_moves") or m.get("objects"):
-        level = moved_level(level, m.get("vehicle_moves") or {}, m.get("objects"))
+    objects = (m.get("objects") or []) + physics_prop_objects(m)
+    groups = []
+    if m.get("doors") and os.path.exists(m["doors"]):
+        for door in json.load(open(m["doors"], encoding="utf-8")):
+            objects += (door.get("blam") or {}).get("objects") or []
+            groups += (door.get("blam") or {}).get("device_groups") or []
+    if m.get("vehicle_moves") or objects or os.path.isfile(level):
+        level = moved_level(level, m.get("vehicle_moves") or {}, objects, groups, map_bots(m),
+                            m.get("remove_teleporters"))
     return {"conv": conv, "scene": scene, "work": w, "land": os.path.join(w, "land"),
             "foliage": os.path.join(w, "foliage"), "bake": os.path.join(w, "bake"),
             "level": level, "out_level": os.path.join(w, "level.json")}
@@ -667,6 +782,11 @@ def stage_land(code, m, p):
                              if l.startswith(("heights", "holes", "settled", "bakes", "seabed"))))
 
 
+# cm under a map's lowest player spawn below which its cliffs take no
+# cladding rocks (stage_foliage).
+CLAD_BELOW_SPAWNS = 3000.0
+
+
 def stage_foliage(code, m, p):
     pcg_foliage = os.path.join(REPO, m["pcg_foliage"]) if m.get("pcg_foliage") else None
     if pcg_foliage and not os.path.isfile(pcg_foliage):
@@ -700,6 +820,12 @@ def stage_foliage(code, m, p):
     if sea is not None:
         cmd += ["--sea", f"{sea:.1f}"]
     cmd += ["--staging", staging(p)]
+    # Cladding only within reach: no rock more than CLAD_BELOW_SPAWNS under
+    # the map's lowest player spawn (its scenario's). Of the remasters only
+    # Ascension's pillars and Gephyrophobia's chasm reach further down.
+    starts = [s["pos"][2] for s in (level.get("blam") or {}).get("player_starts") or [] if s.get("pos")]
+    if starts:
+        cmd += ["--clad-floor", f"{min(starts) - CLAD_BELOW_SPAWNS:.0f}"]
     for name, cls in (m.get("details") or {}).items():
         cmd += ["--detail", f"{name}={cls}"]
     if m.get("foliage_ceiling") is not None:
@@ -721,6 +847,10 @@ def stage_foliage(code, m, p):
     # `foliage_extra`: optional scatter rules (Death Island's sea rocks).
     for rule in m.get("foliage_extra", []):
         cmd += ["--extra", rule]
+    # `remove_scenery`: placed scenery (tag paths) the swap takes out of the
+    # map; the scatter leaves it no clearing.
+    for tag in m.get("remove_scenery", []):
+        cmd += ["--remove-scenery", tag]
     os.makedirs(p["foliage"], exist_ok=True)
     out = run(cmd)
     print("  " + out.strip().splitlines()[-1][:200])
@@ -770,6 +900,7 @@ def stage_swap(code, m, p):
                "--staging", swap_staging]
               + (["--biome", m["biome"]] if m.get("biome") else [])
               + (["--tree-variant", m["tree_variant"]] if m.get("tree_variant") else [])
+              + [arg for tag in m.get("remove_scenery", []) for arg in ("--remove", tag)]
               + (["--authored-decor", authored_decor] if authored_decor else [])
               + (["--sea", f"{sea:.1f}"] if sea is not None else []))
     print("  " + out.strip().splitlines()[-1][:200])
@@ -841,6 +972,13 @@ def stage_collision(code, m, p):
     if m.get("authored_collision"):
         count=append_authored_collision(extra,m["authored_collision"])
         made+=f"; authored terrain {count} triangle(s)"
+    # A physics prop collides as its crate: its own collision leaves the level.
+    props = [n for prop in physics_props(m) for n, _e in prop_placements(m, prop["asset"])]
+    if props:
+        e = json.load(open(extra, encoding="utf-8"))
+        e["skip_entries"] = sorted(set(e.get("skip_entries") or []) | set(props))
+        json.dump(e, open(extra, "w", encoding="utf-8"))
+        made += f"; {len(props)} physics prop(s) left to their crates"
     run([sys.executable, os.path.join(HERE, "merge_ce_collision.py"), staging(p), scene, "--extra", extra])
     command=[mjolnir, "level", "collision", os.path.abspath(scene), "--out", os.path.abspath(sbsp), "--own-bsp", "--bsp-index", "0", "--paks", PAKS]
     if m.get("authored_collision"):
@@ -929,6 +1067,185 @@ def redrawn_manifest(code, p):
     return path
 
 
+def swap_redrawn(entries, names, root, keys=("Base", "Map0", "Bump", "SelfIllumMap")):
+    """Point each material entry's textures (`keys`) that name a redrawn
+    texture at its copy under `root` (the landscape's Up/ folder). Returns
+    the count."""
+    swapped = 0
+    for entry in entries:
+        tex = entry.get("textures") if isinstance(entry, dict) else None
+        for key in keys:
+            leaf = str((tex or {}).get(key, "")).rsplit(".", 1)[-1]
+            if leaf in names:
+                tex[key] = f"{root}{leaf}.{leaf}"
+                swapped += 1
+    return swapped
+
+
+def fill_detail(entries, rule, path):
+    """`detail_fill`: give each material entry drawn with a base map alone,
+    whose base map's name holds one of the rule's tokens, the detail map at
+    `path`. Returns the count."""
+    filled = 0
+    for entry in entries:
+        tex = entry.get("textures") if isinstance(entry, dict) else None
+        sc = entry.get("scalars") if isinstance(entry, dict) else None
+        leaf = str((tex or {}).get("Base", "")).rsplit(".", 1)[-1].lower()
+        if (isinstance(sc, dict) and not sc.get("HasPrimary") and "Primary" not in tex
+                and any(tok in leaf for tok in rule["bases"])):
+            tex["Primary"] = path
+            sc["HasPrimary"], sc["PrimaryScale"] = 1.0, float(rule.get("scale", 16))
+            filled += 1
+    return filled
+
+
+def machine_parts_plan(code, m, p):
+    """The map's moving machine parts' cooked material instances
+    (machine_instances.py): the scene's list (h2_physics_props.py
+    --instance-root), each entry finished as assemble finishes a part the
+    loader dresses (the redrawn textures, `detail_fill`), under a folder and
+    a label of their own in the landscape's chunk. Returns the finished
+    file's path, or None for a map whose parts the loader dresses."""
+    src = os.path.join(p["scene"], "machine_instances.json")
+    if not os.path.exists(src):
+        return None
+    plan = json.load(open(src, encoding="utf-8"))
+    if not plan["instances"]:
+        return None
+    if m.get("indoor"):
+        sys.exit(f"{code}: cooked machine parts need the landscape's cook; build its meshes without --instance-root")
+    folder = f"/Game/MJOLNIR/MachineParts/{m['landscape']}"
+    if plan["folder"] != folder:
+        sys.exit(f"{code}: {src} names {plan['folder']}; h2_physics_props.py --instance-root {folder}")
+    entries = plan["instances"]
+    manifest = os.path.join(p["work"], "redrawn", "manifest.json")
+    if m.get("redrawn") and os.path.exists(manifest):
+        names = {t["name"] for t in json.load(open(manifest, encoding="utf-8"))["textures"]}
+        swap_redrawn(entries, names, f"/Game/MJOLNIR/Landscape/{m['landscape']}/Up/")
+    spec = json.load(open(os.path.join(p["conv"], "materials.spec.json"), encoding="utf-8"))
+    for rule in m.get("detail_fill") or []:
+        fill_detail(entries, rule, f"{spec['root']}/Textures/{rule['detail']}.{rule['detail']}")
+    plan["label"] = {"name": f"PAL_MJOLNIR_{m['landscape']}Parts", "chunk": int(m["chunk"])}
+    out = os.path.join(p["work"], "machine_instances.json")
+    # Rewritten only when it changes: the cook stage's check takes a file
+    # newer than the editor's record of building it for a run that did not.
+    text = json.dumps(plan, indent=1)
+    if not os.path.exists(out) or open(out, encoding="utf-8").read() != text:
+        open(out, "w", encoding="utf-8").write(text)
+    return out
+
+
+def map_cook_container(code, m, p):
+    """The container of the map's own cooked packages (its textures and
+    sounds, /Game/MJOLNIR/Maps/<CODE>): the conversion's, or the copy the
+    cook stage refreshed beside the upgrade's work (refresh_map_cook)."""
+    conv = cooked_map_container(p["conv"], code)
+    fresh = os.path.join(p["work"], conv.name)
+    return fresh if os.path.isfile(fresh + ".utoc") else str(conv)
+
+
+def refresh_map_cook(code, m, p):
+    """Textures imported into the map's folder after its conversion cooked
+    (h2_physics_props.py's door parts and stencils) are in this cook's chunk
+    and not in the conversion's container, which the install took: Zanzibar's
+    gate drew textured only beside a test container installed by hand
+    (2026-11-15). When the staged chunk holds everything the conversion's
+    does and more, it becomes the map's container (a copy in the work
+    folder); when it lacks something, the conversion's stays."""
+    conv = cooked_map_container(p["conv"], code)
+    spec_path = os.path.join(p["conv"], "materials.spec.json")
+    if m.get("map_mesh_chunk") or not os.path.isfile(str(conv) + ".utoc") or not os.path.isfile(spec_path):
+        return
+    chunk = json.load(open(spec_path, encoding="utf-8")).get("chunk")
+    staged = os.path.join(STAGED, f"pakchunk{chunk}-Windows")
+    if not chunk or not os.path.isfile(staged + ".utoc"):
+        return
+    import machine_instances
+    old = {f.rsplit("/", 1)[-1] for f in machine_instances.listing(p["conv"], conv.name)}
+    new = {f.rsplit("/", 1)[-1] for f in machine_instances.listing(STAGED, f"pakchunk{chunk}-")}
+    fresh = os.path.join(p["work"], conv.name)
+    if old - new:
+        print(f"  {code}: this cook's pakchunk{chunk} lacks {len(old - new)} package(s) of the conversion's "
+              f"({sorted(old - new)[:3]}...): the conversion's container stays")
+        for e in ("utoc", "ucas"):
+            if os.path.exists(f"{fresh}.{e}"):
+                os.remove(f"{fresh}.{e}")
+        return
+    if new - old:
+        for e in ("utoc", "ucas"):
+            shutil.copyfile(f"{staged}.{e}", f"{fresh}.{e}")
+        print(f"  {code}: {len(new - old)} package(s) cooked since the conversion ({sorted(new - old)[:3]}...): "
+              f"pakchunk{chunk} -> {fresh}")
+
+
+def finish_cliff(code, m, p, cliff):
+    """The landscape's cliff look as the level file carries it: the bake's,
+    with the config's `cliff_look` and `cliff_scalars` and the tessellated
+    copy (cliff_mesh.json, made in the editor stage before the world)."""
+    if not isinstance(cliff, dict):
+        return
+    cliff["fill_dir"] = CLIFF_FILL_DIR
+    # `cliff_look`: entries over the cliffs' look ([base, CE colour, CE
+    # shade, contrast]; null keeps one). Zanzibar's contrast 1.0: at 1.5
+    # the rock's white mineral streaks stood out as hard lights.
+    for i, v in enumerate(m.get("cliff_look") or []):
+        if v is not None and isinstance(cliff.get("look"), list) and i < len(cliff["look"]):
+            cliff["look"][i] = v
+    if m.get("cliff_scalars"):
+        cliff["scalars"] = dict(m["cliff_scalars"])
+    mesh = os.path.join(p["work"], "cliff_mesh.json")
+    if (m.get("tess") is not False or m.get("cliff_uv")) and os.path.exists(mesh):
+        spec = json.load(open(mesh, encoding="utf-8"))
+        # `tess` as an object: the map's own over TESS (Rat Race's
+        # tunnels: a wall pushed 30 cm into a 3 m passage).
+        own = m["tess"] if isinstance(m.get("tess"), dict) else {}
+        cliff["tess"] = dict(TESS, **own, mesh=generated_mesh(code, m, "CliffTess"),
+                             item=spec["item"], slots=spec["slots"])
+
+
+def merge_environment(env, m):
+    """The config's `environment` merged into the level's, a key at a time
+    (skylight.lower, clouds, ...)."""
+    for key, value in (m.get("environment") or {}).items():
+        if isinstance(value, dict) and isinstance(env.get(key), dict):
+            env[key].update(value)
+        else:
+            env[key] = value
+    return env
+
+
+def clad_plan(code, m, p):
+    """The cladding rocks' cooked materials (clad_materials.py), as
+    ce_vehicle_instances_editor.py's file: from the level as assemble will
+    finish it, as far as the rocks' material reads it. Returns the file's
+    path, or None for a map whose rocks keep their own (a shipped cliff
+    material) or that bakes no foliage."""
+    if not m.get("bake_foliage") or m.get("indoor"):
+        return None
+    import clad_materials
+    level = json.load(open(p["level"], encoding="utf-8"))
+    land = json.load(open(os.path.join(p["land"], "landscape.json"), encoding="utf-8"))
+    level["landscape"] = {k: land[k] for k in ("material", "cut", "pbr", "cliff") if k in land}
+    if m.get("sea") is False:
+        level["landscape"]["sea"] = False
+    finish_cliff(code, m, p, level["landscape"].get("cliff"))
+    merge_environment(level.setdefault("environment", {}), m)
+    groups = json.load(open(os.path.join(p["foliage"], "foliage.json"), encoding="utf-8"))["groups"]
+    entries = clad_materials.entries(level, groups, m["landscape"])
+    if not entries:
+        return None
+    plan = {"folder": f"/Game/MJOLNIR/CladMaterials/{m['landscape']}", "overrides": {}, "drop_textures": False,
+            "label": {"name": f"PAL_MJOLNIR_{m['landscape']}Clad", "chunk": int(m["chunk"])},
+            "standins": clad_materials.standins(entries, os.path.join(PROJECT, "Content")), "instances": entries}
+    out = os.path.join(p["work"], "clad_instances.json")
+    # Rewritten only when it changes: the cook stage's check takes a file
+    # newer than the editor's record of building it for a run that did not.
+    text = json.dumps(plan, indent=1)
+    if not os.path.exists(out) or open(out, encoding="utf-8").read() != text:
+        open(out, "w", encoding="utf-8").write(text)
+    return out
+
+
 def stage_editor(code, m, p):
     if m.get("rock_roughness") is not None and not m.get("bake_foliage"):
         sys.exit(f"{code}: rock overrides require bake_foliage")
@@ -965,6 +1282,12 @@ def stage_editor(code, m, p):
                          + (["--render-only-hism", str(exterior_hism)] if exterior_hism else [])
                          + (["--render-only-pines", str(exterior_pines)] if exterior_pines else [])).strip().splitlines()[-1][:160])
         env["MJ_FOLIAGE"] = spec
+        # The cladding rocks' cooked materials (clad_materials.py), made by
+        # the world's script once it has imported the landscape textures
+        # they name, and set on the rocks as it bakes them.
+        clad = clad_plan(code, m, p)
+        if clad:
+            env["MJ_CLAD"] = clad
     out = powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"), ["-Script", "Scripts/build_ce_landscape.py"],
                      env=env)
     # The editor's own log too: its console capture has stopped short of the
@@ -976,6 +1299,8 @@ def stage_editor(code, m, p):
         sys.exit(f"{code}: the landscape world was not built:\n{out[-2000:]}")
     if m.get("bake_foliage") and "landscape foliage:" not in log:
         sys.exit(f"{code}: the world was built without its foliage:\n{out[-2000:]}")
+    if env.get("MJ_CLAD") and "MJOLNIR cladding materials:" not in log:
+        sys.exit(f"{code}: the world's cladding rocks did not take their cooked materials:\n{out[-2000:]}")
     landscape_lod_cook_inputs(m, p["work"])
     render_only_hism_cook_inputs(m, p["work"])
     render_only_pines_cook_inputs(m, p["work"])
@@ -990,6 +1315,16 @@ def stage_editor(code, m, p):
             verify_grass_phase(pilot_path, mode, started)
         native_grass_pilot_cook_inputs(m, p["work"])
     print(f"  {code}: world /Game/Levels/Halo1/Solo/{m['landscape']} built")
+    # The moving machine parts' material instances, cooked beside the world.
+    plan = machine_parts_plan(code, m, p)
+    if plan:
+        powershell(os.path.join(REPO, "tools", "ue", "editor_cmd.ps1"),
+                   ["-Script", "..\\..\\tools\\level\\ce_vehicle_instances_editor.py"], env={"MJ_CE_INSTANCES": plan})
+        n = len(json.load(open(plan, encoding="utf-8"))["instances"])
+        log = open(os.path.join(PROJECT, "Saved_ce_vehicle_instances_editor.log"), encoding="utf-8", errors="replace").read()
+        if f"MJOLNIR vehicle instances: {n} under" not in log:
+            sys.exit(f"{code}: the machine part instances did not build: Saved_ce_vehicle_instances_editor.log")
+        print(f"  {code}: {n} machine part material instance(s)")
 
 
 def build_water():
@@ -1080,6 +1415,11 @@ def build_cliffs(maps, ps):
         p = ps[code]
         out = os.path.join(p["work"], "cliff_mesh.json")
         extra = ["--flat", "--conformal", str(uv)] if uv else []
+        # `cliff_smooth` (degrees): the flat copy's normals blended across
+        # folds gentler than that, so a coarse rock's faces stop drawing as
+        # flat triangles of snow and shade (cliff_mesh.smooth_normals).
+        if uv and m.get("cliff_smooth"):
+            extra += ["--smooth", str(m["cliff_smooth"])]
         print("  " + run([sys.executable, os.path.join(HERE, "cliff_mesh.py"), p["level"],
                           os.path.join(p["scene"], "scene.gltf"), out, "--landscape",
                           os.path.join(p["land"], "landscape.json"), "--swap",
@@ -1177,8 +1517,18 @@ def bake_world_path(code, m):
 
 
 def stage_cook(maps):
+    import clad_materials
+    from machine_instances import listing
     worlds = "+".join(cooked_landscape_world(m) for m in maps
                       if not m.get("indoor"))
+    # The map textures' stand-ins (clad_materials.py: a Halo 1 map's own
+    # textures ship in the hub's container) are never cooked: a grey copy in
+    # any container would draw over the real one.
+    content = os.path.join(PROJECT, "Content")
+    try:
+        never = clad_materials.never_cook_dirs(content)
+    except RuntimeError as e:
+        sys.exit(str(e))
     # StaticMesh too: chunk 983 carries the tessellated cliffs.
     classes = "Material,MaterialInstanceConstant,StaticMesh"
     if any(m.get("native_grass_pilot") for m in maps):
@@ -1190,12 +1540,25 @@ def stage_cook(maps):
     if len(snapshots) > 1 or any(Path(path).exists() for path in snapshots):
         raise ValueError('Retarget snapshot requires one fresh destination')
     out = powershell(os.path.join(REPO, "tools", "ue", "cook.ps1"),
-                     (["-Map", worlds] if worlds else []) + ["-Classes", classes],
+                     (["-Map", worlds] if worlds else []) + ["-Classes", classes]
+                     + (["-NeverCook", "+".join(never)] if never else []),
                      env={"MJOLNIR_RETARGET": next(iter(retarget), ""),
                           "MJOLNIR_RETARGET_SNAPSHOT": next(iter(snapshots), ""),
                           "MJOLNIR_RETARGET_SNAPSHOT_CHUNKS": ','.join(str(m['chunk']) for m in maps) if snapshots else ""})
     if "BUILD SUCCESSFUL" not in out or "MJOLNIR cook and retarget complete" not in out:
         sys.exit("cook failed:\n" + out[-3000:])
+    if never:
+        # By package path: another map's real texture can share a stand-in's
+        # name (Tide's Breath cooks its own T_levels_b30_bitmaps_cliffs; Death
+        # Island's is a stand-in).
+        leaves = {f"{d[len('/Game/'):]}/{f[:-len('.uasset')]}".lower() for d in never
+                  for f in os.listdir(os.path.join(content, *d[len("/Game/"):].split("/"))) if f.endswith(".uasset")}
+        cooked = {f.replace("\\", "/").split("/Content/", 1)[-1].rsplit(".", 1)[0].lower()
+                  for f in listing(STAGED, "pakchunk")}
+        shipped = sorted(leaves & cooked)
+        if shipped:
+            sys.exit(f"the cook staged map texture stand-ins {shipped}: they would draw over the game's own")
+        print(f"  {len(leaves)} map texture stand-in(s) left out of the cook: {never}")
     log = open(os.path.join(PROJECT, "Saved_cook.log"), encoding="utf-8", errors="replace").read()
     errors = [l for l in log.splitlines() if "error X" in l or ": error" in l]
     if errors:
@@ -1206,9 +1569,11 @@ def stage_cook(maps):
 
 
 def stage_bake(code, m, p):
+    # This checkout's CLI and examples: a path to another worktree's build
+    # baked a Halo 2 level with a CLI too old to read its `game` field.
     tool_env = {"HCE_PAKS": PAKS,
-                "MJOLNIR": os.environ.get("MJOLNIR", "C:/haloce/.claude/worktrees/server-list-hosting-d9e78e/target/release/mjolnir.exe"),
-                "EXAMPLES": os.environ.get("EXAMPLES", "C:/haloce/target/debug/examples")}
+                "MJOLNIR": os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe")),
+                "EXAMPLES": os.environ.get("EXAMPLES", os.path.join(REPO, "target", "debug", "examples"))}
     # Validate collision before clearing an earlier complete bake.
     sbsp=bake_sbsp(m,p)
     world = bake_world_path(code, m)
@@ -1222,6 +1587,12 @@ def stage_bake(code, m, p):
     if not os.path.exists(os.path.join(p["bake"], f"pakchunk997-MJOLNIRMAP-{code}_P.utoc")):
         sys.exit(f"{code}: no map container baked:\n{out[-2000:]}")
     print(f"  {code}: map container baked")
+    if map_bots(m):
+        if not os.path.exists(os.path.join(p["bake"], f"{code}.bots.json")):
+            sys.exit(f"{code}: the bake made no bots ({code}.bots.json):\n{out[-2000:]}")
+        for line in out.splitlines():
+            if line.lstrip().startswith("bots"):
+                print("  " + line.strip())
     if m.get("native_rock_materials"):
         # Editor stand-ins cannot supply the native layered material's cached
         # shader data. Replace only map-owned MICs with full native clones.
@@ -1900,25 +2271,7 @@ def stage_assemble(code, m, p):
         level.setdefault("slot_meshes", []).append({
             "mesh": generated_mesh(code, m, "River"), "item": spec["item"],
             "slots": spec["slots"]})
-    cliff = level["landscape"].get("cliff")
-    if isinstance(cliff, dict):
-        cliff["fill_dir"] = CLIFF_FILL_DIR
-        # `cliff_look`: entries over the cliffs' look ([base, CE colour, CE
-        # shade, contrast]; null keeps one). Zanzibar's contrast 1.0: at 1.5
-        # the rock's white mineral streaks stood out as hard lights.
-        for i, v in enumerate(m.get("cliff_look") or []):
-            if v is not None and isinstance(cliff.get("look"), list) and i < len(cliff["look"]):
-                cliff["look"][i] = v
-        if m.get("cliff_scalars"):
-            cliff["scalars"] = dict(m["cliff_scalars"])
-        mesh = os.path.join(p["work"], "cliff_mesh.json")
-        if (m.get("tess") is not False or m.get("cliff_uv")) and os.path.exists(mesh):
-            spec = json.load(open(mesh, encoding="utf-8"))
-            # `tess` as an object: the map's own over TESS (Rat Race's
-            # tunnels: a wall pushed 30 cm into a 3 m passage).
-            own = m["tess"] if isinstance(m.get("tess"), dict) else {}
-            cliff["tess"] = dict(TESS, **own, mesh=generated_mesh(code, m, "CliffTess"),
-                                 item=spec["item"], slots=spec["slots"])
+    finish_cliff(code, m, p, level["landscape"].get("cliff"))
     # `lumen_chunks`: the terrain's cells (structure_chunks.py), which the
     # loader draws in the terrain's place (MJOLNIRLevelLoader Land.lumenCells).
     cells_dir = os.path.join(p["work"], "lumen_chunks")
@@ -2101,15 +2454,18 @@ def stage_assemble(code, m, p):
     # stand-in (2026-10-13).
     if m.get("haze") == "ce" and isinstance(level["landscape"].get("pbr"), dict):
         haze = ce_haze(level, scene_reach(p))
-        # A Flux coast: the haze out past the far ocean (Flux draws it some
-        # 10 km out, the sky mesh is far beyond) and free to thicken there,
-        # so the sea fades into the sky. Cut off at the map's reach and held
-        # to CE's 25%, the far ocean was a flat grey band under a hard
-        # horizon (Yoyorast, 2026-10-15). `haze_color` sets it to the sky's
-        # colour at the horizon.
+        # A Flux coast: the haze out past the far ocean and free to thicken
+        # there, so the sea fades into the sky. Cut off at the map's reach
+        # and held to CE's 25%, the far ocean was a flat grey band under a
+        # hard horizon (Yoyorast, 2026-10-15). Flux's grid draws the sea
+        # 50 km and more out, and past the cutoff it reflects near black: at
+        # 15 km Death Island's horizon had a black line 8 px tall at 4K, 1 px
+        # at 40 km, none at 60 km (2026-11-17). The sky mesh's nearest parts
+        # are 45 to 50 km away, so 60 km hazes its top corners a little.
+        # `haze_color` sets it to the sky's colour at the horizon.
         coast = (m.get("flux") or {}).get("coast") or {}
         if haze and coast:
-            haze["cutoff"] = max(haze["cutoff"], coast.get("haze_cutoff", 1500000))
+            haze["cutoff"] = max(haze["cutoff"], coast.get("haze_cutoff", COAST_HAZE_CUTOFF))
             haze["max_opacity"] = coast.get("haze_opacity", 1.0)
             if coast.get("haze_color"):
                 haze["color"] = list(coast["haze_color"])
@@ -2117,6 +2473,17 @@ def stage_assemble(code, m, p):
         # glow towards the sun: MJOLNIRLevelLoader environment.haze).
         if haze and m.get("haze_look"):
             haze.update(m["haze_look"])
+        # A Halo 2 planar fog's fill (gen_ce_level.h2_fog_fill: a height
+        # fog at the plane, `height`) stays the fog, with the CE haze as its
+        # second layer: Unreal draws one height fog, and the haze had taken
+        # the fill's place, so Ascension's rocks showed their undersides
+        # below the cloud plane (2026-11-17). From the eye, not 1.5 km out:
+        # the remaster's rock wears Unreal's materials, which have no planar
+        # fog of their own as the CE masters do.
+        fill = (level.get("environment") or {}).get("haze")
+        if haze and isinstance(fill, dict) and "height" in fill:
+            haze = dict(fill, **H2_FILL_UNDER_PBR, cutoff=haze["cutoff"], height=fill["height"] - H2_FILL_BELOW,
+                        second={"density": haze["density"], "falloff": haze["falloff"], "height": 0.0})
         if haze:
             level["landscape"]["pbr"]["haze"] = haze
     # `haze` as an object: the height fog itself (MJOLNIRLevelLoader
@@ -2131,12 +2498,7 @@ def stage_assemble(code, m, p):
     level["decor"] += horizon_skirt(code, m, p, level)
     # The level's sky (ce_upgrade_maps.json "environment"): merged into
     # environment, a key at a time (skylight.lower, clouds, ...).
-    env = level.setdefault("environment", {})
-    for key, value in (m.get("environment") or {}).items():
-        if isinstance(value, dict) and isinstance(env.get(key), dict):
-            env[key].update(value)
-        else:
-            env[key] = value
+    env = merge_environment(level.setdefault("environment", {}), m)
     # `weather: "snow"`: falling snow the CE map never had (Ice Fields, in
     # B40's), the game's snow as Coldsnap's is (gen_ce_level.WEATHER_SYSTEMS),
     # kept out from under the map's roofs and caves (weather_roofs).
@@ -2173,21 +2535,28 @@ def stage_assemble(code, m, p):
     authored_materials = apply_authored_material_overrides(level, m)
     if authored_materials:
         print(f"  {code}: {authored_materials} authored material override(s)")
+    # Turning parts whose meshes carry cooked material instances
+    # (machine_parts_plan): nothing for the loader to dress them with. (A
+    # door's parts come from the scene's extra decor, built without
+    # materials the same way.)
+    plan = machine_parts_plan(code, m, p)
+    if plan:
+        cooked = {e["mesh"] for e in json.load(open(plan, encoding="utf-8"))["instances"]}
+        bare = 0
+        for gear in level.get("gears") or []:
+            if str(gear.get("mesh", "")).rsplit(".", 1)[-1] in cooked:
+                gear["materials"] = []
+                bare += 1
+        print(f"  {code}: {bare} turning part(s) wear cooked material instances")
     # The redrawn textures (stage_editor): every Base, Map0 and Bump that names
     # one, at its copy beside the bakes.
     manifest = os.path.join(p["work"], "redrawn", "manifest.json")
     if m.get("redrawn") and os.path.exists(manifest):
         names = {t["name"] for t in json.load(open(manifest, encoding="utf-8"))["textures"]}
         root = f"/Game/MJOLNIR/Landscape/{m['landscape']}/Up/"
-        swapped = 0
-        for item in level.get("decor") or []:
-            for entry in (item.get("materials") or []) if isinstance(item, dict) else []:
-                tex = entry.get("textures") if isinstance(entry, dict) else None
-                for key in ("Base", "Map0", "Bump"):
-                    leaf = str((tex or {}).get(key, "")).rsplit(".", 1)[-1]
-                    if leaf in names:
-                        tex[key] = f"{root}{leaf}.{leaf}"
-                        swapped += 1
+        # The decor, and the turning parts their machines' actors wear.
+        swapped = sum(swap_redrawn(item.get("materials") or [], names, root, ("Base", "Map0", "Bump"))
+                      for item in (level.get("decor") or []) + (level.get("gears") or []) if isinstance(item, dict))
         print(f"  {code}: {swapped} material slot(s) on {len(names)} redrawn texture(s)")
     # `detail_fill`: a detail map for slots the game drew with a base map
     # alone (Halo 2's wheel: a stretched colour map and nothing under it).
@@ -2205,16 +2574,11 @@ def stage_assemble(code, m, p):
             if rule["detail"] not in spec_tex or not any_path:
                 sys.exit(f"{code}: detail_fill names a texture the conversion does not carry: {rule['detail']}")
             path = any_path.rsplit("/", 1)[0] + f"/{rule['detail']}.{rule['detail']}"
-            for item in level.get("decor") or []:
-                for entry in (item.get("materials") or []) if isinstance(item, dict) else []:
-                    tex = entry.get("textures") if isinstance(entry, dict) else None
-                    sc = entry.get("scalars") if isinstance(entry, dict) else None
-                    leaf = str((tex or {}).get("Base", "")).rsplit(".", 1)[-1].lower()
-                    if (isinstance(sc, dict) and not sc.get("HasPrimary") and "Primary" not in tex
-                            and any(tok in leaf for tok in rule["bases"])):
-                        tex["Primary"] = path
-                        sc["HasPrimary"], sc["PrimaryScale"] = 1.0, float(rule.get("scale", 16))
-                        filled += 1
+            # The decor and the turning parts (Zanzibar's wheel, its blades and
+            # flywheels, which the rule was written for).
+            for item in (level.get("decor") or []) + (level.get("gears") or []):
+                if isinstance(item, dict):
+                    filled += fill_detail(item.get("materials") or [], rule, path)
         print(f"  {code}: {filled} slot(s) given a detail map")
     pulses = bake_pulses(level)
     if pulses:
@@ -2256,10 +2620,127 @@ def stage_assemble(code, m, p):
     if baked and level.get("foliage"):
         mark_baked_foliage(level["foliage"], os.path.join(p["work"], "foliage.bin"))
         print(f"  {code}: foliage baked into the world, centre {level['foliage']['centre']}")
+        clad_into_level(code, m, p, level)
     runtime_decor = append_runtime_decor(level, m)
     if runtime_decor:
         print(f"  {code}: {runtime_decor} render-only runtime decor actor(s)")
     keep_translucent_first_slots(code, level)
+    # A turning machine (Halo 2's gears: Zanzibar's flywheels under the grates,
+    # its big wheel) is lit by Unreal as a moving prop is: the CE master drew
+    # the light baked at its rest pose from an object page that came out
+    # black, and a black flywheel turning read as one standing still
+    # (2026-11-15).
+    # `extra_decor`: static meshes a conversion left out (a Halo 2 door drawn
+    # closed: Zanzibar's house gate), written by h2_physics_props.py, lit by
+    # Unreal (they have no lightmap page).
+    # `h2_staging`: a fresh `mjolnir cache stage` of a Halo 2 map, for what
+    # an older conversion's spec lacks: an opaque shader's scrolling base map
+    # (`base_scroll`: Zanzibar's rotating_metal, the drum under the spindle
+    # grate, which Halo 2 turns by scrolling its texture once every 2 s).
+    # Every level slot drawing that base map gets CE's environment scroll.
+    if m.get("h2_staging"):
+        mats = json.load(open(os.path.join(m["h2_staging"], "materials.json"), encoding="utf-8"))
+        scrolls = {}
+        for v in mats.values():
+            sh = (v.get("shader") or {}) if isinstance(v, dict) else {}
+            if sh.get("base_scroll") and sh.get("base_map"):
+                scrolls["T_" + os.path.splitext(sh["base_map"])[0]] = sh["base_scroll"]
+        hit = 0
+        for item in level.get("decor") or []:
+            for entry in (item.get("materials") or []) if isinstance(item, dict) else []:
+                if not isinstance(entry, dict):
+                    continue
+                leaf = str((entry.get("textures") or {}).get("Base", "")).rsplit(".", 1)[-1]
+                bs = scrolls.get(leaf)
+                if bs:
+                    for axis, key in (("u", "BaseUAnim"), ("v", "BaseVAnim")):
+                        if bs.get(axis):
+                            period, reps, phase = bs[axis]
+                            entry.setdefault("vectors", {})[key] = [6, float(period), float(phase), float(reps)]
+                    hit += 1
+        if scrolls:
+            print(f"  {code}: {hit} slot(s) scroll as Halo 2 animates them ({', '.join(sorted(scrolls))})")
+    # `doors`: Halo 2 doors and the controls that open them (doors.json from
+    # h2_physics_props.py), played by the loader (doors.lua).
+    if m.get("doors") and os.path.exists(m["doors"]):
+        level["doors"] = json.load(open(m["doors"], encoding="utf-8"))
+        print(f"  {code}: {len(level['doors'])} door(s) opened by their controls")
+    if m.get("extra_decor"):
+        extra = json.load(open(m["extra_decor"], encoding="utf-8"))
+        # The redrawn textures, as the decor's above (that swap ran before
+        # these were added: the gate keypad's redraw).
+        manifest = os.path.join(p["work"], "redrawn", "manifest.json")
+        names = {t["name"] for t in json.load(open(manifest, encoding="utf-8"))["textures"]}             if m.get("redrawn") and os.path.exists(manifest) else set()
+        for item in extra:
+            for entry in item.get("materials") or []:
+                tex = entry.get("textures") if isinstance(entry, dict) else None
+                for key in ("Base", "Bump", "SelfIllumMap"):
+                    leaf = str((tex or {}).get(key, "")).rsplit(".", 1)[-1]
+                    if leaf in names:
+                        tex[key] = f"/Game/MJOLNIR/Landscape/{m['landscape']}/Up/{leaf}.{leaf}"
+            item["materials"] = [prop_lit(mat, {}) if isinstance(mat, dict) else mat for mat in item.get("materials") or []]
+        # A door's parts are worn by its machines' actors
+        # (h2_door_machines.write_actors), not spawned as decor: each part
+        # carries its mesh and materials for the loader to dress them with.
+        by_id = {item.get("id"): item for item in extra}
+        worn = set()
+        for door in level.get("doors") or []:
+            for part in door.get("parts") or []:
+                item = by_id.get(part.get("id"))
+                if item:
+                    part["mesh"], part["materials"] = item.get("mesh"), item.get("materials")
+                    worn.add(part["id"])
+        extra = [item for item in extra if item.get("id") not in worn]
+        level.setdefault("decor", []).extend(extra)
+        print(f"  {code}: {len(extra)} extra decor mesh(es) ({len(worn)} more worn by machine actors): "
+              f"{', '.join(str(i.get('mesh', '')).split('.')[-1] for i in extra)}")
+    lit_machines = 0
+    for item in level.get("decor") or []:
+        if isinstance(item, dict) and item.get("motion") and isinstance(item.get("materials"), list):
+            item["materials"] = [prop_lit(mat, {}) if isinstance(mat, dict) else mat for mat in item["materials"]]
+            lit_machines += 1
+    if lit_machines:
+        print(f"  {code}: {lit_machines} turning machine mesh(es) lit by Unreal")
+    # `physics_props`: the loader draws each crate as the prop (props.lua):
+    # the prop's mesh with the materials and transform terrain.json gives it.
+    dress = []
+    for prop in physics_props(m):
+        entry = next((t for t in json.load(open(prop["terrain"], encoding="utf-8"))
+                      if t.get("mesh") == prop["mesh"]), None)
+        if not entry:
+            sys.exit(f"{code}: physics prop mesh {prop['mesh']} is not in {prop['terrain']}")
+        dress.append({"actor_class": prop["actor_class"], "mesh": prop["mesh"], "pos": entry.get("pos") or [0, 0, 0],
+                      "scale": entry.get("scale") or 1.0,
+                      "materials": [prop_lit(mat, prop) for mat in entry.get("materials") or []],
+                      # Where its crates start (Unreal cm, as the bake places
+                      # them): props.lua dresses a crate as the prop placed
+                      # nearest where it first appears, so prop types can
+                      # share one crate actor class.
+                      "spawns": [o["pos"] for o in physics_prop_objects(m) if o["tag"] == prop["crate"]],
+                      # Played where the prop dies (props.lua): Niagara
+                      # systems, a decal, Halo 2's own death sounds.
+                      **({"death_fx": prop["death_fx"]} if prop.get("death_fx") else {})})
+    # The redrawn textures, as the decor above: the props drew the
+    # conversion's own low-resolution maps (Zanzibar's coils, 2026-11-15).
+    if dress and m.get("redrawn") and os.path.exists(manifest):
+        names = {t["name"] for t in json.load(open(manifest, encoding="utf-8"))["textures"]}
+        root = f"/Game/MJOLNIR/Landscape/{m['landscape']}/Up/"
+        swapped = 0
+        for look in dress:
+            for entry in look["materials"]:
+                tex = entry.get("textures") if isinstance(entry, dict) else None
+                for key in ("Base", "Map0", "Bump"):
+                    leaf = str((tex or {}).get(key, "")).rsplit(".", 1)[-1]
+                    if leaf in names:
+                        tex[key] = f"{root}{leaf}.{leaf}"
+                        swapped += 1
+        print(f"  {code}: {swapped} physics prop texture(s) on redrawn copies")
+    if dress:
+        level["dress"] = dress
+        print(f"  {code}: {len(dress)} physics prop look(s) for the loader")
+    # `blam.bots` is the bake's input; the shipped level file carries none,
+    # as add_bots.py packs it (the bake's <CODE>.bots.json goes beside it).
+    (level.get("blam") or {}).pop("bots", None)
     json.dump(level, open(p["out_level"], "w", encoding="utf-8"), indent=1)
     print(f"  {code}: level file with {len((level.get('foliage') or {}).get('groups') or [])} foliage group(s), "
           f"{structures} structure slot(s), "
@@ -2699,6 +3180,33 @@ def append_foliage(path, records):
     open(path, "wb").write(bytes(raw))
 
 
+def clad_into_level(code, m, p, level):
+    """The cladding rocks' cooked materials, checked against the finished
+    level: the entries the editor baked (clad_plan, from the level as far as
+    it then stood) must be the ones the finished level gives, or the rocks
+    wear a look the level no longer says. The level file then carries, by
+    group, what the loader needs to leave the rocks as baked."""
+    import clad_materials
+    now = clad_materials.entries(level, level["foliage"]["groups"], m["landscape"])
+    if not now:
+        return
+    path = os.path.join(p["work"], "clad_instances.json")
+    if not os.path.exists(path):
+        sys.exit(f"{code}: the cladding rocks have no cooked materials ({path}): run the editor stage")
+    baked = json.load(open(path, encoding="utf-8"))["instances"]
+
+    def key(e):
+        return (e["group"], e["package"], e["parent"], json.dumps(e["textures"], sort_keys=True),
+                json.dumps(e["vectors"], sort_keys=True))
+    if [key(e) for e in now] != [key(e) for e in baked]:
+        differ = sorted({e["group"] for e in now} ^ {e["group"] for e in baked}
+                        | {a["group"] for a, b in zip(now, baked) if key(a) != key(b)})
+        sys.exit(f"{code}: the finished level gives the cladding groups {differ} another material than the "
+                 f"editor baked: run the editor stage again")
+    level["landscape"]["clad"] = clad_materials.loader_spec(now)
+    print(f"  {code}: {len(now)} cladding group(s) wear cooked materials")
+
+
 def mark_baked_foliage(foliage, path):
     """The level file's foliage, baked into the world by the editor stage
     (foliage_bake.py): `baked` tells the loader to leave every group but the
@@ -2948,6 +3456,9 @@ def local_install_plan(code, m, p, *, shared=True, runtime_aliases=None):
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     files = [(p["out_level"], os.path.join(data, "level.json")),
              (record, os.path.join(data, "registration.json"))]
+    bots = os.path.join(source, f"{code}.bots.json")
+    if os.path.isfile(bots):
+        files.append((bots, os.path.join(data, "bots.json")))
     # Each container goes in as a local build named for the map (dev_paks),
     # so it loads above any hub copy and its shader library gets a number of
     # its own.
@@ -2955,7 +3466,7 @@ def local_install_plan(code, m, p, *, shared=True, runtime_aliases=None):
                   (m.get("mesh_container") or os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"),
                    f"MJOLNIRMESH-{code}"),
                   (str(verified_owned_cook(code, m, p["work"]) if m.get("map_mesh_chunk")
-                       else cooked_map_container(p["conv"], code)), f"MJOLNIRCOOK-{code}")]
+                       else map_cook_container(code, m, p)), f"MJOLNIRCOOK-{code}")]
     if not m.get("indoor"):
         containers.append((os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), f"MJOLNIRLAND-{code}"))
     if m.get("native_rock_materials"):
@@ -2976,6 +3487,7 @@ def local_install_plan(code, m, p, *, shared=True, runtime_aliases=None):
             raise ValueError("Extra container must have a unique map-owned package name")
         used_names.add(name)
         containers.append((stem, name))
+    containers += map_tag_containers(code, m, p["conv"])
     required += [f"{base}.{e}" for base, _ in containers for e in ("utoc", "ucas")]
     if level.get("foliage"):
         files.append((os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin")))
@@ -3013,8 +3525,6 @@ def install_local(code, plan):
 
 
 def stage_install(code, m, p):
-    if m.get('map_mesh_chunk'):
-        sys.exit(f'{code}: direct hub install would leave a stale map cook; use the verified map package or preview swap')
     require_game_closed()
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     if m.get("indoor"):
@@ -3043,10 +3553,19 @@ def stage_install(code, m, p):
     # containers too. A map converted again since its hub copy (the Halo 2
     # maps) names textures the hub's containers lack: Zanzibar failed 516
     # lookups at load and drew most slots without their detail maps.
-    if m.get("conversion_containers"):
+    if m.get("conversion_containers") or m.get("map_mesh_chunk"):
         if not m.get("mesh_container"):
             builds.append((os.path.join(p["conv"], f"pakchunk986-MJOLNIRMESH-{code}_P"), f"MJOLNIRMESH-{code}"))
-        builds.append((str(cooked_map_container(p["conv"], code)), f"MJOLNIRCOOK-{code}"))
+        # `map_mesh_chunk`: the cook the cook stage verified and snapshot
+        # (owned_map_cook), never the staged one a later cook may replace.
+        cook = verified_owned_cook(code, m, p["work"]) if m.get("map_mesh_chunk") else map_cook_container(code, m, p)
+        builds.append((str(cook), f"MJOLNIRCOOK-{code}"))
+    # `native_rock_materials`: the bake's native clones of the rocks' MICs.
+    if m.get("native_rock_materials"):
+        builds.append((os.path.join(p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"), f"MJOLNIRROCK-{code}"))
+    # The map's own tags: its machines, their actors, its movable props
+    # (machine_containers.py: the packs carry the same list).
+    builds += map_tag_containers(code, m, p["conv"])
     missing = [f"{base}.{e}" for base, _ in builds for e in ("utoc", "ucas") if not os.path.isfile(f"{base}.{e}")]
     if missing:
         sys.exit(f"{code}: install is incomplete:\n  " + "\n  ".join(missing))
@@ -3055,6 +3574,11 @@ def stage_install(code, m, p):
     data = os.path.join(UE4SS, "MJOLNIRMaps", code)
     shutil.copyfile(p["out_level"], os.path.join(data, "level.json"))
     shutil.copyfile(os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin"))
+    # The bots' squads as this bake placed them (MJOLNIRHud): the hub
+    # copy's would name another bake's.
+    bots = os.path.join(p["bake"], f"{code}.bots.json")
+    if os.path.isfile(bots):
+        shutil.copyfile(bots, os.path.join(data, "bots.json"))
     if glob.glob(os.path.join(p["work"], "flux_state", "**", "state.json"),recursive=True):
         shutil.copytree(os.path.join(p["work"], "flux_state"), os.path.join(data, "flux_state"), dirs_exist_ok=True)
     decals = os.path.join(p["work"], "decals")
@@ -3077,10 +3601,10 @@ def install_shared():
     if os.path.exists(os.path.join(STAGED, "pakchunk982-Windows.utoc")):
         print("  " + run(dev_paks.install_command(cli, PAKS, os.path.join(STAGED, "pakchunk982-Windows"),
                                                   "MJOLNIRWATER")).strip())
-    shutil.copyfile(os.path.join(REPO, "mods", "MJOLNIRLevelLoader", "Scripts", "main.lua"),
-                    os.path.join(UE4SS, "Mods", "MJOLNIRLevelLoader", "Scripts", "main.lua"))
-    shutil.copyfile(os.path.join(REPO, "mods", "MJOLNIRLevelLoader", "Scripts", "flux_runtime.lua"),
-                    os.path.join(UE4SS, "Mods", "MJOLNIRLevelLoader", "Scripts", "flux_runtime.lua"))
+    # Every loader script (main.lua loads doors.lua, props.lua and the rest
+    # at run time): main.lua alone left a stale doors.lua behind.
+    for f in glob.glob(os.path.join(REPO, "mods", "MJOLNIRLevelLoader", "Scripts", "*.lua")):
+        shutil.copyfile(f, os.path.join(UE4SS, "Mods", "MJOLNIRLevelLoader", "Scripts", os.path.basename(f)))
     print("  trial masters and the loader installed")
 
 
@@ -3094,8 +3618,6 @@ def main():
     install.add_argument("--local-install", action="store_true", help="add the install stage for a fresh local map (no hub)")
     ap.add_argument("--work", default="C:/haloce/ce_conversions/upgrade")
     ap.add_argument("--no-masters", action="store_true", help="skip rebuilding the trial masters in the editor stage")
-    ap.add_argument("--release-beta", action="store_true",
-                    help="TST: use the beta sky/exposure preset; validate required loader features before release")
     a = ap.parse_args()
     with open(CONFIG, encoding="utf-8") as f:
         config = json.load(f)
@@ -3109,28 +3631,6 @@ def main():
     if "cook" in stages and any(m.get("map_mesh_chunk") for m in maps.values()):
         if "editor" not in stages or a.no_masters:
             sys.exit("Map-owned generated meshes require editor and cook in the same run; omit --no-masters.")
-    if a.release_beta and "TST" in maps:
-        # The public 0.9.0 loader does not implement physical skylight or
-        # atmosphere_sun. Keep the authored CE sky and convert physical sky
-        # intensity to its legacy units. This preset does not certify release
-        # compatibility: recapture_after_load and authored emitter controls
-        # still require a loader that implements those optional features.
-        m = maps["TST"]
-        m["sky_mesh"] = True
-        # Keep a restrained neutral probe: the legacy water cube at 0.65 washed
-        # the halls blue and overwhelmed the practical ceiling lights.
-        m["ambient_cubemap"] = {"asset": "/Game/MJOLNIR/Maps/TST/Textures/TC_levels_b30_bitmaps_reflection_water",
-                                "intensity": 0.20, "tint": [1.0, 1.0, 1.0, 1.0]}
-        env = m["environment"]
-        env["atmosphere"] = False
-        env["sun"].pop("atmosphere_sun", None)
-        if env["skylight"].pop("physical", False):
-            # Preserve the authored physical intensity with the public loader's
-            # legacy scaling. TST's 4 / 8192 resolves to runtime intensity 4;
-            # passing 4 directly would wash out the cliffs and vegetation.
-            env["skylight"]["intensity"] = env["skylight"].get("intensity", 3.0) / env.get("light_scale", 8192)
-        env["skylight"]["color"] = [0.98, 0.99, 1.0]
-        env["post"]["exposure_bias"] = -0.4
     ps = {c: paths(c, m, a.work) for c, m in maps.items()}
     for p in ps.values():
         os.makedirs(p["work"], exist_ok=True)
@@ -3148,19 +3648,31 @@ def main():
         if stage == "cook":
             stage_cook(list(maps.values()))
             for code, m in maps.items():
+                plan = os.path.join(ps[code]["work"], "machine_instances.json")
+                refresh_map_cook(code, m, ps[code])
+                clad = os.path.join(ps[code]["work"], "clad_instances.json")
+                if os.path.exists(clad) and clad_plan(code, m, ps[code]):
+                    cooked = map_cook_container(code, m, ps[code])
+                    print("  " + run([sys.executable, os.path.join(HERE, "machine_instances.py"), "check", clad,
+                                      "--chunk", str(m["chunk"]),
+                                      "--also", f"{os.path.dirname(str(cooked))}={os.path.basename(str(cooked))}"]
+                                     ).strip().splitlines()[-1])
+                if machine_parts_plan(code, m, ps[code]):
+                    cooked = map_cook_container(code, m, ps[code])
+                    print("  " + run([sys.executable, os.path.join(HERE, "machine_instances.py"), "check", plan,
+                                      "--chunk", str(m["chunk"]),
+                                      "--also", f"{os.path.dirname(str(cooked))}={os.path.basename(str(cooked))}"]
+                                     ).strip().splitlines()[-1])
+            for code, m in maps.items():
                 if m.get("map_mesh_chunk"):
                     cli = os.environ.get("MJOLNIR", os.path.join(REPO, "target", "release", "mjolnir.exe"))
                     snap = snapshot_owned_cook(code, m, ps[code]["work"], STAGED, cli)
                     print(f"  {code}: verified map cook snapshot {snap}")
             continue
         if stage == "install":
-            if not a.local_install and any(m.get("map_mesh_chunk") for m in maps.values()):
-                sys.exit('Map-owned generated meshes require a verified map package or preview swap; direct hub install is unsafe.')
             require_game_closed()
-            plans = {c: local_install_plan(c, m, ps[c], shared=not a.release_beta)
-                     for c, m in maps.items()} if a.local_install else {}
-            if not (a.release_beta and a.local_install):
-                install_shared()
+            plans = {c: local_install_plan(c, m, ps[c]) for c, m in maps.items()} if a.local_install else {}
+            install_shared()
             if a.local_install:
                 for c, plan in plans.items():
                     install_local(c, plan)

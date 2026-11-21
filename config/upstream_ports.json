@@ -17,8 +17,8 @@
       "ours": ["crates/ue-asset/src/nanite.rs"],
       "scope": "Unreal Engine 5.5 only (the engine Halo Campaign Evolved ships on): static and skeletal mesh cluster pages, positions, normals, UVs, strips and vertex references. Other engine versions' branches are not carried.",
       "ported": "2026-09-06",
-      "reviewed_commit": null,
-      "reviewed_note": "Not yet reviewed against a named commit. The newest change under `paths` on 2026-11-12 was 2cfd957a4 (2026-09-06, \"Skip nanite voxel clusters\"), the day the port was written: the first review decides whether the port already has it."
+      "reviewed_commit": "2cfd957a4cc31733600fe0307bd337a36e0ea319",
+      "reviewed_note": "Reviewed 2026-11-16: 1 commit since the port (2cfd957a4, skip voxel clusters), 1 ported, 0 out of scope."
     }
   ]
 }

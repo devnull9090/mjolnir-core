@@ -63,6 +63,7 @@ jobs:
           lua5.4 tools/tests/test_match_report.lua
           lua5.4 tools/tests/test_bipeds.lua
           lua5.4 tools/tests/test_bots_scan.lua
+          lua5.4 tools/tests/test_sound_mixer.lua
           lua5.4 tools/tests/test_waypoint.lua
 
       - name: Test the lobby after a match (Quit, missing worlds, a joiner told why)
@@ -301,6 +302,10 @@ jobs:
         run: python -m unittest discover -s tools/level -p test_add_flux_state.py
       - name: Wwise bank tests
         run: python -m unittest discover -s tools/level -p test_wwise_bank.py
+      - name: Map tag container list tests
+        run: python -m unittest discover -s tools/level -p test_machine_containers.py
+      - name: Cladding rock material tests
+        run: python -m unittest discover -s tools/level -p test_clad_materials.py
 
       - name: Check Forge packs and maps for colliding and z-fighting pieces
         run: python -m unittest discover -s tools/forge -p test_check_overlaps.py

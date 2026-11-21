@@ -11,7 +11,9 @@ For each map in tools/level/ce_upgrade_maps.json, a staging folder
     meshes (986) unless the upgrade built its own, registration.json, and
     for an indoor map (no landscape) its map container (997);
   - from the upgrade's work folder (upgrade_ce_map.py): the map container
-    (pakchunk997-MJOLNIRMAP), the landscape world's container renamed
+    (pakchunk997-MJOLNIRMAP), the map's own tag containers
+    (machine_containers.py: machines, their actors, movable props; the tags
+    in machines/), the landscape world's container renamed
     pakchunk<N>-MJOLNIRLAND-<CODE>_P (`map pack` takes the map's own
     containers by that suffix; the launcher keeps the chunk number of a
     container with a shader library, which this one has), the level file,
@@ -31,6 +33,10 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from machine_containers import map_tag_containers, pack_path  # noqa: E402
+from owned_map_cook import verified_owned_cook  # noqa: E402
+from cooked_map_container import cooked_map_container  # noqa: E402
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CONFIG = os.path.join(HERE, "ce_upgrade_maps.json")
 LAUNCHER = os.path.join(os.environ.get("APPDATA", ""), "com.devnull9090.mjolnir-launcher")
@@ -65,9 +71,33 @@ def stage(code, m, work, out):
     os.makedirs(dst, exist_ok=True)
     w = os.path.join(work, code)
 
-    copy_pair(os.path.join(cache, f"pakchunk985-MJOLNIRCOOK-{code}_P"), dst)
+    # The map's cook as the upgrade refreshed it (upgrade_ce_map.py
+    # refresh_map_cook: textures imported after the conversion, a gate's),
+    # else the hub copy's.
+    # A map with its own cook (`map_mesh_chunk`: Tide's Breath) ships the
+    # verified owned cook, as the install stage installs it.
+    if m.get("map_mesh_chunk"):
+        copy_pair(str(verified_owned_cook(code, m, w)), dst)
+    else:
+        fresh = os.path.join(w, f"pakchunk985-MJOLNIRCOOK-{code}_P")
+        if os.path.exists(fresh + ".utoc"):
+            copy_pair(fresh, dst)
+        elif m.get("conversion_containers"):
+            copy_pair(str(cooked_map_container(m["conversion"], code)), dst)
+        else:
+            copy_pair(os.path.join(cache, f"pakchunk985-MJOLNIRCOOK-{code}_P"), dst)
+    # The bake's native clones of the rocks' materials (`native_rock_materials`).
+    if m.get("native_rock_materials"):
+        copy_pair(os.path.join(w, "bake", f"pakchunk970-MJOLNIRROCK-{code}_P"), dst)
+    # The meshes the install stage installs: the config's, else with
+    # `conversion_containers` or an owned cook the conversion's own (a map
+    # converted again since its hub copy names meshes that copy lacks:
+    # Containment 2.0.0 shipped the classic copy's container, without its
+    # gate parts, 2026-11-18), else the hub copy's.
     if m.get("mesh_container"):
         copy_pair(m["mesh_container"], dst)
+    elif m.get("conversion_containers") or m.get("map_mesh_chunk"):
+        copy_pair(os.path.join(m["conversion"], f"pakchunk986-MJOLNIRMESH-{code}_P"), dst)
     else:
         copy_pair(os.path.join(cache, f"pakchunk986-MJOLNIRMESH-{code}_P"), dst)
     if m.get("indoor"):
@@ -79,7 +109,24 @@ def stage(code, m, work, out):
         copy_pair(os.path.join(w, "bake", f"pakchunk997-MJOLNIRMAP-{code}_P"), dst)
         copy_pair(os.path.join(w, "bake", f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), dst,
                   f"pakchunk{m['chunk']}-MJOLNIRLAND-{code}_P")
+    # The map's own tags (its machines, their actors, its movable props), as
+    # the install stage installs them (machine_containers.py). `map pack`
+    # takes the tag containers from machines/.
+    for base, name in map_tag_containers(code, m, m["conversion"]):
+        rel = pack_path(name)
+        os.makedirs(os.path.join(dst, os.path.dirname(rel)), exist_ok=True)
+        copy_pair(base, os.path.join(dst, os.path.dirname(rel)), os.path.basename(rel))
     shutil.copyfile(os.path.join(cache, "map", "registration.json"), os.path.join(dst, f"{code}.registration.json"))
+    # The bots' squads as this bake placed them (`map pack` takes
+    # <CODE>.bots.json); a map with no bake of its own (indoor) keeps the hub
+    # copy's. Without it the map would ship with no bots.
+    bots = os.path.join(w, "bake", f"{code}.bots.json")
+    if not os.path.isfile(bots):
+        bots = os.path.join(cache, "map", "bots.json")
+    if os.path.isfile(bots):
+        shutil.copyfile(bots, os.path.join(dst, f"{code}.bots.json"))
+    elif m.get("bots", True):
+        sys.exit(f"{code}: no bots.json in the bake or the hub copy")
 
     level = json.load(open(os.path.join(w, "level.json"), encoding="utf-8"))
     flux=level.get("flux") or {}
@@ -97,7 +144,20 @@ def stage(code, m, work, out):
     if os.path.isdir(decals) and os.listdir(decals):
         shutil.copytree(decals, os.path.join(dst, "decals"))
     # A river's baked water (level.flux.state), beside the level file.
-    if (level.get("flux") or {}).get("state") or any(x.get("state") for x in (level.get("flux") or {}).get("domains",[])):
+    # Only the files the level names, and state.json: a work folder keeps
+    # other water bakes beside them (Battle Creek's height_wet and
+    # velocity_depth_foam), which the hub refuses in a content release.
+    state = (level.get("flux") or {}).get("state")
+    if state:
+        os.makedirs(os.path.join(dst, "flux_state"), exist_ok=True)
+        wanted = {v for v in state.values() if isinstance(v, str) and v.startswith("flux_state/")}
+        for rel in sorted(wanted | {"flux_state/state.json"}):
+            src = os.path.join(w, rel)
+            if not os.path.isfile(src):
+                sys.exit(f"{code}: the level names {rel}, which the work folder lacks")
+            shutil.copyfile(src, os.path.join(dst, rel))
+    # A level with several Flux domains (Pelican Warfare) keeps each domain's state folder.
+    elif any(x.get("state") for x in (level.get("flux") or {}).get("domains", [])):
         shutil.copytree(os.path.join(w, "flux_state"), os.path.join(dst, "flux_state"))
     return inst, dst
 

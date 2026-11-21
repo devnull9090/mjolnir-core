@@ -278,6 +278,17 @@ pub struct LevelFile {
     /// the bake.
     #[serde(default)]
     pub foliage: Option<serde_json::Value>,
+    /// Halo 2's machines that move in parts (tools/level/gen_ce_level.py
+    /// `add_doors`): each placement's machines and part meshes, which the
+    /// loader's doors.lua attaches together; opaque to the bake (the
+    /// machines themselves are `blam.objects`).
+    #[serde(default)]
+    pub doors: Option<serde_json::Value>,
+    /// Halo 2's turning parts worn by their machines' actors
+    /// (tools/level/gen_ce_level.py `add_gears`), which the loader's
+    /// gears.lua dresses and plays the sounds of; opaque to the bake.
+    #[serde(default)]
+    pub gears: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]

@@ -5,6 +5,7 @@ The staging folder is retained beside the archive so authors can inspect it.
 """
 import argparse
 from cooked_map_container import cooked_map_container
+from machine_containers import map_tag_containers, pack_path
 from owned_map_cook import verified_owned_cook
 import json
 import os
@@ -35,6 +36,12 @@ def prepare(code, config, work, staging):
     # cliff. Ship the verified cook made after the upgrade editor pass instead.
     cook = (verified_owned_cook(code, config, upgraded) if config.get("map_mesh_chunk")
             else cooked_map_container(conv, code))
+    # The upgrade's cook stage refreshes the map's cook when textures were
+    # imported after the conversion (upgrade_ce_map.py refresh_map_cook):
+    # that copy, beside the upgrade's work, is the one the install took.
+    fresh = upgraded / Path(cook).name
+    if not config.get("map_mesh_chunk") and Path(f"{fresh}.utoc").is_file():
+        cook = fresh
     containers = [
         (cook, None),
         (Path(config.get("mesh_container", conv / f"pakchunk986-MJOLNIRMESH-{code}_P")),
@@ -69,6 +76,10 @@ def prepare(code, config, work, staging):
         if source.with_suffix(".pak").is_file():
             # map pack reads audio banks from a sidecar and validates its contents.
             copies.append((source.with_suffix(".pak"), name + ".pak"))
+    # The map's own tags (machines, their actors, movable props), as the
+    # install stage installs them; `map pack` takes the tags from machines/.
+    for base, name in map_tag_containers(code, config, str(conv)):
+        containers.append((Path(base), pack_path(name)))
     for source, rename in containers:
         for extension in ("utoc", "ucas"):
             copies.append((Path(f"{source}.{extension}"), f"{rename or source.name}.{extension}"))

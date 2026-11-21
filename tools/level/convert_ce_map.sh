@@ -183,6 +183,16 @@ bsp_args=(--bsp-index 0)
 [ "${CANVAS_BSPS:-0}" = "1" ] && bsp_args=()
 rm -f -- "$out/$name.sbsp.breakables.json"
 "$mjolnir" level collision "$collision" --out "$out/$name.sbsp" --own-bsp "${bsp_args[@]}" "${delta_args[@]}"
+# Halo 2's machines that move in parts (doors, platforms, gears of several
+# parts: staging's `h2_door`) as machines of the simulation's own, one a
+# part, their collision with them (tools/level/h2_door_machines.py; their
+# containers beside the turning parts', installed with them). The positions
+# follow the map's move (the transform `level collision` just wrote).
+door_scene_args=()
+if [ "$source_game" = halo2_mcc ]; then
+  MJOLNIR="$mjolnir" python "$here/h2_door_machines.py" "$staging" "$code" "$out/machines"     --transform "$out/$name.sbsp.transform.json" --mjolnir "$mjolnir"
+  door_scene_args=(--doors)
+fi
 
 echo "== 3/6 terrain mesh and materials"
 delta="$(python -c "import json,sys; d=json.load(open(sys.argv[1]))['delta']; print(f'{d[0]*304.8},{-d[1]*304.8},{d[2]*304.8}')" "$out/$name.sbsp.transform.json")"
@@ -204,10 +214,10 @@ if [ "$cook" = "1" ]; then
   # transparent pieces their precision when they shared one.
   # A Halo 2 gear that turns (Ascension's antennas) is a mesh of its own,
   # scene_machine_<k>.gltf, which the level loader turns.
-  [ -n "$out" ] && rm -f -- "$out"/scene_machine_*.gltf "$out"/scene_machine_*.bin "$out"/scene_machine_*.motion.json
+  [ -n "$out" ] && rm -f -- "$out"/scene_machine_*.gltf "$out"/scene_machine_*.bin "$out"/scene_machine_*.motion.json "$out"/scene_machine_*.door.json
   python "$here/merge_ce_scene.py" "$staging" "$out/scene.gltf" --translucent "$out/scene_translucent.gltf" \
     --sky "$out/scene_sky.gltf" --occluders "$out/scene_occluders.gltf" --lights "$out/scene_lights.json" \
-    --machines "$out/scene_machine"
+    --machines "$out/scene_machine" "${door_scene_args[@]}"
   # Breakable glass (Halo 2): each sheet `level collision` made breakable gets
   # mesh slots of its own, which the level loader hides when the game breaks it.
   [ -f "$out/$name.sbsp.breakables.json" ] && python "$here/split_breakable_glass.py" "$out/scene_translucent.gltf" "$out/$name.sbsp.breakables.json"
@@ -289,6 +299,13 @@ if [ "$cook" = "1" ]; then
   [ -z "${CE_NATIVE_DETAIL:-}" ] || native_detail_args+=(--native-detail "$CE_NATIVE_DETAIL=basicshapes/cylinder=$root/SM_${leaf}_FacilityDetail")
   heightfield_args=()
   [ -z "${FROZEN_HEIGHTFIELD:-}" ] || heightfield_args+=(--heightfield "$FROZEN_HEIGHTFIELD")
+  # The parts of moving machines wear material instances cooked with the
+  # map (tools/level/machine_instances.py), when there is a cook to make them.
+  rm -f "$out/machines/instances.json"
+  if [ "$cook" = "1" ] && [ ${#machine_jobs[@]} -gt 0 ]; then
+    mkdir -p "$out/machines"
+    native_detail_args+=(--machine-instances "$out/machines/instances.json")
+  fi
   MSYS2_ARG_CONV_EXCL="/Game" python "$here/build_terrain_meshes.py" --paks "$HCE_PAKS" \
     --spec "$out/materials.spec.json" --out "$out" --name "$name" --offset "$delta" \
     --fallback "$terrain_material" --examples "$examples" \
@@ -297,6 +314,19 @@ if [ "$cook" = "1" ]; then
     "$out/scene_translucent.gltf=basicshapes/cone=$root/SM_${leaf}_Translucent" \
     "$out/scene_sky.gltf=basicshapes/sphere=$root/SM_${leaf}_Sky" \
     "${machine_jobs[@]//MACHINE/$root/SM_${leaf}_Machine}"
+  # Each moving Halo 2 machine's actor wears its part meshes, now they are
+  # placed (h2_door_machines.py actors: B40's elevator Blueprint cloned per
+  # machine, pakchunk987-MJOLNIRACT-<CODE>_P beside the machine tags).
+  # Each turning part's machine actor wears its mesh the same way
+  # (h2_machines.py actors: pakchunk987-MJOLNIRGEAR-<CODE>_P).
+  if [ -f "$out/machines/machines.json" ]; then
+    python "$here/h2_machines.py" actors "$staging" "$out/machines/machines.json" "$out/terrain.json" "$code" \
+      "$out/machines" --transform "$out/$name.sbsp.transform.json" --paks "$HCE_PAKS" --examples "$examples"
+  fi
+  if [ -f "$out/machines/doors.json" ]; then
+    python "$here/h2_door_machines.py" actors "$out/machines/doors.json" "$out/terrain.json" "$code" "$out/machines" \
+      --paks "$HCE_PAKS" --examples "$examples"
+  fi
   # The game's grass, tufts and shore stones on the map's ground
   # (scatter_foliage.py), beside the level file as <name>.foliage.bin; the
   # sea's height is the water mesh's, when the map has one. FOLIAGE=0 leaves
@@ -381,6 +411,10 @@ PY_SURFACE_CHECK
     cp -rf "$staging/sounds_out/." "$out/sounds_out/"
     MSYS2_ENV_CONV_EXCL="MJ_CE_SOUND_ROOT" MJ_CE_SOUNDS="$(cygpath -w "$out/sounds_out")" MJ_CE_SOUND_ROOT="/Game/MJOLNIR/Maps/$code/Sounds"       powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script Scripts/build_ce_sounds.py | grep -E "editor exit|MJOLNIR CE sounds"
   fi
+  if [ -f "$out/machines/instances.json" ]; then
+    MJ_CE_INSTANCES="$(cygpath -w "$out/machines/instances.json")" powershell -NoProfile -ExecutionPolicy Bypass \
+      -File "$(cygpath -w "$ue/editor_cmd.ps1")" -Script ..\\..\\tools\\level\\ce_vehicle_instances_editor.py | grep -E "editor exit|MJOLNIR vehicle instances"
+  fi
   cook_out="$(powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ue/cook.ps1")")"
   printf '%s\n' "$cook_out"
   # A failed cook leaves the last good one's chunk staged, and copying it
@@ -395,6 +429,10 @@ PY_SURFACE_CHECK
   # ambient sounds) cook into a chunk of their own (ce_material_spec.py
   # cook_chunk), which its map pack ships as MJOLNIRCOOK-<CODE>
   # (docs/map_distribution.md).
+  if [ -f "$out/machines/instances.json" ]; then
+    python "$here/machine_instances.py" check "$out/machines/instances.json" --mjolnir "$mjolnir" \
+      --chunk "$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['chunk'])" "$out/materials.spec.json" | tr -d '\r')"
+  fi
   chunk="$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['chunk'])" "$out/materials.spec.json")"
   chunk="${chunk%%[[:space:]]}"
   staged="$repo/unreal/MJOLNIRMaterials/Saved/StagedBuilds/Windows/Meteorite/Content/Paks"
@@ -418,6 +456,7 @@ echo "== 4/6 level file"
 sound_args=()
 [ -f "$out/sounds_out/sounds.json" ] && sound_args=(--sounds "$out/sounds_out")
 [ -f "$out/machines/machines.json" ] && sound_args+=(--machines "$out/machines/machines.json")
+[ -f "$out/machines/doors.json" ] && sound_args+=(--doors "$out/machines/doors.json")
 # TITLE="Yoyorast Island" names a custom map in the menus (stock maps have
 # theirs in gen_ce_level.py).
 title_args=()
@@ -458,7 +497,7 @@ if [ "$install" = "--install" ]; then
     cp -f "$stub" "$HCE_PAKS/$c.pak"
   done
   # Halo 2's machines (h2_machines.py), each tag a container of its own.
-  for f in "$out"/machines/pakchunk986-MJOLNIRMACH-"${code}"-*_P.utoc; do
+  for f in "$out"/machines/pakchunk986-MJOLNIRMACH-"${code}"-*_P.utoc "$out"/machines/pakchunk987-MJOLNIRACT-"${code}"_P.utoc "$out"/machines/pakchunk987-MJOLNIRGEAR-"${code}"_P.utoc; do
     [ -e "$f" ] || continue
     c="$(basename "$f" .utoc)"
     cp -f "$out/machines/$c.utoc" "$out/machines/$c.ucas" "$HCE_PAKS"/

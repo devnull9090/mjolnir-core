@@ -28,6 +28,8 @@ Writes, under /Game/MJOLNIR/UI:
                          (docs/live_map_install.md)
   WBP_MJOLNIRChat        match chat: the lines above the kill feed and the
                          box you type in (MJOLNIRHud Scripts/chat.lua)
+  WBP_MJOLNIRSoundMixer  the level's sounds with a slider each, over the
+                         match (MJOLNIRLevelLoader Scripts/mixer.lua)
                      Both are layout only: MJOLNIRHud fills their text blocks
                      from Lua (`w.Line0:SetText(FText(...))`).
   Brand/T_MJBrand_Logo   the MJOLNIR CORE emblem at the top right of every
@@ -2437,6 +2439,139 @@ def build_game_settings():
     finish_screen(bp, name)
 
 
+# The level's sounds, each at the player's own level (MJOLNIRLevelLoader,
+# Scripts/mixer.lua, docs/sound_mixer.md): `/sounds` in chat or the console
+# command `mjolnir_sounds` opens it over the match. MIXER_ROWS rows of
+#   Row<i>Heard  a dot while the sound is heard from where the player stands
+#   Row<i>Name   the sound (Halo 2's tag name), Row<i>Kind under it
+#   Row<i>Slider its level, 0..1 (Lua maps it to decibels, 0 = muted)
+#   Row<i>Value  the level as Lua words it
+# then PREV / page / NEXT, RESET ALL and DONE. Generic: Lua names, fills and
+# collapses every row, so a map with new sounds needs no new cook. The
+# sliders send no events; Lua reads them while the panel is open.
+MIXER_ROWS = 12
+MIXER_WIDTH = 1500
+
+
+def mixer_slider(slider):
+    slider.set_editor_property("min_value", 0.0)
+    slider.set_editor_property("max_value", 1.0)
+    slider.set_editor_property("step_size", 0.01)
+    slider.set_editor_property("is_focusable", False)
+    slider.set_editor_property("slider_bar_color", unreal.LinearColor(*LINE[:3], 0.9))
+    slider.set_editor_property("slider_handle_color", unreal.LinearColor(*ACCENT))
+    style = slider.get_editor_property("widget_style")
+    style.set_editor_property("bar_thickness", 4.0)
+    for state in ("normal_thumb_image", "hovered_thumb_image", "disabled_thumb_image"):
+        thumb = style.get_editor_property(state)
+        thumb.set_editor_property("resource_object", None)
+        thumb.set_editor_property("draw_as", unreal.SlateBrushDrawType.ROUNDED_BOX)
+        size = thumb.get_editor_property("image_size")  # a DeprecateSlateVector2D, not a Vector2D
+        size.set_editor_property("x", 22.0)
+        size.set_editor_property("y", 22.0)
+        thumb.set_editor_property("image_size", size)
+        outline = thumb.get_editor_property("outline_settings")
+        outline.set_editor_property("corner_radii", unreal.Vector4(11, 11, 11, 11))
+        outline.set_editor_property("rounding_type", unreal.SlateBrushRoundingType.FIXED_RADIUS)
+        outline.set_editor_property("width", 0.0)
+        thumb.set_editor_property("outline_settings", outline)
+        style.set_editor_property(state, thumb)
+    for state in ("normal_bar_image", "hovered_bar_image", "disabled_bar_image"):
+        bar = style.get_editor_property(state)
+        bar.set_editor_property("resource_object", None)
+        bar.set_editor_property("draw_as", unreal.SlateBrushDrawType.IMAGE)
+        style.set_editor_property(state, bar)
+    slider.set_editor_property("widget_style", style)
+
+
+def build_sound_mixer():
+    name = "WBP_MJOLNIRSoundMixer"
+    bp = fresh_widget(name)
+    widget(bp, unreal.CanvasPanel, "Viewport")
+    fit = widget(bp, unreal.ScaleBox, "Fit", "Viewport")
+    stretch(fit)
+    fit.set_stretch(unreal.Stretch.SCALE_TO_FIT)
+    sized(bp, "Design", "Fit", width=2560, height=1440)
+    widget(bp, unreal.CanvasPanel, "Root", "Design")
+    shade = widget(bp, unreal.Border, "Shade", "Root")
+    shade.set_editor_property("brush_color", unreal.LinearColor(0.0, 0.008, 0.02, 0.45))
+    stretch(shade)
+
+    box = widget(bp, unreal.Border, "Panel", "Root")
+    rounded(box, 12, (0.005, 0.018, 0.03, 0.92))
+    box.set_editor_property("padding", unreal.Margin(40, 32, 40, 28))
+    place(box, (0.5, 0.5), (0.5, 0.5))
+    sized(bp, "PanelSize", "Panel", width=MIXER_WIDTH)
+    widget(bp, unreal.VerticalBox, "Stack", "PanelSize")
+    kicker = widget(bp, unreal.TextBlock, "Kicker", "Stack")
+    text_style(kicker, "YOUR MIX  /  MJOLNIR", 20, ACCENT)
+    title = widget(bp, unreal.TextBlock, "Title", "Stack")
+    text_style(title, "SOUNDS", 56, WHITE)
+    gap(title, top=6, bottom=4)
+    map_line = widget(bp, unreal.TextBlock, "MapLine", "Stack")
+    text_style(map_line, "", 20, GREY)
+    gap(map_line, bottom=16)
+    gap(rule(bp, "TopRule", "Stack", ACCENT, 2), bottom=12)
+
+    widget(bp, unreal.VerticalBox, "Rows", "Stack")
+    for i in range(MIXER_ROWS):
+        row = widget(bp, unreal.HorizontalBox, f"Row{i}", "Rows")
+        gap(row, top=4, bottom=4)
+        heard = widget(bp, unreal.TextBlock, f"Row{i}Heard", row.get_name())
+        text_style(heard, "●", 18, ACCENT)
+        heard.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14, 0))
+        middle(heard)
+        words_size = sized(bp, f"Row{i}WordsSize", row.get_name(), width=560)
+        middle(words_size)
+        words = widget(bp, unreal.VerticalBox, f"Row{i}Words", words_size.get_name())
+        label = widget(bp, unreal.TextBlock, f"Row{i}Name", words.get_name())
+        text_style(label, "", 24, WHITE)
+        kind = widget(bp, unreal.TextBlock, f"Row{i}Kind", words.get_name())
+        text_style(kind, "", 16, GREY)
+        for w in (words_size,):
+            w.set_editor_property("clipping", unreal.WidgetClipping.CLIP_TO_BOUNDS)
+        slider = widget(bp, unreal.Slider, f"Row{i}Slider", row.get_name())
+        mixer_slider(slider)
+        fill(slider, 1)
+        middle(slider)
+        slider.get_editor_property("slot").set_padding(unreal.Margin(20, 0, 20, 0))
+        value_size = sized(bp, f"Row{i}ValueSize", row.get_name(), width=160)
+        middle(value_size)
+        value = widget(bp, unreal.TextBlock, f"Row{i}Value", value_size.get_name())
+        text_style(value, "", 24, WHITE)
+        value.set_editor_property("justification", unreal.TextJustify.RIGHT)
+
+    gap(rule(bp, "BottomRule", "Stack"), top=12, bottom=16)
+    foot = widget(bp, unreal.HorizontalBox, "Foot", "Stack")
+    events = []
+    for key, label in (("Prev", "<"), ("Next", ">")):
+        if key == "Next":
+            page = widget(bp, unreal.TextBlock, "PageLine", "Foot")
+            text_style(page, "", 22, GREY)
+            middle(page)
+            page.get_editor_property("slot").set_padding(unreal.Margin(18, 0, 18, 0))
+        middle(menu_button(bp, key, label, "Foot", size=26))
+        events.append((key, "OnClicked", key.lower()))
+    spacer = widget(bp, unreal.Spacer, "FootSpace", "Foot")
+    fill(spacer, 1)
+    for key, label in (("Reset", "RESET ALL"), ("Done", "DONE")):
+        button = menu_button(bp, key, label, "Foot", size=26)
+        middle(button)
+        button.get_editor_property("slot").set_padding(unreal.Margin(12, 0, 0, 0))
+        events.append((key, "OnClicked", key.lower()))
+    hint = widget(bp, unreal.TextBlock, "Hint", "Stack")
+    text_style(hint, "", 18, GREY)
+    gap(hint, top=14)
+    wrapped(hint)
+
+    if not ui.compile_widget(bp):
+        fail(f"{name} does not compile (widget tree)")
+    if not ui.add_string_function(bp, "MJ_Event", "Name", ""):
+        fail("MJ_Event")
+    bind_events(bp, events)
+    finish(bp, name)
+
+
 # Match chat (MJOLNIRHud, Scripts/chat.lua): CHAT_ROWS lines, oldest at the
 # top, at the left of the screen above the kill feed, and the box you type
 # in. Lua fills the lines from the bottom, collapses the rest, and fades
@@ -2906,6 +3041,7 @@ build_post_game(HUD_ICONS)
 build_map_download()
 build_game_settings()
 build_chat()
+build_sound_mixer()
 build_label()
 build_forge_hud(import_hud_icons("ForgeIcons", FORGE_ICON_ROOT, "T_MJForge_"))
 build_forge_label()

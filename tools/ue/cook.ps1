@@ -6,6 +6,7 @@
 # light while that is being investigated.
 #
 #   powershell -File tools/ue/cook.ps1 [-Mask 0x0F] [-Map /Game/Levels/X/X] [-TaggedProperties] [-Classes A,B]
+#                                      [-NeverCook /Game/A+/Game/B]
 #
 # -Map also cooks that world (only /Game/MJOLNIR is cooked by default);
 # -TaggedProperties cooks properties tagged rather than unversioned (the
@@ -24,7 +25,8 @@
 # CommonActivatableWidget), which makes UAT treat it as a code project: the
 # editor target (our plugins and a receipt) is compiled before the cook, so
 # there is no -nocompileeditor.
-param([int64]$Mask = 0, [string]$Map = "", [switch]$TaggedProperties, [string]$Classes = "Material,MaterialInstanceConstant")
+param([int64]$Mask = 0, [string]$Map = "", [switch]$TaggedProperties, [string]$Classes = "Material,MaterialInstanceConstant",
+      [string]$NeverCook = "")
 # Nested uv/PowerShell sessions can inherit another edition's PSModulePath.
 # Load the host's utilities explicitly before a cook needs hashes/JSON.
 Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
@@ -35,7 +37,12 @@ $log = Join-Path $project "Saved_cook.log"
 $uat = "C:\Program Files\Epic Games\UE_5.5\Engine\Build\BatchFiles\RunUAT.bat"
 $extra = ""
 if ($Map) { $extra += " -map=$Map" }
-if ($TaggedProperties) { $extra += " `"-AdditionalCookerOptions=-ini:Engine:[Core.System]:CanUseUnversionedPropertySerialization=False`"" }
+# -NeverCook: /Game folders (a+b) this cook leaves out as DirectoriesToNeverCook
+# would: the stand-ins of a Halo 1 map's own textures (tools/level/clad_materials.py).
+$cooker = @()
+if ($TaggedProperties) { $cooker += "-ini:Engine:[Core.System]:CanUseUnversionedPropertySerialization=False" }
+if ($NeverCook) { $cooker += "-NEVERCOOKDIR=$NeverCook" }
+if ($cooker.Count) { $extra += " `"-AdditionalCookerOptions=$($cooker -join ' ')`"" }
 $args = "/c `"`"$uat`" BuildCookRun -project=`"$project\Meteorite.uproject`" -noP4 -platform=Win64 -clientconfig=Shipping -cook -stage -pak -iostore -skipbuild -unattended -utf8output -skipcookingeditorcontent$extra > `"$log`" 2>&1`""
 # One Unreal process on the project at a time: conversions may run side by
 # side (their staging, collision, lightmaps and bakes are their own), but the

@@ -138,7 +138,7 @@ the Lua lookup key was `Watermark`, and the cached field's class pointer was
 invalid. The HUD had already created a new kill-feed widget; checking that
 widget with `IsValid()` does not repair stale reflection metadata.
 
-HUD, Lobby and Forge therefore run their loaded classes through
+HUD, Lobby, Forge and the Level Loader (its sound mixer) therefore run their loaded classes through
 `Scripts/class_lifetime.lua` before creating a visible widget. An explicit
 allowlist permits one named, inactive instance per UI class in
 `/Engine/Transient`, constructed with `RF_Transient` and internal `RootSet`.
@@ -146,7 +146,7 @@ These instances retain the classes for the process lifetime without a world,
 player controller or viewport. They are reused across script reloads; failed
 retention delays UI creation and logs the reason. Start a fresh game process
 when installing this mitigation, because it cannot repair an already stale
-UE4SS cache. The three self-contained helper copies must remain identical.
+UE4SS cache. The four self-contained helper copies must remain identical.
 
 The reserved `MJOLNIR_UI_ClassPin_` instances are not screens: `UI.liveWidget`
 and Forge's chat lookup exclude them. Any new widget enumeration must also

@@ -41,6 +41,88 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.53.1",
+      "tag": "mods-v0.53.1",
+      "title": "A missing map part can't crash the game",
+      "date": "2026-11-18",
+      "summary": "The loader no longer crashes when a map's moving part has no mesh, as happened on Containment 2.0.0.",
+      "body": "### Fixed\n\nIn MJOLNIRLevelLoader 0.20.1.\n\n- **No crash from a missing part.** Containment 2.0.0 shipped without its\n  gates' meshes, and the game crashed a couple of seconds after the map\n  loaded. Containment 2.0.1 puts the gates back; this loader also waits for\n  a moving part's mesh instead of crashing when it is missing or still\n  loading.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "No crash from a missing part. Containment 2.0.0 shipped without its gates' meshes, and the game crashed a couple of seconds after the map loaded. Containment 2.0.1 puts the gates back; this loader also waits for a moving part's mesh instead of crashing when it is missing or still loading."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.53.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.53.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.53.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.53.0",
+      "tag": "mods-v0.53.0",
+      "title": "Your own sound mix, and maps that sound like Halo 2",
+      "date": "2026-11-18",
+      "summary": "Type /sounds to set each of a map's sounds to your liking. Halo 2 maps get their waves, birds and wind, and remastered maps load faster.",
+      "body": "### Added\n\nIn MJOLNIRLevelLoader 0.20.0 and MJOLNIRHud 0.22.0.\n\n- **A sound mixer.** Type `/sounds` in chat to open a panel with a slider\n  for every sound on the map, plus one for all of them. A dot shows which\n  ones you can hear from where you stand. Your levels are kept for each map\n  on your PC.\n- **Halo 2's ambient details.** The one-off sounds Halo 2 plays at random\n  now come through: waves on Zanzibar's shore, gulls, birds, a distant\n  battle, gusts of wind. Ambient sound on Halo 2 maps is louder too, so you\n  can hear it next to the game's own mix.\n- **Halo 2 machines in their own materials.** Zanzibar's gate and wheels\n  draw with materials built into the map, the same for every player.\n\n### Changed\n\n- **Faster remastered maps.** Rocks on the cliffs wear materials built\n  into the map instead of being set one by one as it loads, which took\n  over a second on Ascension.\n\n### Fixed\n\n- **Zanzibar's big gear stays drawn.** It disappeared from some angles, as\n  did door parts on Containment's gate.\n- **No crash after switching maps.** Going from one remastered map to\n  another could crash host and client together.\n- **Death Island's horizon.** The dark line where the sea meets the sky is\n  gone, and the bottom of the sky no longer flashes.\n- **Ascension's floating rocks.** The fog under them is back, so you no\n  longer see their undersides.\n- **Containment's canyon walls** are lit by bounced light instead of\n  fading to black.\n- **Moving parts on a second match.** Doors and gears drew in a grey grid\n  material when a map was played twice in a row.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "A sound mixer. Type /sounds in chat to open a panel with a slider for every sound on the map, plus one for all of them. A dot shows which ones you can hear from where you stand. Your levels are kept for each map on your PC.",
+            "Halo 2's ambient details. The one-off sounds Halo 2 plays at random now come through: waves on Zanzibar's shore, gulls, birds, a distant battle, gusts of wind. Ambient sound on Halo 2 maps is louder too, so you can hear it next to the game's own mix.",
+            "Halo 2 machines in their own materials. Zanzibar's gate and wheels draw with materials built into the map, the same for every player."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Faster remastered maps. Rocks on the cliffs wear materials built into the map instead of being set one by one as it loads, which took over a second on Ascension."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Zanzibar's big gear stays drawn. It disappeared from some angles, as did door parts on Containment's gate.",
+            "No crash after switching maps. Going from one remastered map to another could crash host and client together.",
+            "Death Island's horizon. The dark line where the sea meets the sky is gone, and the bottom of the sky no longer flashes.",
+            "Ascension's floating rocks. The fog under them is back, so you no longer see their undersides.",
+            "Containment's canyon walls are lit by bounced light instead of fading to black.",
+            "Moving parts on a second match. Doors and gears drew in a grey grid material when a map was played twice in a row."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.53.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.53.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.53.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.52.1",
+      "tag": "mods-v0.52.1",
+      "title": "Crash breadcrumbs",
+      "date": "2026-11-15",
+      "summary": "The Level Loader now writes down each step of a map load as it happens, so when the game crashes we can see exactly what it was loading.",
+      "body": "### Added\n\nIn MJOLNIRLevelLoader 0.13.16.\n\n- **Crash breadcrumbs.** Every map load writes a short file,\n  `ue4ss/Mods/MJOLNIRLevelLoader/breadcrumbs.txt`, with one line before each\n  load step and each asset it loads. The game's own log is switched off in\n  release builds, so after a crash this file is the only record of what the\n  load was doing. If you report a crash, attach it.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Crash breadcrumbs. Every map load writes a short file, ue4ss/Mods/MJOLNIRLevelLoader/breadcrumbs.txt, with one line before each load step and each asset it loads. The game's own log is switched off in release builds, so after a crash this file is the only record of what the load was doing. If you report a crash, attach it."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.52.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.52.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.52.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.52.0",
       "tag": "mods-v0.52.0",
       "title": "Lit interiors and a flying camera",

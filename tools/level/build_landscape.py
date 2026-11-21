@@ -328,6 +328,9 @@ MAP_LOOKS = {
         # warm one (both drew the snow tan, 2026-10-13).
         "cliff": {"material": "/Game/Env/Bio/Rock/Glacial/Materials/MIP_Rock_Glacial_Inst.MIP_Rock_Glacial_Inst",
                   "fill": [0.85, 0.92, 1.0, 1.0],
+                  # The snowy stones as they are: the beach rock's warm tint
+                  # drew a steep snow bank tan (Containment, 2026-11-17).
+                  "tint": [1.0, 1.0, 1.0, 1.0],
                   "rock_a": {"d": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_D",
                              "n": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_N",
                              "o": "Windswept_Snowy_Stones_tdloaf1r/T_Windswept_Snowy_Stones_tdloaf1r_NSVT_ORHG"},
@@ -521,6 +524,15 @@ MAP_LOOKS["LSW"]["pbr"]["surfaces"].update({
 MAP_LOOKS["LCO"] = _copy.deepcopy(MAP_LOOKS["LBG"])
 MAP_LOOKS["LGP"] = _copy.deepcopy(MAP_LOOKS["LIF"])
 MAP_LOOKS["LGP"]["pbr"]["ice"] = [0.35, 0.75, 0.9, 0.0]
+
+# Containment (LCN, Halo 2, 2026-11-16): snow with worn sandstone paths, as
+# Sidewinder's ground, so Sidewinder's look (no ice: its frozen ground is no
+# pond painted into the base map).
+MAP_LOOKS["LCN"] = _copy.deepcopy(MAP_LOOKS["LSW"])
+# Ascension (LAS, Halo 2, 2026-11-16): bare slate with pale sandstone paths
+# on a mesa, dry and treeless, so Blood Gulch's packed earth and stones (as
+# Coagulation, its desert biome).
+MAP_LOOKS["LAS"] = _copy.deepcopy(MAP_LOOKS["LBG"])
 
 
 def edge_bake(tris, centres, step, n, z_low, on, out_dir, z_high=None):

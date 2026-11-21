@@ -49,7 +49,8 @@ if (-not (Test-Path $mgloLib)) { throw "validator staticlib not found at $mgloLi
 # /MD: share the process's ucrtbase, the same CRT the simulation DLL uses.
 # The validator staticlib needs these system libraries (rustc --print
 # native-static-libs); kernel32 and the CRT already come from /MD.
-$compile = "cl /nologo /O2 /W4 /WX /MD /LD `"$src`" /Fo`"$objDir\\`" /Fe:`"$dll`" /link /NOLOGO /Brepro /IMPLIB:`"$objDir\mjolnir_map_registry.lib`" `"$mgloLib`" ntdll.lib userenv.lib ws2_32.lib dbghelp.lib"
+# synchronization.lib: Rust std from 1.9x waits with WaitOnAddress (Windows 8+).
+$compile = "cl /nologo /O2 /W4 /WX /MD /LD `"$src`" /Fo`"$objDir\\`" /Fe:`"$dll`" /link /NOLOGO /Brepro /IMPLIB:`"$objDir\mjolnir_map_registry.lib`" `"$mgloLib`" ntdll.lib userenv.lib ws2_32.lib dbghelp.lib synchronization.lib"
 
 if (-not $VcVars -and (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     Write-Host "using cl from PATH: $((Get-Command cl.exe).Source)"

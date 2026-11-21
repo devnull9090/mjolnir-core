@@ -40,29 +40,12 @@ import sys
 
 import add_objectives
 from add_bots import CLI, EXTRACT, REPO, container_dir, packages, run, sha
-from ce_objectives import MARKER_TEAM
+from ce_objectives import MARKER_TEAM, TELEPORTERS, is_teleporter, park  # noqa: F401 (callers and tests)
 
 REPLACE = os.environ.get("REPLACE_CHUNK", os.path.join(REPO, "target", "debug", "examples", "replace_chunk.exe"))
 TEAM = "multiplayer data.owner team"
-TELEPORTERS = "objects\\multi\\teleporters\\"
 # The sim's team indices: red 0 ... the eighth team 7 (the owner byte, MP+0x19).
 MARKER_TEAM_INDEX = 7
-
-
-def is_teleporter(o):
-    return o.get("group") == "scenery" and o.get("tag", "").startswith(TELEPORTERS)
-
-
-def park(level):
-    """A copy of a level with every teleporter end on the eighth team, and how
-    many ends that moved."""
-    level = copy.deepcopy(level)
-    moved = 0
-    for o in level["blam"]["objects"]:
-        if is_teleporter(o) and o.get("set", {}).get(TEAM) != MARKER_TEAM:
-            o.setdefault("set", {})[TEAM] = MARKER_TEAM
-            moved += 1
-    return level, moved
 
 
 def level_changes(old, new):

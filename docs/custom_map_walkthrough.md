@@ -20,9 +20,9 @@ Oddball and KOTH rules ship in mods 0.44.0; a map archive alone cannot add
 them to an older code-mod installation.
 
 For the public TST beta, see [the player/release notes](../levels/test/tst/BETA.md).
-Use `prepare_runtime.py --release-beta` and `upgrade_ce_map.py TST --release-beta`
-to advertise only Slayer, Team Slayer and CTF and use sky controls supported by
-the published loader. The Oddball and KOTH tests below are for source
+Use `prepare_runtime.py --release-beta` to advertise only Slayer, Team Slayer
+and CTF. `upgrade_ce_map.py TST` takes no switch: the beta's sky, exposure and
+ambient cubemap are TST's own entry in `ce_upgrade_maps.json`, as every map's are. The Oddball and KOTH tests below are for source
 development, not requirements for installing that beta.
 
 ## 1. Set up your source and tools
@@ -373,7 +373,7 @@ export TITLE="TST Proving Ground"
 
 bash tools/level/convert_ce_map.sh C:/haloce/hek/maps/tst.map TST C:/haloce/ce_conversions/community/TST
 python levels/test/tst/prepare_runtime.py --release-beta
-python tools/level/upgrade_ce_map.py TST --release-beta --work C:/haloce/ce_conversions/community-upgrade
+python tools/level/upgrade_ce_map.py TST --work C:/haloce/ce_conversions/community-upgrade
 ```
 
 Change the TST conversion path in `ce_upgrade_maps.json` when using another
@@ -408,14 +408,14 @@ or shader errors; a successful process exit alone is insufficient.
 Close the game, then use the same tool environment:
 
 ```bash
-python tools/level/upgrade_ce_map.py TST --release-beta --stages install --local-install \
+python tools/level/upgrade_ce_map.py TST --stages install --local-install \
   --work C:/haloce/ce_conversions/community-upgrade
 ```
 
-For the supported-mode beta, `--release-beta --local-install` preserves the
-published loader and CE runtime. Install those dependencies from the launcher
-first; testing with private copies of shared materials or scripts can hide
-compatibility errors. Back up any prior local map before replacing it.
+`--local-install` is for a map the hub does not have yet; with the hub's copy
+installed, use `--install`, which puts the build on top of it as local builds.
+Both install the checkout's trial masters and loader scripts too. Install the
+CE runtime from the launcher first. Back up any prior local map before replacing it.
 
 Oddball and KOTH need mods 0.44.0 or later. Those tests are separate from the
 supported-mode beta.
@@ -475,7 +475,7 @@ that verified snapshot. Keep inputs unchanged during the build, and inspect the
 result in game: a receipt cannot prove arbitrary files came from a given cook.
 
 Before packaging water, host the map, wait for `flux: river filled`, then run
-`mjolnir_flux_bake`. Close the game and rerun `--release-beta --stages assemble`
+`mjolnir_flux_bake`. Close the game and rerun `--stages assemble`
 with the same work directory. This copies the settled state into the build.
 Reinstall and verify that the river starts full. Rebake after changing the bed;
 matching domain dimensions alone do not prove an old water state is still valid.

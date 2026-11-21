@@ -13,7 +13,7 @@ local function read(path)
     return text
 end
 local source = read("mods/MJOLNIRHud/Scripts/class_lifetime.lua")
-for _, mod in ipairs({ "MJOLNIRLobby", "MJOLNIRForge" }) do
+for _, mod in ipairs({ "MJOLNIRLobby", "MJOLNIRForge", "MJOLNIRLevelLoader" }) do
     eq(read("mods/" .. mod .. "/Scripts/class_lifetime.lua"), source, "self-contained helpers stay identical")
 end
 local Lifetime = assert(load(source))()

@@ -80,6 +80,16 @@ pub struct Section {
     /// Whether the section has a lightmap coordinate per vertex.
     pub has_lightmap_uv: bool,
     pub has_incident: bool,
+    /// The first node index of each vertex, for rigid boned and skinned
+    /// vertex types (section-local unless the section has no node map);
+    /// empty when the vertices carry none.
+    pub vertex_nodes: Vec<u8>,
+    /// Every resource entry as (type, locator, index or element size, size),
+    /// for decoding the ones not read here.
+    pub resources: Vec<(u8, u16, i16, usize)>,
+    /// The section's node map (tag block resource at locator 0x68, one
+    /// byte a local node): vertex node i is model node `node_map[i]`.
+    pub node_map: Vec<u8>,
 }
 
 impl Section {
@@ -193,6 +203,10 @@ pub fn read(
         let size = r.u32(8) as usize;
         let off = rsrc + r.u32(12) as usize;
         let bytes = d.get(off..off + size).ok_or_else(|| Error::Format(format!("resource at {off:#x} runs past the file")))?;
+        s.resources.push((kind, locator, index, size));
+        if kind == 0 && locator == 0x68 {
+            s.node_map = bytes.to_vec();
+        }
         match (kind, locator) {
             (0, 0x00) => {
                 for p in bytes.chunks_exact(72) {
@@ -227,6 +241,12 @@ pub fn read(
                 // indices and weights after the first 12 bytes only matter
                 // for animation.
                 (0x01, 12) | (0x02, 16) | (0x04 | 0x06 | 0x08, 20) => {
+                    if stride > 12 {
+                        if s.vertex_nodes.len() < n {
+                            s.vertex_nodes.resize(n, 0);
+                        }
+                        s.vertex_nodes[i] = bytes[o + 12];
+                    }
                     let p: [f32; 3] = f32s(bytes, o);
                     v.position = match compression.position {
                         Some(r) => [expand(p[0], r[0]), expand(p[1], r[1]), expand(p[2], r[2])],

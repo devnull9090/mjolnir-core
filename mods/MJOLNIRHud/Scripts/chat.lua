@@ -528,6 +528,8 @@ local function commandCx(isHost)
         botCount = ctx.botCount,
         -- The result comes back a minute later, as system lines.
         bench = function() return ctx.bench(function(said) for _, l in ipairs(said) do systemLine(l) end end) end,
+        -- The Level Loader opens it once the box has closed.
+        sounds = function() ctx.console("mjolnir_sounds"); return {} end,
     }
 end
 
