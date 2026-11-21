@@ -163,7 +163,7 @@ static uint64_t make_fname(const wchar_t *s) {
     v.wide = 0;
     for (int32_t i = 0; i < v.len; i++)
         if (s[i] >= 0x80) v.wide = 1;
-    memset(v.pad, 0, sizeof v.pad);
+    v.pad[0] = v.pad[1] = v.pad[2] = 0;  // the engine hashes the whole view
     uint64_t hash = ((name_hash_fn)(g_base + g_exe->name_hash))(s, &v.len);
     uint64_t out = 0;
     ((name_make_fn)(g_base + g_exe->name_make))(&out, &v, 1, hash);
