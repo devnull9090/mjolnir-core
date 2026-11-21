@@ -39,6 +39,27 @@
   ],
   "releases": [
     {
+      "product": "cli",
+      "productName": "MJOLNIR CLI",
+      "version": "0.13.0",
+      "tag": "cli-v0.13.0",
+      "title": "The Pelican Warfare game type",
+      "date": "2026-11-21",
+      "summary": "mjolnir megalo write --mode warfare writes the Pelican Warfare game type: two teams, a drop from Pelicans and three capture sites.",
+      "body": "### Added\n\n- **`mjolnir megalo write --mode warfare`.** Writes the game type behind\n  Pelican Warfare: a warmup until enough players have joined, a transport and\n  drop phase, then three capture sites that score for the team holding them.\n  `--minimum-players` and `--warmup-seconds` set the start,\n  `--warfare-minutes` the length of combat, and `--allow-mounted-capture`\n  lets players in vehicles capture and contest a site. The mods release\n  builds its copy with this command.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "mjolnir megalo write --mode warfare. Writes the game type behind Pelican Warfare: a warmup until enough players have joined, a transport and drop phase, then three capture sites that score for the team holding them. --minimum-players and --warmup-seconds set the start, --warfare-minutes the length of combat, and --allow-mounted-capture lets players in vehicles capture and contest a site. The mods release builds its copy with this command."
+          ]
+        }
+      ],
+      "path": "/changelog/cli/0.13.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/cli/0.13.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/cli-v0.13.0"
+    },
+    {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
       "version": "0.24.1",
