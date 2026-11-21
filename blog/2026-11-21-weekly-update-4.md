@@ -1,7 +1,7 @@
 # Weekly update 4: four Halo 2 maps remastered, a sound mixer, and Saturday's playtest
 
 **Author:** MJOLNIR Core
-**Summary:** Zanzibar, Coagulation, Containment and Ascension are remastered, /sounds gives you a slider for every sound on a map, and Halo 2 maps have their waves, birds and wind. Join Saturday's playtest and help us test them with real players.
+**Summary:** Zanzibar, Coagulation, Containment and Ascension are remastered, /sounds gives you a slider for every sound on a map, and those four maps have Halo 2's waves, birds and wind. Join Saturday's playtest and help us test them with real players.
 **Tags:** weekly-update, multiplayer, maps, lighting
 **Image:** /blog-images/weekly-update-4/featured.jpg
 
@@ -49,11 +49,11 @@ In October the [Halo CE maps were remastered](/blog/ce-maps-remastered). The sam
 - **Containment** has snow, its own ground colours and glacial boulders, and its canyon walls are lit by bounced light.
 - **Ascension** has a desert look on its slate and sandstone.
 
-Zanzibar and Coagulation came out on 15 November, Containment and Ascension on 18 November. All four keep their names and places in the map list, so the launcher updates the copies you have.
+Zanzibar and Coagulation came out last weekend, Containment and Ascension on 18 November. All four keep their names and places in the map list, so the launcher updates the copies you have.
 
 **Light that bounces indoors.** A remastered map can now be drawn in pieces the game's lighting can work on. Rooms get bounced light, shade in their corners and falloff down their stairwells, instead of an even glow. Zanzibar and Coagulation are the first maps to use it.
 
-Turf also got an update on 15 November: glass you can see and break, coloured trucks, lit signs, grass and street decoration, and sounds at Halo 2's levels.
+Turf also got an update last weekend: glass you can see and break, coloured trucks, lit signs, grass and street decoration, and sounds at Halo 2's levels.
 
 ## Your own sound mix
 
@@ -65,7 +65,7 @@ The [sound mixer guide](https://github.com/devnull9090/mjolnir-core/blob/main/do
 
 ## Maps that sound like Halo 2
 
-Halo 2 plays one-off sounds at random on top of a map's background: waves on Zanzibar's shore, gulls, birds, a distant battle, gusts of wind. Those now come through on the four remastered Halo 2 maps. Ambient sound on Halo 2 maps is louder too, so you can hear it next to the game's own mix. If it's too much on a map, that's what the mixer is for, and we'd like to hear which sounds you turned down.
+Halo 2 plays one-off sounds at random on top of a map's background: waves on Zanzibar's shore, gulls, birds, a distant battle, gusts of wind. Those now come through on the four remastered Halo 2 maps. Their ambient sound is louder too, so you can hear it next to the game's own mix. The other Halo 2 maps get both when they're rebuilt. If it's too much on a map, that's what the mixer is for, and we'd like to hear which sounds you turned down.
 
 ## Rebuilt maps and faster loads
 
