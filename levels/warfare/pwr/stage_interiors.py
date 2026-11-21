@@ -121,3 +121,17 @@ def light(level, cli, paks, spec):
                 glowing += 1
         d["materials"] = mats
     return {"lights": len(lights), "by_slot": report, "glowing_slots": glowing}
+
+
+def ui_container(inputs, cooked, hashes, code="PWR"):
+    """Ship the mode's own UI container (the tactical map and zone tiles, chunk 958, verified by
+    tactical-map/package.py) inside the map pack: players get it with the map, not from a
+    developer overlay. Named for the map like the pack's other containers."""
+    source = next(Path(cooked).glob("pakchunk958-*.utoc")).with_suffix("")
+    name = f"pakchunk958-MJOLNIRTACTICALMAP-{code}_P"
+    added = {}
+    for ext in (".utoc", ".ucas"):
+        target = Path(inputs) / (name + ext)
+        shutil.copyfile(source.with_suffix(ext), target)
+        hashes["content/" + name + ext] = added["content/" + name + ext] = sha(target)
+    return added

@@ -37,10 +37,12 @@ export const MAX_ARCHIVE_BYTES = 90 * 1024 * 1024;
 /** Hard cap on an archive uploaded in parts (.../archive/multipart): a
  *  remastered map with its foliage baked in runs to 117 MB (Timberland
  *  2.1.0, 2026-10-20). /complete scans it from R2 as a stream
- *  (scanArchiveStream), so this is not bounded by the Worker's memory. */
-export const MAX_MULTIPART_ARCHIVE_BYTES = 400 * 1024 * 1024;
+ *  (scanArchiveStream), so this is not bounded by the Worker's memory.
+ *  A whole new world with its own bases, terrain and landscape (Pelican
+ *  Warfare, 2026-11-21) is 681 MB packed, 1.44 GB unpacked. */
+export const MAX_MULTIPART_ARCHIVE_BYTES = 1024 * 1024 * 1024;
 /** Zip-bomb guard: decompressed total may not exceed this. */
-const MAX_UNPACKED_BYTES = 768 * 1024 * 1024;
+const MAX_UNPACKED_BYTES = 2 * 1024 * 1024 * 1024;
 
 export const SCANNER_VERSION = "ts-6";
 

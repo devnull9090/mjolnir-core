@@ -430,6 +430,8 @@ local function resetState()
         end)
         Current.cvars = nil
     end
+    -- The game's own flashlight back (flashlight.lua): a level raised it to its light scale.
+    if Current.restoreFlashlight then Current.restoreFlashlight() end
     -- The flags and Spartans of the last world (teams.lua).
     Teams.reset()
 end
@@ -1746,6 +1748,18 @@ local function spawnEnvironment(world)
                 local coast = type(Current.level.flux) == "table" and Current.level.flux.coast
                 if type(coast) == "table" then
                     set["r.Lumen.Reflections.MaxRayIntensity"] = tonumber(coast.max_ray) or 2
+                end
+                -- `environment.reflections.depth_thickness`: how thick a
+                -- reflection's screen trace takes what is on screen to be.
+                -- At the engine's 0.005 a ray passing behind a shoreline
+                -- sapling gave up and fell back to the sky: a bright column
+                -- stood in the lake above every tree in front of it (Pelican
+                -- Warfare's headwater, 2026-11-21). At 0.03 the tree is solid
+                -- to the ray and the water mirrors it.
+                local reflections = env.reflections
+                if type(reflections) == "table" and tonumber(reflections.depth_thickness) then
+                    set["r.Lumen.Reflections.HierarchicalScreenTraces.RelativeDepthThickness"] =
+                        tonumber(reflections.depth_thickness)
                 end
                 for name, value in pairs(set) do
                     if Current.cvars[name] == nil then Current.cvars[name] = ks:GetConsoleVariableFloatValue(name) end
@@ -3899,6 +3913,8 @@ end
 --- them through TerrainLights; `mjolnir_terrain_lights off` leaves CE's
 --- surfaces out of their reach.
 local Placed = {}
+Placed.flashlight = dofile(MOD_DIR .. "\\Scripts\\flashlight.lua")
+Current.restoreFlashlight = Placed.flashlight.restore
 
 function Placed.lights(world)
     local lights = Current.level and Current.level.lights
@@ -6030,6 +6046,8 @@ local function spawnDecor(world)
         step("waterfalls", function() Effects.waterfalls(world) end)
         step("flux", function() Effects.flux(world) end, true)
         step("lights", function() Placed.lights(world) end)
+        -- The game's flashlight, raised to the level's light scale (flashlight.lua).
+        step("flashlight", function() Placed.flashlight.expose(lightScale(), findObject, Log) end)
         step("decals", function() Placed.decals(world) end)
         step("landscape", function() Land.apply(world) end, true)
         -- What the landscape handed on: its ground, cliffs and components,

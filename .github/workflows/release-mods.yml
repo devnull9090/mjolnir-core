@@ -142,6 +142,8 @@ jobs:
           ./target/release/mjolnir megalo write --mode team-race --vehicle-label-pool --out variants/team_race.mglo
           ./target/release/mjolnir megalo write --mode rally --vehicle-label-pool --out variants/rally.mglo
           ./target/release/mjolnir megalo write --mode team-rally --vehicle-label-pool --out variants/team_rally.mglo
+          # Pelican Warfare: capture on foot or mounted, the fireteam profile (two players to start).
+          ./target/release/mjolnir megalo write --mode warfare --vehicle-label-pool --allow-mounted-capture --out variants/warfare.mglo
           for f in variants/*.mglo; do
             ./target/release/mjolnir megalo read "$f" | grep -E "score_to_win|rounds"
             echo "$(basename "$f") sha256 $(sha256sum "$f" | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
@@ -275,7 +277,8 @@ jobs:
                       mods/MJOLNIRLevelLoader/variants/race.mglo mods/MJOLNIRLevelLoader/variants/race.layout.json \
                       mods/MJOLNIRLevelLoader/variants/team_race.mglo mods/MJOLNIRLevelLoader/variants/team_race.layout.json \
                       mods/MJOLNIRLevelLoader/variants/rally.mglo mods/MJOLNIRLevelLoader/variants/rally.layout.json \
-                      mods/MJOLNIRLevelLoader/variants/team_rally.mglo mods/MJOLNIRLevelLoader/variants/team_rally.layout.json; do
+                      mods/MJOLNIRLevelLoader/variants/team_rally.mglo mods/MJOLNIRLevelLoader/variants/team_rally.layout.json \
+                      mods/MJOLNIRLevelLoader/variants/warfare.mglo mods/MJOLNIRLevelLoader/variants/warfare.layout.json; do
             test -s "$mglo" || { echo "::error::$(basename "$mglo") did not arrive from build-game-types"; exit 1; }
             sha256sum "$mglo"
           done

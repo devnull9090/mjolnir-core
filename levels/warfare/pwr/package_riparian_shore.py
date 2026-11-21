@@ -126,6 +126,8 @@ def stage(art, version):
                                                              os.environ["PWR_BASES_MANIFEST"])
                 for f in inputs.glob("pakchunk955-*.u*"):
                     shutil.copyfile(f, Path(paks)/f.name)
+            if os.environ.get("PWR_UI_CONTAINER"):
+                interiors["ui_container"] = stage_interiors.ui_container(inputs, os.environ["PWR_UI_CONTAINER"], hashes)
             fixtures = jsonfile(stage_vista.CONFIG).get("fixture_lights")
             if fixtures:
                 interiors["lights"] = stage_interiors.light(level, str(p.ROOT/"target/release/mjolnir.exe"),
