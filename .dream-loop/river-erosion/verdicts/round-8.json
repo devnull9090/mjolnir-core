@@ -1,0 +1,104 @@
+{
+  "score": 4,
+  "first_failed_gate": "light_colour",
+  "previous_score": 4.1,
+  "regressions": [
+    {
+      "where": "A3-B4 and E3-F4",
+      "what": "Large patches of grass have shifted from dark olive to pale yellow across the full clumps, overshooting the target on both banks."
+    },
+    {
+      "where": "A3-B4",
+      "what": "The left soil face has changed from a dark undercut to a sunlit beige strip, losing the shadow directly beneath the sod."
+    },
+    {
+      "where": "C2-D2",
+      "what": "The spring has lost most of its white falling water and now reflects as dark teal and black."
+    }
+  ],
+  "previous_directives": [
+    {
+      "id": "r7-b1",
+      "status": "partial"
+    },
+    {
+      "id": "r7-b2",
+      "status": "partial"
+    },
+    {
+      "id": "r7-b3",
+      "status": "partial"
+    },
+    {
+      "id": "r7-n1",
+      "status": "partial"
+    },
+    {
+      "id": "r7-n2",
+      "status": "partial"
+    },
+    {
+      "id": "r7-n3",
+      "status": "not_done"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "r8-b1",
+      "where": "A3-B4 and E3-F4 vegetation",
+      "target": "Olive-green clumps carry narrow golden highlights on upper blades and seed heads.",
+      "current": "Pale yellow covers whole clumps, with the right-grass probe averaging 0.075 luminance above target.",
+      "change": "Lower the right-bank vegetation mean by about 0.07 in normalized luminance and confine the brightest yellow to individual blade tips on both banks."
+    },
+    {
+      "id": "r8-b2",
+      "where": "B3-E4 lake outlet",
+      "target": "Broken blue-grey reflections cross the shallow water between and downstream of all three rocks with gravel visible through the gaps.",
+      "current": "A blue band is visible on the lake, but the outlet changes abruptly to predominantly brown gravel.",
+      "change": "Extend directional blue-grey ripple reflections through the outlet to the bottom edge and break them into short streaks that leave the gravel visible."
+    },
+    {
+      "id": "r8-b3",
+      "where": "A3-B4 soil and C3-D3 rocks",
+      "target": "The left soil face sits in soft sod shadow while the shaded sides of the outlet rocks retain grey fracture detail.",
+      "current": "The left face is pale and directly lit while the downstream face of the largest rock reads almost black.",
+      "change": "Shade the left face under the turf lip and lift indirect light on the downstream rock faces enough to expose their fractures."
+    },
+    {
+      "id": "r8-b4",
+      "where": "C2-D2 spring",
+      "target": "White aerated ribbons occupy the center of both drops with soft teal shadows and a pale reflection below.",
+      "current": "Dark teal and black dominate the upper drop, with isolated white slashes on the lower drop.",
+      "change": "Restore a broad white center to each drop, retain teal in the gaps and soften the reflected white below the inlet."
+    }
+  ],
+  "next": [
+    {
+      "id": "r8-n1",
+      "where": "A3-B4 left bank",
+      "target": "A projecting turf lip exposes a root curtain above a sloping soil face and partly buried rounded cobbles.",
+      "current": "Straight exposed roots lie across a flat beige shelf terminating in a near-continuous line of angular stones.",
+      "change": "Turn the roots downward below an irregular overhang, vary their hanging lengths and embed separated cobbles at the foot of the slope."
+    },
+    {
+      "id": "r8-n2",
+      "where": "E3-F4 right bank",
+      "target": "Tall irregular reed stands project into the water above a broad taper of overlapping grey pebbles and fist-sized stones.",
+      "current": "Repeated radial grass tufts cover the bank above a shallow tan gravel strip with isolated large rocks.",
+      "change": "Plant taller reeds in uneven waterside points and widen the exposed grey pebble ridge between those points."
+    },
+    {
+      "id": "r8-n3",
+      "where": "B3-D4 outlet rocks",
+      "target": "Rounded fractured rock shoulders divide the flow into narrow white foam lines along both flanks.",
+      "current": "The largest rock presents a steep angular face and the flank foam largely disappears into brown water.",
+      "change": "Bevel the steep shoulders and wrap broken pale foam from upstream contact around each flank before trailing downstream."
+    }
+  ],
+  "excluded": [
+    "Distant mountains and sky are outside this pass."
+  ],
+  "unverifiable": [
+    "Water motion and vegetation movement cannot be judged from stills."
+  ]
+}

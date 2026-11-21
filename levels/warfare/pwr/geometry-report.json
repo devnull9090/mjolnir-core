@@ -1,0 +1,21 @@
+{
+  "schema": "pwr-geometry-v2",
+  "seed": 20568,
+  "size_m": [
+    2000,
+    2000
+  ],
+  "bsp_triangles": 18490,
+  "water_triangles": 1048,
+  "road_triangles": 3052,
+  "modular_instances": 114,
+  "boundary": "closed",
+  "flight_envelope": "authored; not runtime validated",
+  "surface_policy": {
+    "AUTO": 0,
+    "NONE": 10313,
+    "GROUND": 7272,
+    "CLIFF": 4053,
+    "BOTH": 0
+  }
+}

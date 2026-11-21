@@ -1,0 +1,3 @@
+PWR_RIPARIAN_SURFACE StaticMesh /Game/MJOLNIR/GrassPilot/Playable/SM_PWR_CutbankRoots.SM_PWR_CutbankRoots at -30000.0 -82000.0 14100.0; visible=true collision=0 material=Material /Game/MJOLNIR/GrassPilot/Playable/M_PWR_CutbankRoots.M_PWR_CutbankRoots
+PWR_RIPARIAN_SURFACE StaticMesh /Game/MJOLNIR/GrassPilot/Playable/SM_PWR_SpringCascade.SM_PWR_SpringCascade at -39600.0 -97300.0 14600.0; visible=true collision=0 material=Material /Game/MJOLNIR/GrassPilot/Playable/M_PWR_SpringCascade.M_PWR_SpringCascade
+PWR_RIPARIAN_SURFACES PASS 2

@@ -18,11 +18,13 @@ import json
 import math
 import os
 import random
+import re
 import struct
 import subprocess
 import sys
 
 import numpy as np
+from authored_decor import PINE_OPTIMIZED, PINE_SAPLING, PWR_MATURE_PINE, PWR_MATURE_PINE_BARK
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -34,6 +36,15 @@ HULL_POINTS = int(os.environ.get("B30_HULL_POINTS", 48))
 # grass and pebbles stay walk-through, as in B30.
 SOLID = [("/Rock/", "hard_terrain_stone"), ("Rock_", "hard_terrain_stone"), ("_Trunk", "tough_organic_wood"),
          ("Driftwood", "tough_organic_wood"), ("Log_", "tough_organic_wood")]
+# Complete conifers include both bark and needles. These slot names were
+# read from the shipped StaticMesh exports and independently matched to GLB
+# materials. Selecting only POSITION accessors is insufficient: sections
+# share the full vertex buffer, so their index buffers must also be respected.
+PINE_TRUNK_MATERIALS = {
+    PINE_OPTIMIZED: ("MI_SaplingTrunk",),
+    PINE_SAPLING: ("Bark_Mat",),
+    PWR_MATURE_PINE: PWR_MATURE_PINE_BARK,
+}
 # Foliage rules that collide, and the smallest that does (cm of height).
 FOLIAGE_RULES = {"stones": 45.0, "driftwood": 25.0, "sea rocks": 45.0}
 # The cliffs' cladding rocks (thousands a map) collide only where a player
@@ -45,6 +56,8 @@ WALKABLE = 0.6  # the ground normal's least z a player stands on
 
 
 def material_for(mesh):
+    if mesh.split(".")[0] in PINE_TRUNK_MATERIALS:
+        return "tough_organic_wood"
     return next((m for k, m in SOLID if k in mesh), None)
 
 
@@ -111,11 +124,12 @@ def convex_hull(p):
 MIN_HULL_SOURCE = 200  # vertices: a desert boulder's last LOD has 18
 
 
-def glb_positions(path):
+def glb_positions(path, material_names=None):
     """Vertex positions (Unreal cm, mesh local) of the glb's coarsest LOD
     with at least MIN_HULL_SOURCE vertices (`mjolnir mesh export` writes
     LODs in order), else its first."""
-    b = open(path, "rb").read()
+    with open(path, "rb") as stream:
+        b = stream.read()
     jl = struct.unpack_from("<I", b, 12)[0]
     doc = json.loads(b[20:20 + jl])
     data = b[20 + jl + 8:]
@@ -126,14 +140,37 @@ def glb_positions(path):
     rich = [m for m in doc["meshes"] if count(m) >= MIN_HULL_SOURCE]
     mesh = rich[-1] if rich else doc["meshes"][0]
     pts = []
+    wanted = set(material_names or [])
+    seen = set()
     for prim in mesh["primitives"]:
+        if wanted:
+            material = doc.get("materials", [])[prim["material"]]["name"]
+            if material not in wanted:
+                continue
+            seen.add(material)
         acc = doc["accessors"][prim["attributes"]["POSITION"]]
         view = doc["bufferViews"][acc["bufferView"]]
         start = view.get("byteOffset", 0) + acc.get("byteOffset", 0)
         stride = view.get("byteStride") or 12
-        for k in range(acc["count"]):
+        selected = range(acc["count"])
+        if wanted:
+            if "indices" not in prim:
+                raise ValueError("Verified pine bark section has no index buffer")
+            index = doc["accessors"][prim["indices"]]
+            index_view = doc["bufferViews"][index["bufferView"]]
+            code = {5121: "B", 5123: "H", 5125: "I"}.get(index["componentType"])
+            if not code or index.get("type") != "SCALAR":
+                raise ValueError("Unsupported pine bark index format")
+            offset = index_view.get("byteOffset", 0) + index.get("byteOffset", 0)
+            step = index_view.get("byteStride") or struct.calcsize("<" + code)
+            selected = sorted({struct.unpack_from("<" + code, data, offset + n * step)[0] for n in range(index["count"])})
+            if not selected or selected[-1] >= acc["count"]:
+                raise ValueError("Invalid pine bark section indices")
+        for k in selected:
             x, y, z = struct.unpack_from("<fff", data, start + k * stride)
             pts.append((x * 100.0, z * 100.0, y * 100.0))  # glTF metres, +Y up -> Unreal cm, +Z up
+    if wanted and (seen != wanted or len(pts) < 4):
+        raise ValueError("Verified pine trunk material is absent; refuse crown collision")
     return np.array(pts)
 
 
@@ -143,21 +180,71 @@ TRUNK_SLICES = int(os.environ.get("B30_TRUNK_SLICES", 3))
 TRUNK_POINTS = int(os.environ.get("B30_TRUNK_POINTS", 24))  # 24 // 3 + 8 = 16 points a slice
 
 
-def hull_of(mesh, hulls_dir, budget=HULL_POINTS):
+def validate_mature_trunk_cache(h):
+    """Reject invalid/crown-wide custom cache geometry before native export."""
+    trunk='/Game/Env/Bio/Tree/Pine/Tree_Pine/Tree_Pine_A/Meshes/SM_Tree_Pine_A_Trunk'
+    if (h.get('source_trunk_mesh')!=trunk or not re.fullmatch(r'[0-9a-fA-F]{64}',str(h.get('source_trunk_geometry_sha256','')))
+            or not isinstance(h.get('source_trunk_lod'),int) or isinstance(h.get('source_trunk_lod'),bool) or h['source_trunk_lod']<0):
+        raise ValueError('Missing measured original trunk source')
+    p=np.asarray(h.get('points',[]),dtype=float)
+    bounds=np.asarray(h.get('measured_trunk_bounds_cm',[]),dtype=float)
+    faces=h.get('faces',[])
+    if (p.ndim!=2 or p.shape[1:]!=(3,) or len(p)<4 or not np.isfinite(p).all()
+            or bounds.shape!=(2,3) or not np.isfinite(bounds).all() or np.any(bounds[1]<=bounds[0])
+            or np.any(p<bounds[0]-.02) or np.any(p>bounds[1]+.02)):
+        raise ValueError('Custom pine hull exceeds finite measured trunk bounds')
+    if (not isinstance(faces,list) or len(faces)<4 or any(not isinstance(f,list) or len(f)!=3 or
+            any(not isinstance(i,int) or isinstance(i,bool) or not 0<=i<len(p) for i in f) for f in faces)):
+        raise ValueError('Invalid custom pine trunk faces')
+    edges={};neighbours=[set() for _ in p]
+    for f in faces:
+        if len(set(f))!=3 or np.linalg.norm(np.cross(p[f[1]]-p[f[0]],p[f[2]]-p[f[0]]))<1e-8:
+            raise ValueError('Degenerate custom pine trunk face')
+        for a,b in zip(f,f[1:]+f[:1]):
+            edges.setdefault(tuple(sorted((a,b))),[]).append((a,b));neighbours[a].add(b);neighbours[b].add(a)
+    if any(len(v)!=2 or v[0]!=v[1][::-1] for v in edges.values()):
+        raise ValueError('Custom pine trunk must contain closed outward components')
+    remaining=set(range(len(p)))
+    while remaining:
+        component={next(iter(remaining))};front=list(component)
+        while front:
+            for v in neighbours[front.pop()]-component:component.add(v);front.append(v)
+        remaining-=component
+        centre=p[list(component)].mean(0)
+        volume=sum(np.dot(p[f[0]]-centre,np.cross(p[f[1]]-centre,p[f[2]]-centre))/6 for f in faces if f[0] in component)
+        if volume<=1e-8:raise ValueError('Custom pine trunk component is inward or empty')
+
+
+def hull_of(mesh, hulls_dir, budget=HULL_POINTS, expected_geometry_sha256=None):
     """The mesh's hull(s) as (points, faces), cached in hulls_dir: one hull,
     or TRUNK_SLICES for a tree trunk, their faces indexing the points."""
     leaf = mesh.split(".")[0].rsplit("/", 1)[-1]
-    cache = os.path.join(hulls_dir, leaf + ("" if budget == HULL_POINTS else f"_{budget}") + ".json")
+    bark = PINE_TRUNK_MATERIALS.get(mesh.split(".")[0])
+    cache = os.path.join(hulls_dir, leaf + ("_bark_v1" if bark else "") + ("" if budget == HULL_POINTS else f"_{budget}") + ".json")
     if os.path.exists(cache):
-        h = json.load(open(cache, encoding="utf-8"))
+        with open(cache, encoding="utf-8") as stream:
+            h = json.load(stream)
+        if mesh.split('.')[0]==PWR_MATURE_PINE:
+            # Its bark slot also contains crown branches. Only the measured
+            # central trunk belongs in this cache, never the full bark crown.
+            if (h.get('mesh','').split('.')[0]!=PWR_MATURE_PINE
+                    or h.get('collision_scope')!='trunk_only'
+                    or h.get('bark_material_slots')!=list(PWR_MATURE_PINE_BARK)
+                    or not re.fullmatch(r'[0-9a-fA-F]{64}',str(h.get('source_geometry_sha256','')))):
+                raise ValueError('PWR mature pine requires a measured trunk-only cache')
+            if expected_geometry_sha256 is not None and h['source_geometry_sha256']!=expected_geometry_sha256:
+                raise ValueError('PWR mature pine trunk cache does not match placed geometry')
+            validate_mature_trunk_cache(h)
         return np.array(h["points"]), h["faces"]
+    if mesh.split('.')[0]==PWR_MATURE_PINE:
+        raise ValueError('PWR mature pine requires a measured trunk-only cache; automatic crown extraction is forbidden')
     glb = os.path.join(hulls_dir, leaf + ".glb")
     asset = mesh.split(".")[0].lstrip("/").replace("Game/", "", 1)
     subprocess.run([MJOLNIR, "mesh", "export", "--paks", PAKS, "--asset", asset, "--out", glb], check=True,
                    capture_output=True, env=dict(os.environ, MSYS_NO_PATHCONV="1"))
-    every = glb_positions(glb)
+    every = glb_positions(glb, bark)
     os.remove(glb)
-    if "_Trunk" in leaf:
+    if "_Trunk" in leaf or bark:
         lo, hi = every[:, 2].min(), every[:, 2].max()
         edges = np.linspace(lo, hi, TRUNK_SLICES + 1)
         parts = [every[(every[:, 2] >= edges[i] - 1) & (every[:, 2] <= edges[i + 1] + 1)] for i in range(TRUNK_SLICES)]
@@ -175,7 +262,10 @@ def hull_of(mesh, hulls_dir, budget=HULL_POINTS):
         points += pts[used].tolist()
         faces += [[remap[i] for i in f] for f in hull]
     points = np.array(points)
-    json.dump({"mesh": mesh, "points": points.round(2).tolist(), "faces": faces}, open(cache, "w", encoding="utf-8"))
+    if bark and not faces:
+        raise ValueError("Verified pine bark produced no collision hull")
+    with open(cache, "w", encoding="utf-8") as stream:
+        json.dump({"mesh": mesh, "points": points.round(2).tolist(), "faces": faces}, stream)
     return points, faces
 
 
@@ -298,12 +388,18 @@ def main():
     ap.add_argument("--clad-limit", type=int, help="keep only this many cladding rocks, the biggest")
     a = ap.parse_args()
     os.makedirs(a.hulls, exist_ok=True)
-    level = json.load(open(a.level, encoding="utf-8"))
-    swap = json.load(open(a.swap, encoding="utf-8")) if os.path.exists(a.swap) else {"decor": []}
+    with open(a.level, encoding="utf-8") as stream:
+        level = json.load(stream)
+    swap = {"decor": []}
+    if os.path.exists(a.swap):
+        with open(a.swap, encoding="utf-8") as stream:
+            swap = json.load(stream)
     tris, mats, counts = [], [], {}
 
-    def place(mesh, matrix, scale, origin, material, points=HULL_POINTS):
-        pts, faces = hull_of(mesh, a.hulls, points)
+    def place(mesh, matrix, scale, origin, material, points=HULL_POINTS, source_geometry_sha256=None):
+        if mesh.split('.')[0]==PWR_MATURE_PINE and not re.fullmatch(r'[0-9a-fA-F]{64}',str(source_geometry_sha256 or '')):
+            raise ValueError('PWR mature pine placement is missing its measured geometry hash')
+        pts, faces = hull_of(mesh, a.hulls, points, source_geometry_sha256)
         world = (np.asarray(pts) * scale) @ matrix + origin
         ce = to_ce(world)
         # The hull is wound outward in Unreal's frame; to_ce mirrors Y, which
@@ -333,7 +429,8 @@ def main():
             continue
         r = item.get("rot", [0, 0, 0])
         place(item["mesh"], rotator_matrix(r[0], r[1], r[2]), np.asarray(item.get("scale", [1, 1, 1])),
-              np.asarray(item["pos"]), material, TRUNK_POINTS if "_Trunk" in item["mesh"] else HULL_POINTS)
+              np.asarray(item["pos"]), material, TRUNK_POINTS if "_Trunk" in item["mesh"] else HULL_POINTS,
+              item.get('source_geometry_sha256'))
 
     # A level file's foliage, or scatter_foliage.py's own foliage.json.
     groups = (level.get("foliage") or level).get("groups") or []
@@ -377,8 +474,8 @@ def main():
     clad.sort(key=lambda c: -c[0])
     for s, mesh, m, at in clad[:a.clad_limit] if a.clad_limit is not None else clad:
         place(mesh, m, s, at, "hard_terrain_stone", CLAD_POINTS)
-    json.dump({"triangles": tris, "materials": mats, "skip_entries": sorted(skip), "objects": sum(counts.values())},
-              open(a.out, "w", encoding="utf-8"))
+    with open(a.out, "w", encoding="utf-8") as stream:
+        json.dump({"triangles": tris, "materials": mats, "skip_entries": sorted(skip), "objects": sum(counts.values())}, stream)
     kept = len(clad) if a.clad_limit is None else min(len(clad), a.clad_limit)
     print(f"{len(tris)} collision triangle(s) for {sum(counts.values())} object(s) {counts}; "
           f"{len(skip)} CE placement(s) replaced; {kept} cladding rock(s) of {len(clad)}")

@@ -190,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "blam-cli"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "blam-cache",
@@ -208,6 +208,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha2",
  "ue-asset",
  "ue-iostore",
  "ue-texture",

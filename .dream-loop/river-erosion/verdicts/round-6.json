@@ -1,0 +1,84 @@
+{
+  "score": 2.6,
+  "first_failed_gate": "layout",
+  "previous_score": 2.3,
+  "regressions": [],
+  "previous_directives": [
+    {
+      "id": "r5-b1",
+      "status": "partial"
+    },
+    {
+      "id": "r5-b2",
+      "status": "partial"
+    },
+    {
+      "id": "r5-b3",
+      "status": "not_done"
+    },
+    {
+      "id": "r5-n1",
+      "status": "not_done"
+    },
+    {
+      "id": "r5-n2",
+      "status": "not_done"
+    },
+    {
+      "id": "r5-n3",
+      "status": "not_done"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "r6-b1",
+      "where": "A2–B3 and E2–F4, bank vegetation",
+      "target": "Tall continuous grass and willow masses rise above the waterline and obscure most of the outer bank shoulders.",
+      "current": "Short tufts trace the two shores while broad bare slopes and several fully exposed boulders occupy the space above them.",
+      "change": "Build overlapping clumps of tall grass and branching shrubs up both shoulders, using the roughly one-sixth-frame-height stands at the outside edges as the silhouette guide."
+    },
+    {
+      "id": "r6-b2",
+      "where": "C2–D2, central inlet",
+      "target": "A two-step white cascade connects the notch between the rocks to the lake, with a small bright reflection beneath it.",
+      "current": "The opening contains a brown ramp and a flat pale triangle at lake level, leaving the vertical cascade absent.",
+      "change": "Carry a narrow blue-white ribbon over both rock lips and down to the lake across roughly 2% of the frame width and 4% of its height."
+    },
+    {
+      "id": "r6-b3",
+      "where": "A2–B3 and E2–F3, lake shoulders",
+      "target": "Low varied projections and grass-covered shallows break up both shoulders of the lake.",
+      "current": "The former black slit has closed, but long smooth arcs of bare brown earth still outline the lake on either side.",
+      "change": "Break each arc with several low, irregular planted projections and feather the submerged edges into gravel and shallow water."
+    }
+  ],
+  "next": [
+    {
+      "id": "r6-n1",
+      "where": "B2–E4, lake, shallows and three foreground boulders",
+      "target": "Olive reflections give way to blue-grey shallows with bright wakes curling around the inclined rock faces.",
+      "current": "Broad blue and gold reflection patches meet a brown streambed, and the blocky rocks have only faint grey streaks at their bases.",
+      "change": "Mute the gold reflection, cool the shallow surface, bevel the steep rock faces and wrap thin broken white wakes around the upstream edges and downstream flanks of all three rocks."
+    },
+    {
+      "id": "r6-n2",
+      "where": "A3–B4, eroded bank",
+      "target": "Grass roots hang across a softly lit earth face that slopes into a narrow toe of grey cobbles.",
+      "current": "The turf overhangs a sharply defined near-black gap that obscures the face and its base.",
+      "change": "Fill the dark gap with a sloping soil face, raise scattered cobbles against its lower edge and drape irregular roots over its top lip."
+    },
+    {
+      "id": "r6-n3",
+      "where": "E3–F4, gravel shelf",
+      "target": "Mixed round grey pebbles and cobbles pile above the water and overlap the grass roots.",
+      "current": "The shelf reads as a narrow, nearly flat band of pale ochre gravel with little variation in stone height.",
+      "change": "Build a convex ridge of overlapping grey stones from pebble to fist size, densest near the waterline and thinning unevenly into the grass."
+    }
+  ],
+  "excluded": [
+    "Distant mountains and sky are outside the requested scope."
+  ],
+  "unverifiable": [
+    "Still captures cannot establish water, foam or vegetation motion."
+  ]
+}

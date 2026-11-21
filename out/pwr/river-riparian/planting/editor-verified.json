@@ -1,0 +1,237 @@
+{
+  "owner": "PWR_RiparianCanopy",
+  "count": 6979,
+  "components": [
+    {
+      "name": "PWRRiparian_Rye_1",
+      "count": 233,
+      "mesh": "/Game/Megascans/3D_Plants/Tall_Grass_rbeki/SM_Tall_Grass_rbeki_01.SM_Tall_Grass_rbeki_01",
+      "material": "",
+      "start_cm": 22900,
+      "end_cm": 28500,
+      "source_height_cm": 90.2842788696289,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_Rye_2",
+      "count": 232,
+      "mesh": "/Game/Megascans/3D_Plants/Tall_Grass_rbeki/SM_Tall_Grass_rbeki_01.SM_Tall_Grass_rbeki_01",
+      "material": "",
+      "start_cm": 25400,
+      "end_cm": 31000,
+      "source_height_cm": 90.2842788696289,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_Rye_3",
+      "count": 232,
+      "mesh": "/Game/Megascans/3D_Plants/Tall_Grass_rbeki/SM_Tall_Grass_rbeki_01.SM_Tall_Grass_rbeki_01",
+      "material": "",
+      "start_cm": 27900,
+      "end_cm": 33500,
+      "source_height_cm": 90.2842788696289,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_RushFan_1",
+      "count": 320,
+      "mesh": "/Game/Env/Bio/Grass/Rushes/Grass_Rushes_A/SM_Grass_Rushes_A.SM_Grass_Rushes_A",
+      "material": "",
+      "start_cm": 21900,
+      "end_cm": 27500,
+      "source_height_cm": 77.14695262908936,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_RushFan_2",
+      "count": 320,
+      "mesh": "/Game/Env/Bio/Grass/Rushes/Grass_Rushes_A/SM_Grass_Rushes_A.SM_Grass_Rushes_A",
+      "material": "",
+      "start_cm": 24400,
+      "end_cm": 30000,
+      "source_height_cm": 77.14695262908936,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_RushFan_3",
+      "count": 319,
+      "mesh": "/Game/Env/Bio/Grass/Rushes/Grass_Rushes_A/SM_Grass_Rushes_A.SM_Grass_Rushes_A",
+      "material": "",
+      "start_cm": 26900,
+      "end_cm": 32500,
+      "source_height_cm": 77.14695262908936,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_RushStem_1",
+      "count": 245,
+      "mesh": "/Game/Env/Bio/Grass/Rushes/Grass_Rushes_B/SM_Grass_Rushes_B.SM_Grass_Rushes_B",
+      "material": "",
+      "start_cm": 23066,
+      "end_cm": 28666,
+      "source_height_cm": 77.07202795147896,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_RushStem_2",
+      "count": 244,
+      "mesh": "/Game/Env/Bio/Grass/Rushes/Grass_Rushes_B/SM_Grass_Rushes_B.SM_Grass_Rushes_B",
+      "material": "",
+      "start_cm": 25733,
+      "end_cm": 31333,
+      "source_height_cm": 77.07202795147896,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_RushStem_3",
+      "count": 244,
+      "mesh": "/Game/Env/Bio/Grass/Rushes/Grass_Rushes_B/SM_Grass_Rushes_B.SM_Grass_Rushes_B",
+      "material": "",
+      "start_cm": 28400,
+      "end_cm": 34000,
+      "source_height_cm": 77.07202795147896,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_WillowCrown_1",
+      "count": 50,
+      "mesh": "/Game/Megascans/3D_Plants/Downy_Willow_wknlfiuqx/S_Downy_Willow_wknlfiuqx_0_Var10_lod0.S_Downy_Willow_wknlfiuqx_0_Var10_lod0",
+      "material": "MI_PWR_RiparianWillow",
+      "start_cm": 31400,
+      "end_cm": 37000,
+      "source_height_cm": 93.90211582183838,
+      "wind_until_cm": 7200,
+      "casts_shadow": true
+    },
+    {
+      "name": "PWRRiparian_WillowCrown_2",
+      "count": 49,
+      "mesh": "/Game/Megascans/3D_Plants/Downy_Willow_wknlfiuqx/S_Downy_Willow_wknlfiuqx_0_Var10_lod0.S_Downy_Willow_wknlfiuqx_0_Var10_lod0",
+      "material": "MI_PWR_RiparianWillow",
+      "start_cm": 33400,
+      "end_cm": 39000,
+      "source_height_cm": 93.90211582183838,
+      "wind_until_cm": 7200,
+      "casts_shadow": true
+    },
+    {
+      "name": "PWRRiparian_WillowCrown_3",
+      "count": 49,
+      "mesh": "/Game/Megascans/3D_Plants/Downy_Willow_wknlfiuqx/S_Downy_Willow_wknlfiuqx_0_Var10_lod0.S_Downy_Willow_wknlfiuqx_0_Var10_lod0",
+      "material": "MI_PWR_RiparianWillow",
+      "start_cm": 35400,
+      "end_cm": 41000,
+      "source_height_cm": 93.90211582183838,
+      "wind_until_cm": 7200,
+      "casts_shadow": true
+    },
+    {
+      "name": "PWRRiparian_WillowTall_1",
+      "count": 31,
+      "mesh": "/Game/Megascans/3D_Plants/Downy_Willow_wknlfiuqx/S_Downy_Willow_wknlfiuqx_0_Var17_lod0.S_Downy_Willow_wknlfiuqx_0_Var17_lod0",
+      "material": "MI_PWR_RiparianWillow",
+      "start_cm": 31900,
+      "end_cm": 37500,
+      "source_height_cm": 158.76388674974442,
+      "wind_until_cm": 7200,
+      "casts_shadow": true
+    },
+    {
+      "name": "PWRRiparian_WillowTall_2",
+      "count": 31,
+      "mesh": "/Game/Megascans/3D_Plants/Downy_Willow_wknlfiuqx/S_Downy_Willow_wknlfiuqx_0_Var17_lod0.S_Downy_Willow_wknlfiuqx_0_Var17_lod0",
+      "material": "MI_PWR_RiparianWillow",
+      "start_cm": 34400,
+      "end_cm": 40000,
+      "source_height_cm": 158.76388674974442,
+      "wind_until_cm": 7200,
+      "casts_shadow": true
+    },
+    {
+      "name": "PWRRiparian_WillowTall_3",
+      "count": 30,
+      "mesh": "/Game/Megascans/3D_Plants/Downy_Willow_wknlfiuqx/S_Downy_Willow_wknlfiuqx_0_Var17_lod0.S_Downy_Willow_wknlfiuqx_0_Var17_lod0",
+      "material": "MI_PWR_RiparianWillow",
+      "start_cm": 36900,
+      "end_cm": 42500,
+      "source_height_cm": 158.76388674974442,
+      "wind_until_cm": 7200,
+      "casts_shadow": true
+    },
+    {
+      "name": "PWRRiparian_SunRye_1",
+      "count": 868,
+      "mesh": "/Game/Env/Bio/Grass/CanyonPrinceWildRye/SM_Grass_CanyonPrinceWildRye.SM_Grass_CanyonPrinceWildRye",
+      "material": "MI_PWR_RiparianCanyon",
+      "start_cm": 23066,
+      "end_cm": 28666,
+      "source_height_cm": 100.0,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_SunRye_2",
+      "count": 868,
+      "mesh": "/Game/Env/Bio/Grass/CanyonPrinceWildRye/SM_Grass_CanyonPrinceWildRye.SM_Grass_CanyonPrinceWildRye",
+      "material": "MI_PWR_RiparianCanyon",
+      "start_cm": 25433,
+      "end_cm": 31033,
+      "source_height_cm": 100.0,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_SunRye_3",
+      "count": 868,
+      "mesh": "/Game/Env/Bio/Grass/CanyonPrinceWildRye/SM_Grass_CanyonPrinceWildRye.SM_Grass_CanyonPrinceWildRye",
+      "material": "MI_PWR_RiparianCanyon",
+      "start_cm": 27800,
+      "end_cm": 33400,
+      "source_height_cm": 100.0,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_SunWild_1",
+      "count": 582,
+      "mesh": "/Game/Megascans/3D_Plants/Wild_Grass_vlkhcbxia/S_Wild_Grass_vlkhcbxia_0_Var12_lod0.S_Wild_Grass_vlkhcbxia_0_Var12_lod0",
+      "material": "MI_PWR_RiparianWild",
+      "start_cm": 22600,
+      "end_cm": 28200,
+      "source_height_cm": 39.41118621826172,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_SunWild_2",
+      "count": 582,
+      "mesh": "/Game/Megascans/3D_Plants/Wild_Grass_vlkhcbxia/S_Wild_Grass_vlkhcbxia_0_Var12_lod0.S_Wild_Grass_vlkhcbxia_0_Var12_lod0",
+      "material": "MI_PWR_RiparianWild",
+      "start_cm": 25000,
+      "end_cm": 30600,
+      "source_height_cm": 39.41118621826172,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    },
+    {
+      "name": "PWRRiparian_SunWild_3",
+      "count": 582,
+      "mesh": "/Game/Megascans/3D_Plants/Wild_Grass_vlkhcbxia/S_Wild_Grass_vlkhcbxia_0_Var12_lod0.S_Wild_Grass_vlkhcbxia_0_Var12_lod0",
+      "material": "MI_PWR_RiparianWild",
+      "start_cm": 27400,
+      "end_cm": 33000,
+      "source_height_cm": 39.41118621826172,
+      "wind_until_cm": 5400,
+      "casts_shadow": false
+    }
+  ]
+}

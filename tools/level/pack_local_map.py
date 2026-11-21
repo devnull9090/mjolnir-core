@@ -53,6 +53,29 @@ def prepare(code, config, work, staging):
                            f"pakchunk{config['chunk']}-MJOLNIRLAND-{code}_P"))
     if config.get("native_rock_materials"):
         containers.append((bake / f"pakchunk970-MJOLNIRROCK-{code}_P", None))
+    # The map pack reads -<CODE>_P pairs. Keep the editor chunk number for
+    # shader libraries, including map-specific art cooked outside the landscape.
+    extras = config.get("extra_containers", [])
+    if not isinstance(extras, list):
+        raise ValueError("extra_containers must be a list of map-owned container stems")
+    names = {rename or source.name for source, rename in containers}
+    for stem in extras:
+        if not isinstance(stem, str):
+            raise ValueError("Invalid extra container stem")
+        source = REPO / stem
+        match = re.fullmatch(r"pakchunk\d+-([A-Za-z0-9_-]+)_P", source.name)
+        if not match or code not in match[1] or "MJOLNIRREG" in match[1]:
+            raise ValueError(f"Expected a map-owned extra container for {code}: {source.name}")
+        name = source.name
+        if not name.endswith(f"-{code}_P"):
+            name = name[:-2] + f"-{code}_P"
+        if name in names:
+            raise ValueError(f"Duplicate map container: {name}")
+        names.add(name)
+        containers.append((source, name))
+        if source.with_suffix(".pak").is_file():
+            # map pack reads audio banks from a sidecar and validates its contents.
+            copies.append((source.with_suffix(".pak"), name + ".pak"))
     # The map's own tags (machines, their actors, movable props), as the
     # install stage installs them; `map pack` takes the tags from machines/.
     for base, name in map_tag_containers(code, config, str(conv)):
@@ -74,13 +97,24 @@ def prepare(code, config, work, staging):
         source, relative = auxiliary(foliage)
         copies.append((source, str(relative)))
     directories = []
-    if (level.get("flux") or {}).get("state"):
+    flux=level.get("flux") or {}
+    if any(entry.get("playback")!="baked" or not entry.get("state") for entry in flux.get("domains",[])):
+        raise ValueError("Release map requires baked states for every terrain-backed Flux domain")
+    domain_states=[entry for entry in flux.get("domains",[]) if entry.get("state")]
+    if flux.get("state") or domain_states:
         # flux.state is metadata; the binary textures live in flux_state/.
-        if not isinstance(level["flux"]["state"], dict):
+        if flux.get("state") and not isinstance(flux["state"], dict):
             raise ValueError("flux.state must contain baked domain metadata")
         source, relative = auxiliary("flux_state")
-        if not (source / "state.json").is_file():
-            raise FileNotFoundError(f"Missing baked water state: {source}")
+        paths=[source / entry["id"] / "state.json" for entry in domain_states] if domain_states else [source / "state.json"]
+        for path in paths:
+            if not path.resolve().is_relative_to(source.resolve()) or not path.is_file():
+                raise FileNotFoundError(f"Missing baked water state: {path}")
+        if domain_states:
+            from flux_heightfield import state_matches, verify_state_files
+            for entry in domain_states:
+                if not state_matches(entry["state"],entry):raise ValueError("Stale terrain-backed Flux state")
+                verify_state_files(upgraded,entry["state"])
         directories.append((source, relative))
     if (upgraded / "decals").is_dir():
         directories.append((upgraded / "decals", Path("decals")))

@@ -1,0 +1,68 @@
+{
+  "source_manifest_sha256": "44dbb94242bdecccefbe94c03473d797f6336edbca620b87e65ef36ed92180b3",
+  "source_height_sha256": "30acb1cfcf580f9299ef5a1ecf3f8d3add51b4b6323f3d48c917a449e2e7cd06",
+  "site_plan_sha256": "2d6d11b16a37c05807354aa673953860718a66682186b81be1f44d4df8e82da6",
+  "generator": "finalize_terrain.py v1",
+  "geometry": "terrain.geometry.json",
+  "geometry_sha256": "2bad0fc72f4204932d8f66e2fc096e8d47f4a0c901d4a246a5ac0bb0b425f7c4",
+  "water_level_m": 55.0,
+  "schema": "pwr-heightfield-v1",
+  "coordinates": "authoring_metres_z_up",
+  "origin_m": [
+    -1000.0,
+    -1000.0
+  ],
+  "spacing_m": [
+    1.9550342130987293,
+    1.9550342130987293
+  ],
+  "dimensions": [
+    1024,
+    1024
+  ],
+  "row_order": "+y",
+  "height": {
+    "path": "final-master.heights.npy",
+    "encoding": "float32_npy",
+    "offset_m": 0,
+    "scale_m": 1,
+    "sha256": "57901a25a6df231e9e729b4c25f0ad34bf7bfe169069ba508cc4b29d1002f508"
+  },
+  "masks": {
+    "road": {
+      "path": "final-master.road.npy",
+      "encoding": "float32_npy",
+      "sha256": "662a4252f5c52d7fecd7583d4539fd406abe1dbb022746892b2e59c022a45b5e"
+    },
+    "water": {
+      "path": "final-master.water.npy",
+      "encoding": "float32_npy",
+      "sha256": "f78b07783b4466322c53363e81e1c108083d6c9ddb142f001c78b12468d43f72"
+    },
+    "shore": {
+      "path": "final-master.shore.npy",
+      "encoding": "float32_npy",
+      "sha256": "5ac4a0d4e36e105aee14ee3b23e363dd95d91fdbac199f5a895affcf7ab2bb29"
+    },
+    "bases": {
+      "path": "final-master.bases.npy",
+      "encoding": "float32_npy",
+      "sha256": "85d6da2486d52b5d5b7cda023c31a59a7b614707a184bbf191dd99af0317f7e8"
+    },
+    "flat": {
+      "path": "final-master.flat.npy",
+      "encoding": "float32_npy",
+      "sha256": "85d6da2486d52b5d5b7cda023c31a59a7b614707a184bbf191dd99af0317f7e8"
+    },
+    "forest": {
+      "path": "final-master.forest.npy",
+      "encoding": "float32_npy",
+      "sha256": "d5f3a5754985c3b86d0da4ceb126e8798f09861235d0750c7e2acb3bb89f3b9d"
+    },
+    "walkable": {
+      "path": "final-master.walkable.npy",
+      "encoding": "float32_npy",
+      "sha256": "67b2b073f34c93f021bbe18f1282a34eec542c55e9d63ddee428860bf4cde819"
+    }
+  }
+}

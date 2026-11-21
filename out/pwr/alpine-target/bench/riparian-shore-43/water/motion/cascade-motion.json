@@ -1,0 +1,8 @@
+{
+  "frames": 32,
+  "cascade_pixels": 31962,
+  "surround_pixels": 6296,
+  "median_cascade_delta": 7.296810796153766,
+  "median_surround_delta": 1.2451821262177043,
+  "units": "8-bit channel levels per sampled frame"
+}

@@ -20,6 +20,7 @@ fn main() {
     }
     let all = a.iter().any(|s| s == "--all");
     let uvs = a.iter().any(|s| s == "--uvs");
+    let tangent_report = a.iter().any(|s| s == "--tangent-report");
     let (paks, want) = (&a[0], a[1].to_ascii_lowercase());
     let oodle: Vec<std::path::PathBuf> = Vec::new();
 
@@ -72,9 +73,32 @@ fn main() {
             // The .ubulk is not needed to see the shape; a streamed LOD simply
             // reports no buffers.
             let bulk_map = ue_asset::mesh::bulk_map_of(&data);
-            match ue_asset::mesh::parse_static_mesh_with_bulk_map(&ctx, bytes, None, &bulk_map) {
+            let bulk = if tangent_report {
+                c.chunks
+                    .iter()
+                    .find(|entry| entry.chunk_id == chunk.chunk_id && entry.chunk_type == 2)
+                    .map(|entry| {
+                        ue_iostore::read_chunk(c, entry, None, &oodle).expect("Nanite bulk pages")
+                    })
+            } else {
+                None
+            };
+            match ue_asset::mesh::parse_static_mesh_with_bulk_map(
+                &ctx,
+                bytes,
+                bulk.as_deref(),
+                &bulk_map,
+            ) {
                 Ok(m) => {
                     hits += 1;
+                    if tangent_report {
+                        let report = m
+                            .nanite_report
+                            .as_ref()
+                            .expect("read full-detail Nanite pages");
+                        println!("explicit tangent frames in {}/{} full-detail clusters; {} dropped triangles",
+                            report.explicit_tangent_leaf_clusters,report.leaf_clusters,report.dropped_triangles);
+                    }
                     let nanite = match (&m.nanite_report, &m.nanite_note) {
                         (Some(r), _) => format!("NANITE {} page(s), {} tri", r.pages, r.triangles),
                         (None, Some(n)) => format!("nanite? {n}"),
@@ -125,7 +149,8 @@ fn main() {
                             for s in &lod.sections {
                                 let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
                                 let first = s.first_index as usize;
-                                for &v in &lod.indices[first..first + s.num_triangles as usize * 3] {
+                                for &v in &lod.indices[first..first + s.num_triangles as usize * 3]
+                                {
                                     for k in 0..2 {
                                         let x = lod.uvs[v as usize * stride + k];
                                         lo[k] = lo[k].min(x);

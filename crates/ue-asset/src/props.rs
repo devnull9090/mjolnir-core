@@ -446,6 +446,17 @@ fn decode_value(
                 let n = crate::unversioned::native_struct_size(name).unwrap();
                 Val::Native(c.bytes(n)?.to_vec())
             }
+            // UE's PerQualityLevelProperties.cpp custom serializer writes
+            // bCooked (u32), Default (int/float bits), then a counted map of
+            // int quality keys to four-byte values. This is not a reflected
+            // property block, nor the reflected TMap's removed/count pair.
+            "PerQualityLevelInt" | "PerQualityLevelFloat" => {
+                let start = c.at;
+                c.bytes(8)?;
+                let count = c.u32()? as usize;
+                c.bytes(count.checked_mul(8).ok_or(Error::Eof(c.at))?)?;
+                Val::Native(c.b[start..c.at].to_vec())
+            }
             // Custom serializers this encoder does not model; refused by
             // name rather than misread as a reflected block.
             "InstancedPropertyBag" | "NiagaraVariable" | "NiagaraVariableBase" => {
@@ -690,6 +701,26 @@ fn encode_value(
             }
         }
         (T::Struct(name), Val::Native(bytes))
+            if matches!(name.as_str(), "PerQualityLevelInt" | "PerQualityLevelFloat") =>
+        {
+            let size_error = |want| Error::NativeSize {
+                class: class.to_string(),
+                prop: prop.to_string(),
+                name: name.clone(),
+                want,
+                got: bytes.len(),
+            };
+            if bytes.len() < 12 {
+                return Err(size_error(12));
+            }
+            let count = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
+            let want = count.checked_mul(8).and_then(|n| n.checked_add(12)).ok_or_else(mismatch)?;
+            if bytes.len() != want {
+                return Err(size_error(want));
+            }
+            out.extend_from_slice(bytes);
+        }
+        (T::Struct(name), Val::Native(bytes))
             if matches!(
                 name.as_str(),
                 "MaterialOverrideNanite"
@@ -721,6 +752,9 @@ fn encode_value(
             }
         }
         (T::Struct(name), Val::Struct(block)) => {
+            if matches!(name.as_str(), "PerQualityLevelInt" | "PerQualityLevelFloat") {
+                return Err(mismatch());
+            }
             out.extend_from_slice(&block.encode(usmap, name)?);
         }
         _ => return Err(mismatch()),

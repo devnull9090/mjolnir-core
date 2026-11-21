@@ -1,0 +1,29 @@
+{
+  "source_tool": "Gaea 2.3.1.0 Community",
+  "source_build_report": "build-report.json",
+  "normalization": "Gaea R32 normalized0..1 times explicit400m height range; source rows north-to-south",
+  "status": "erodedsource; local road and hydrology shaping pending",
+  "schema": "pwr-heightfield-v1",
+  "coordinates": "authoring_metres_z_up",
+  "origin_m": [
+    -1000,
+    -1000
+  ],
+  "spacing_m": [
+    1.9550342130987293,
+    1.9550342130987293
+  ],
+  "dimensions": [
+    1024,
+    1024
+  ],
+  "row_order": "+y",
+  "height": {
+    "path": "source.heights.npy",
+    "encoding": "float32_npy",
+    "offset_m": 0,
+    "scale_m": 1,
+    "sha256": "30acb1cfcf580f9299ef5a1ecf3f8d3add51b4b6323f3d48c917a449e2e7cd06"
+  },
+  "masks": {}
+}

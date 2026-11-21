@@ -1,13 +1,15 @@
-# Weekly update 4: four Halo 2 maps remastered, a sound mixer, and Saturday's playtest
+# Weekly update 4: Pelican Warfare, four Halo 2 maps remastered, and Saturday's playtest
 
 **Author:** MJOLNIR Core
-**Summary:** Zanzibar, Coagulation, Containment and Ascension are remastered, /sounds gives you a slider for every sound on a map, and those four maps have Halo 2's waves, birds and wind. Join Saturday's playtest and help us test them with real players.
+**Summary:** Pelican Warfare is out: a new game mode on its own map. Zanzibar, Coagulation, Containment and Ascension are remastered, and /sounds gives you a slider for every sound on a map. Join Saturday's playtest and help us test them with real players.
 **Tags:** weekly-update, multiplayer, maps, lighting
 **Image:** /blog-images/weekly-update-4/featured.jpg
 
-This week was about maps. Four Halo 2 maps now have the remaster treatment the Halo CE maps got in October, with new ground, cliffs and lighting. Every remastered map was rebuilt and loads faster, and you can now set the level of each sound a map plays.
+This week brought the first game mode Halo never had. [Pelican Warfare](/blog/pelican-warfare) came out today: ride a Pelican in, jump, parachute down and fight over three capture zones on a new two-kilometre map.
 
-Almost all of it was tested on one PC, some of it with two copies of the game. The new maps haven't had a full match with real players yet, so Saturday's playtest is where we find out.
+The rest of the week was about maps. Four Halo 2 maps now have the remaster treatment the Halo CE maps got in October, with new ground, cliffs and lighting. Every remastered map was rebuilt and loads faster, and you can now set the level of each sound a map plays.
+
+Almost all of it was tested on one PC, some of it with two copies of the game. Neither Pelican Warfare nor the new maps have had a full match with real players yet, so Saturday's playtest is where we find out.
 
 ## Saturday's playtest
 
@@ -19,22 +21,24 @@ We play every Saturday at this time, so if you can't make this one, come to the 
 
 ### Before you join
 
-1. **Open the [launcher](/download) early and let it update.** It brings your mods to 0.53.1 and the CE runtime to 1.24.0, and updates 17 maps. If you have every map, that's about 1.8 GB. Ascension alone is 300 MB.
-2. **Load one of the four new remasters once before the playtest**, so a problem with your install shows up early and not in the lobby.
+1. **Open the [launcher](/download) early and let it update.** It updates itself to 0.24.1 first, then brings your mods to 0.54.0 and the CE runtime to 1.24.0, and updates 17 maps. If you have every map, that's about 1.8 GB. Ascension alone is 300 MB.
+2. **Install [Pelican Warfare](/mods/pelican-warfare) from the hub.** It's about 685 MB. Install it from the launcher before you start the game, not from the lobby.
+3. **Load one of the four new remasters once before the playtest**, so a problem with your install shows up early and not in the lobby.
 
 ### What to test
 
-We'll start on Zanzibar, then go to Coagulation, Containment and Ascension.
+We'll start with Pelican Warfare, then go to Zanzibar, Coagulation, Containment and Ascension.
 
-1. **Zanzibar with a full lobby.** The map should load for everyone. The big wheel should turn and stay drawn from every angle, and the gate should open for everyone when someone presses its button. The gate and wheels should look the same on every screen, never a grey grid.
-2. **The sound mixer.** Type `/sounds` in chat. A panel should open with a slider for each sound on the map. Drag one with the mouse and you should hear that sound change; the far left should mute it. DONE, or `/sounds` again, should close the panel and give you back control. Try Esc while it's open and tell us what happens. So far only the host has opened it, so joiners matter most here.
-3. **Zanzibar's sounds.** Near the shore you should hear waves and the sea, and now and then gulls, birds and a distant battle. Tell us what's too loud or too quiet next to gunfire.
-4. **One remaster after another.** Going from one remastered map to the next used to be able to crash the host and a joiner together. We'll play all four in a row: nobody should crash on the way in.
-5. **The same map twice.** On a second match on the same map, doors and gears should keep their own materials. They used to turn into a grey grid.
-6. **Containment.** The map should load without a crash. Its gates should be there, open, and not blink in and out as you move. The canyon walls should be lit, not black.
-7. **Coagulation and Ascension.** Coagulation's bases should be lit red and blue inside, with shade in the corners. On Ascension you shouldn't see the undersides of the floating rocks: the fog under them is back.
-8. **Death Island's horizon.** There should be no dark line where the sea meets the sky, and the bottom of the sky shouldn't flash as you look up and down.
-9. **Respawns on the rebuilt maps.** Eleven Halo CE maps were rebuilt this week. In CTF on Blood Gulch, red players should still respawn away from the teleporter pads, and the pads should still work both ways.
+1. **Pelican Warfare.** Host it from the menu: the Pelican Warfare map and the Pelican Warfare game type. Everyone should board a Pelican at their base, jump, open a parachute and land. The three zone tiles under the score should agree on every screen, and "Red team captured zone B" should reach the kill feed for everyone. Press M for the tactical map. It needs at least two players to leave warmup.
+2. **Zanzibar with a full lobby.** The map should load for everyone. The big wheel should turn and stay drawn from every angle, and the gate should open for everyone when someone presses its button. The gate and wheels should look the same on every screen, never a grey grid.
+3. **The sound mixer.** Type `/sounds` in chat. A panel should open with a slider for each sound on the map. Drag one with the mouse and you should hear that sound change; the far left should mute it. DONE, or `/sounds` again, should close the panel and give you back control. Try Esc while it's open and tell us what happens. So far only the host has opened it, so joiners matter most here.
+4. **Zanzibar's sounds.** Near the shore you should hear waves and the sea, and now and then gulls, birds and a distant battle. Tell us what's too loud or too quiet next to gunfire.
+5. **One remaster after another.** Going from one remastered map to the next used to be able to crash the host and a joiner together. We'll play all four in a row: nobody should crash on the way in.
+6. **The same map twice.** On a second match on the same map, doors and gears should keep their own materials. They used to turn into a grey grid.
+7. **Containment.** The map should load without a crash. Its gates should be there, open, and not blink in and out as you move. The canyon walls should be lit, not black.
+8. **Coagulation and Ascension.** Coagulation's bases should be lit red and blue inside, with shade in the corners. On Ascension you shouldn't see the undersides of the floating rocks: the fog under them is back.
+9. **Death Island's horizon.** There should be no dark line where the sea meets the sky, and the bottom of the sky shouldn't flash as you look up and down.
+10. **Respawns on the rebuilt maps.** Eleven Halo CE maps were rebuilt this week. In CTF on Blood Gulch, red players should still respawn away from the teleporter pads, and the pads should still work both ways.
 
 Last week's list still stands too, above all the post-game screen and its vote with more than two players. It's in [weekly update 3](/blog/weekly-update-3).
 
@@ -101,10 +105,10 @@ Every map load now writes a short file, `ue4ss\Mods\MJOLNIRLevelLoader\breadcrum
 
 | Product | Now at | Notes |
 | --- | --- | --- |
-| Code mods | [0.53.1](/changelog/mods/0.53.1) | From 0.51.0, through [0.52.0](/changelog/mods/0.52.0), [0.52.1](/changelog/mods/0.52.1) and [0.53.0](/changelog/mods/0.53.0) |
+| Code mods | [0.54.0](/changelog/mods/0.54.0) | From 0.51.0, through [0.52.0](/changelog/mods/0.52.0), [0.52.1](/changelog/mods/0.52.1), [0.53.0](/changelog/mods/0.53.0) and [0.53.1](/changelog/mods/0.53.1). 0.54.0 is Pelican Warfare |
 | CE runtime | 1.24.0 | From 1.21.0. The launcher installs it |
-| Launcher | [0.24.0](/changelog/launcher/0.24.0) | No change this week |
-| CLI | [0.12.0](/changelog/cli/0.12.0) | No change this week |
+| Launcher | [0.24.1](/changelog/launcher/0.24.1) | Large maps download on any connection |
+| CLI | [0.13.0](/changelog/cli/0.13.0) | `mjolnir megalo write --mode warfare` |
 | Tag editor | [0.25.0](/changelog/tag-editor/0.25.0) | No change this week |
 
 Every release is listed in the [changelog](/changelog).

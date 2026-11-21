@@ -1,0 +1,67 @@
+        float groundDet=earthDx.x*earthDy.y-earthDx.y*earthDy.x;
+        float inverseGroundDet=sign(groundDet)/max(abs(groundDet),1.e-9);
+        float groundMajor=max(max(length(earthDx),length(earthDy)),.0001);
+        float grainFoot=max(abs(groundDet)/groundMajor,.125*groundMajor);
+        float visibleGrain=1.-smoothstep(.057,.14,grainFoot);
+        float4 panelMean=float4(.401,.365,.332,.476);
+        float4 chip=panelMean;
+        // Inside the pavement the native scree panel supplies fine fractured
+        // mineral, while the shoulder uses the full range of larger stones.
+        float embedded=1.-smoothstep(8.07,9.42,side);
+        [branch] if (visibleGrain>.001)
+        {
+            // Four disjoint 256 px crops of the original 1008 px scan have
+            // fine texture throughout and no recognisable large rock group.
+            const float2 origins[4]={float2(408.,648.),float2(504.,384.),
+                                     float2(744.,648.),float2(240.,168.)};
+            const float4 means[4]={float4(.4388,.3918,.3558,.5501),
+                                   float4(.4191,.3733,.3390,.5515),
+                                   float4(.4063,.3648,.3308,.5239),
+                                   float4(.3655,.3430,.3160,.4321)};
+            float2 lattice=float2(.96*rotated.x+.21*rotated.y,
+                                 -.14*rotated.x+1.03*rotated.y)*1.93;
+            float2 lower=floor(lattice), f=frac(lattice);
+            float2 middle=f.x>=f.y ? float2(1.,0.) : float2(0.,1.);
+            float3 weights=float3(1.-max(f.x,f.y),abs(f.x-f.y),min(f.x,f.y));
+            weights*=weights;
+            weights/=dot(weights,float3(1.,1.,1.));
+            float2 tile=float2(1008./2048.,1008./1024.);
+            float4 residual=0.;
+            [unroll] for(int i=0;i<3;++i)
+            {
+                float2 vertex=lower+(i==0 ? float2(0.,0.) : (i==1 ? middle : float2(1.,1.)));
+                uint2 id=asuint(int2(vertex));
+                uint bits=(id.x*0x68bc21ebu)^(id.y*0x02e5be93u);
+                bits^=bits>>16u; bits*=0x7feb352du; bits^=bits>>15u;
+                bits*=0x846ca68bu; bits^=bits>>16u;
+                float3 seed=float3(uint3(bits,bits>>10u,bits>>20u)&1023u)/1023.;
+                uint crop=bits>>30u;
+                float s,c; sincos(seed.z*6.2831853,s,c);
+                float2x2 spin=float2x2(c,-s,s,c);
+                float frequency=lerp(lerp(1.20,1.84,seed.y),lerp(.83,1.34,seed.y),embedded);
+                float2 uv=mul(spin,rotated)*frequency+seed.xy;
+                float2 gx=mul(spin,dX)*frequency, gy=mul(spin,dY)*frequency;
+                float2 reach=.68*(abs(gx)+abs(gy));
+                float span=lerp(1.,256./1008.,embedded);
+                float2 origin=(embedded/1008.)*origins[crop];
+                // Reflect within the selected window, keeping both values and
+                // filtering inside that window as its limits widen at the lip.
+                float2 sweep=frac(uv*(.5/span))*2.-1.;
+                float lodLimit=min(1.,(.19*span)/max(.00001,max(reach.x,reach.y)));
+                float2 inset=max(0.,reach*lodLimit-2./1008.);
+                float2 scale=1.-2.*inset/span;
+                float2 uvPanel=origin+inset+(1.-abs(sweep))*(span-2.*inset);
+                float2 mirrorSign=-sign(sweep);
+                float4 grain=Texture2DSampleGrad(SweepFloorDetail,SiteEarthSampler,
+                    uvPanel*tile+float2(8./2048.,8./1024.),
+                    gx*mirrorSign*scale*tile*lodLimit,gy*mirrorSign*scale*tile*lodLimit);
+                residual+=weights[i]*(grain-lerp(panelMean,means[crop],embedded));
+            }
+            // A sum of independent samples has variance proportional to the
+            // squared weights. Equalize that variance through each triangle.
+            float gain=lerp(1.,.86*rsqrt(dot(weights,weights)),embedded);
+            chip=saturate(panelMean+residual*(visibleGrain*gain));
+        }
+        float2 dh=float2(ddx(chip.a),ddy(chip.a))*lerp(.007,.0027,embedded);
+        float2 chipN=-clamp(float2(earthDy.y*dh.x-earthDx.y*dh.y,
+                                  earthDx.x*dh.y-earthDy.x*dh.x)*inverseGroundDet,-.50,.50);

@@ -1,0 +1,48 @@
+        // Signed distance follows the carriageway through bends. Slow world
+        // variation changes both the tyre sweep and the ends of dusty patches.
+        float wander = .21*sin(dot(m,float2(.115,.077)) + .83*drift);
+        float2 wheels = (abs(pavedOffset+wander)-float2(2.65,5.30))/float2(.85,.77);
+        float2 tracks = exp2(-wheels*wheels);
+        float wheel = saturate(tracks.x+tracks.y);
+        float2 wash = float2(.51,-.27)*pavedOffset + rotated*float2(.214,.167);
+        wash += float2(.27,-.23)*(dust-.5) + float2(.31,.26)*drift;
+        float2 washCell = floor(wash);
+        float2 blend = frac(wash);
+        blend = blend*blend*(3.-2.*blend);
+        // Insert shared integer corner values.
+        float field = lerp(lerp(values.x,values.y,blend.x),
+                           lerp(values.z,values.w,blend.x),blend.y);
+        float dustIsland = smoothstep(.31,.74,field+.20*(dust-.5)+.09*(mineralGrain-.35));
+        float wear = clamp(.175*(dustIsland-.48)-.090*(wheel-.40),-.125,.125);
+        float3 asphalt = float3(.076,.086,.109)*(1.+wear);
+        asphalt += (dustIsland-.48)*float3(.0024,.0010,-.0015);
+
+        // RGB is scanned mineral colour; A records independent rock relief.
+        // Both are already blended across randomly oriented world-space sites.
+        float mineralLuma = dot(chip.rgb,float3(.2126,.7152,.0722));
+        float colourDelta = mineralLuma-.370;
+        float heightDelta = chip.a-.476;
+        float grainStrength = .74+.39*dustIsland+.22*(1.-wheel);
+        float mineralTone = clamp(.176*colourDelta+.069*heightDelta,-.043,.074);
+        asphalt += mineralTone*grainStrength*float3(1.04,1.,.91);
+        // Each chip follows the scan's irregular outline. Lower sheltered
+        // crevices are dark while an occasional raised face catches the sun.
+        float exposed = smoothstep(.565,.715,chip.a+.37*colourDelta);
+        float pocket = 1.-smoothstep(.235,.398,chip.a+.28*colourDelta);
+        asphalt += grainStrength*(exposed*float3(.044,.040,.031)
+                              - pocket*float3(.022,.023,.024));
+
+        // Alpha is a signed sine around the station's 24 m cycle. Both crests
+        // survive, giving about four metres of pigment in each twelve metres.
+        float phase = abs(network.a*2.-1.);
+        float phaseAA = min(.11,.020+.09*pixelMetres);
+        float dash = smoothstep(.842-phaseAA,.842+phaseAA,phase);
+        float paintEdge = .101+.047*clamp(heightDelta*4.+.85*(field-.5),-1.,1.);
+        float paintAA = clamp(.45*length(offsetChange),.012,.065);
+        float stroke = 1.-smoothstep(paintEdge-paintAA,paintEdge+paintAA,side);
+        float puncture = smoothstep(.47,.66,chip.a+.70*colourDelta);
+        float adhesion = smoothstep(.17,.66,.40+.38*(field-.5)+.29*(dust-.5)
+                                  +.22*(mineralGrain-.35)-.25*puncture);
+        float paint = dash*stroke*smoothstep(.42,.82,hierarchy)*(.12+.38*adhesion)*(1.-.79*puncture)
+                    *(1.-smoothstep(.29,1.27,pixelMetres));
+        asphalt = lerp(asphalt,float3(.245,.179,.116),paint);

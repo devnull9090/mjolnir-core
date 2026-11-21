@@ -1,0 +1,55 @@
+{
+  "environment": {
+    "aerial_perspective": 1.6,
+    "reflections": {
+      "depth_thickness": 0.03
+    }
+  },
+  "range": {
+    "mesh": "/Game/MJOLNIR/Maps/PWR/SM_PWR_DistantApron.SM_PWR_DistantApron",
+    "vectors": {}
+  },
+  "range_rock": {
+    "RockTint": [
+      0.6,
+      0.68,
+      0.78,
+      1
+    ]
+  },
+  "landscape_haze": {
+    "second": {
+      "density": 0.04,
+      "falloff": 0.5,
+      "height": 9500
+    }
+  },
+  "ambience": "ambience.json",
+  "fixture_lights": {
+    "slots": {
+      "interior_light": {
+        "colour": [
+          0.62,
+          0.84,
+          1.0
+        ],
+        "intensity": 55,
+        "radius_m": 24,
+        "source_radius_cm": 30,
+        "glow": {
+          "parent": "/Game/MJOLNIR/Bases/PWRV1/Materials/MI_PWR_interior_light.MI_PWR_interior_light",
+          "scalars": {
+            "Emission": 2500
+          }
+        }
+      }
+    },
+    "merge_m": 11.0,
+    "offset_m": 0.8,
+    "area_m2": 3.0,
+    "min_area_m2": 0.5
+  },
+  "decor_lift_cm": {
+    "SM_PWR_BasePolish_": 0.4
+  }
+}

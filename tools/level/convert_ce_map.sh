@@ -8,6 +8,8 @@
 #   CODE   three characters, the new scenario's codename (e.g. BGL)
 #   CE_NATIVE_DETAIL=<facility-detail.gltf> opts TST into a complementary
 #   authored render-only mesh; CE_SURFACE_LIBRARY must name its palette.
+#   FROZEN_HEIGHTFIELD=<runtime-master.json> opts water shore/depth UVs into
+#   verified runtime terrain and local river elevations (pre-offset metres).
 #
 # Steps, each a tool of its own:
 #
@@ -295,6 +297,8 @@ if [ "$cook" = "1" ]; then
   leaf="${root##*/}"
   native_detail_args=()
   [ -z "${CE_NATIVE_DETAIL:-}" ] || native_detail_args+=(--native-detail "$CE_NATIVE_DETAIL=basicshapes/cylinder=$root/SM_${leaf}_FacilityDetail")
+  heightfield_args=()
+  [ -z "${FROZEN_HEIGHTFIELD:-}" ] || heightfield_args+=(--heightfield "$FROZEN_HEIGHTFIELD")
   # The parts of moving machines wear material instances cooked with the
   # map (tools/level/machine_instances.py), when there is a cook to make them.
   rm -f "$out/machines/instances.json"
@@ -305,7 +309,7 @@ if [ "$cook" = "1" ]; then
   MSYS2_ARG_CONV_EXCL="/Game" python "$here/build_terrain_meshes.py" --paks "$HCE_PAKS" \
     --spec "$out/materials.spec.json" --out "$out" --name "$name" --offset "$delta" \
     --fallback "$terrain_material" --examples "$examples" \
-    --container "pakchunk986-MJOLNIRMESH-${code}_P" --placement "$staging/placement.json" "${native_detail_args[@]}" \
+    --container "pakchunk986-MJOLNIRMESH-${code}_P" --placement "$staging/placement.json" "${native_detail_args[@]}" "${heightfield_args[@]}" \
     "$out/scene.gltf=basicshapes/cylinder=$root/SM_${leaf}_Terrain" \
     "$out/scene_translucent.gltf=basicshapes/cone=$root/SM_${leaf}_Translucent" \
     "$out/scene_sky.gltf=basicshapes/sphere=$root/SM_${leaf}_Sky" \

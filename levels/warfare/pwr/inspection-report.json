@@ -1,0 +1,9 @@
+{
+  "schema": "pwr-authored-geometry-check-v2",
+  "player_samples": 20,
+  "flight_samples": 42,
+  "vehicle_footprint_samples": 80,
+  "crossing_samples": 276,
+  "failures": [],
+  "limits": "Authored shell only; native scenery, Havok, vehicle handling, and multiplayer remain runtime tests."
+}

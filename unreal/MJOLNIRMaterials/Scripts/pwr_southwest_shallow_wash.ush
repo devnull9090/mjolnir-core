@@ -1,0 +1,50 @@
+    float damp=0, pool=0, shelfFilm=0;
+    [branch] if (wetField>.025)
+    {
+        // Only the wet pixels select a surveyed basin. The original .20
+        // route frame has a common axis across all nine of these sites.
+        const float4 waterSites[WASH_COUNT]={WASH_CENTRES};
+        const float3 waterBanks[WASH_COUNT]={WASH_BANKS};
+        int bowlIndex=WASH_SELECT;
+        float4 site=waterSites[bowlIndex];
+        float3 bank=waterBanks[bowlIndex];
+        float2 q=m-site.xy;
+        float u=dot(q,WASH_FRAME_AXIS)/site.z;
+        float v=dot(q,float2(WASH_FRAME_AXIS.y,-WASH_FRAME_AXIS.x))/site.w-bank.x*u;
+        float shelf=smoothstep(-.45,.71,v*bank.y);
+        float hRelief=.58*(stone.a-.48)+.24*clamp((gravelL-.09)*4.,-.45,1.);
+        float fineEdge=.13*sin(13.3*q.x+7.8*q.y)+.085*sin(5.*q.x-18.3*q.y);
+        float radius=length(float2(u,v*(1-.26*shelf)));
+        float lobe=length(float2((u-.38)*1.67,(v+.52*bank.y)*1.78));
+        float basin=min(radius,lobe)+fineEdge+hRelief*(.61+.77*shelf);
+        if (bowlIndex==WASH_HERO)
+        {
+            // Keep the photographed glint next to the near wheel track.
+            float2 a=q-float2(-.028,-.061), b=q-float2(.195,.178), c=q-float2(-.275,.070);
+            float one=length(mul(float2x2(.88,.475,-.475,.88),a)/float2(.27,.127));
+            float two=length(mul(float2x2(.65,-.76,.76,.65),b)/float2(.17,.10));
+            float three=length(mul(float2x2(.42,.91,-.91,.42),c)/float2(.122,.075));
+            basin=min(min(one,two),three)+fineEdge+.78*hRelief;
+        }
+        float depth=wetField-.19*(stone.a-.48)-.19*(gravelL-.11);
+        damp=smoothstep(.035,.37,depth)*(1-duff);
+        float bankEdge=1-smoothstep(.34-.25*shelf,1.00+.30*shelf,basin);
+        float crowns=smoothstep(.53,.82,stone.a)*(.56+.44*scattered);
+        shelfFilm=damp*(1-smoothstep(.68,1.72,basin))*(1-.65*crowns);
+        pool=bank.z*bankEdge*smoothstep(.20,.60,depth)*(1-crowns*(.59+.39*shelf))*(1-duff);
+        color=lerp(color,color*float3(.64,.67,.69),damp);
+        float3 reflectedSky=lerp(float3(.029,.037,.043),float3(.064,.085,.102),saturate(.72+.53*(depth-.55)));
+        color=lerp(color,lerp(color*.86,reflectedSky,.54),pool);
+        float2 film=.012*float2(sin(m.x*9.6+m.y*1.7),sin(m.y*13.3-m.x*4.3));
+        n=lerp(n,film,saturate(.37*shelfFilm+.82*pool));
+    }
+    n*=rsqrt(max(1.,dot(n,n)*1.025));
+    float3 terrainNormal=float3(n,sqrt(saturate(1-dot(n,n))));
+    float rough=lerp(.92-.12*compact,.94,duff)-.20*damp-.26*shelfFilm;
+    originalGround=lerp(originalGround,color,finishWeight);
+    WetNormal=normalize(lerp(WetNormal,terrainNormal,finishWeight));
+    WetRough=lerp(WetRough,lerp(rough,.090,pool),finishWeight);
+    WetSpec=lerp(WetSpec,lerp(.205+.085*shelfFilm,.49,pool),finishWeight);
+    RoadMetal=lerp(RoadMetal,0.,finishWeight);
+}
+// End PWR Southwest forest floor

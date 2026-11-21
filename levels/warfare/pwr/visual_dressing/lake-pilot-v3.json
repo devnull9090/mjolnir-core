@@ -1,0 +1,1415 @@
+{
+  "schema": "pwr-outcrops-v3",
+  "status": "authored stock assembly; actual runtime/native/PCG acceptance pending",
+  "runtime_master_sha256": "cfa587ac8c9bc565270c035ee3a281b8611c8197fb7c6c0833990b1b6c4ee45f",
+  "source_rocks_sha256": "1e895cef309364a0f3b845b26ca5b9bf8a30fadc80f79ed05166df8fcc7eabd0",
+  "source_trees_sha256": "7c98513f1d68adaf0a0cfbd6accad454bf9aa0755c9d9ddc44a5e05f28e3536f",
+  "paving_sha256": "34229ebe77f64832ec35d8d0ce6273ed4bfc0c442e1a266497f6ffd268e5d4c4",
+  "seed": 20593,
+  "candidate_count": 1400,
+  "coarse_rejected": 431,
+  "accepted": 32,
+  "target_bank_vertices": 5507,
+  "covered_target_vertices": 4845,
+  "target_surface_coverage_fraction": 0.8797893589976393,
+  "decor": [
+    {
+      "id": "pwr_scarp_desert_d_206",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_D/SM_Rock_Desert_Cliff_D.SM_Rock_Desert_Cliff_D",
+      "pos": [
+        40577.06413444326,
+        50926.13922619273,
+        6059.418882250065
+      ],
+      "rot": [
+        -1.6974561982564111,
+        133.09050880912437,
+        7.7902876993815795
+      ],
+      "scale": [
+        1.5601612372553082,
+        0.6592699005273678,
+        1.625217492041549
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_a_882",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        56357.96063327895,
+        45831.92578484232,
+        6602.658105304512
+      ],
+      "rot": [
+        5.772058017057169,
+        -170.8693061720766,
+        6.987596037392983
+      ],
+      "scale": [
+        1.702758357468141,
+        0.6686817273974959,
+        1.4907881606501292
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_d_493",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_D/SM_Rock_Desert_Cliff_D.SM_Rock_Desert_Cliff_D",
+      "pos": [
+        46332.203629177646,
+        47146.915991966234,
+        6399.938985077804
+      ],
+      "rot": [
+        -7.466215052785829,
+        139.58966139345998,
+        9.949888484478002
+      ],
+      "scale": [
+        1.6309940686298532,
+        0.5721961638459228,
+        1.3000796361860683
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_a_224",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        61053.26509157981,
+        46730.114947932125,
+        6988.613640093082
+      ],
+      "rot": [
+        -7.189816255726846,
+        -168.16231165382618,
+        10.74675882621398
+      ],
+      "scale": [
+        1.716320897865042,
+        0.6967055519568033,
+        1.546501930702151
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_b_372",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_B/SM_Rock_Desert_Cliff_B.SM_Rock_Desert_Cliff_B",
+      "pos": [
+        51627.764360499394,
+        44731.71784226227,
+        6973.649545118759
+      ],
+      "rot": [
+        -6.732591336127171,
+        -180.5807045563155,
+        10.672337646812782
+      ],
+      "scale": [
+        1.4969883490136264,
+        0.6472391347969952,
+        1.7399778247845088
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_a_1071",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        65600.38919884533,
+        48484.95788047756,
+        6579.14976359502
+      ],
+      "rot": [
+        0.838224210984297,
+        -152.46931068078072,
+        1.9061926195481576
+      ],
+      "scale": [
+        1.5796433749236614,
+        0.6831796545044784,
+        1.6239099975456177
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_d_1375",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_D/SM_Rock_Desert_Cliff_D.SM_Rock_Desert_Cliff_D",
+      "pos": [
+        44179.39005775219,
+        46017.73748649654,
+        7739.0243080846585
+      ],
+      "rot": [
+        -4.355329228891053,
+        152.86415994860636,
+        3.306357059129226
+      ],
+      "scale": [
+        1.5499971157197063,
+        0.7130989922696431,
+        1.3159690978497904
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_a_1239",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        75314.11492030116,
+        56234.59434388418,
+        6678.334494103325
+      ],
+      "rot": [
+        -7.216101357972037,
+        151.93843090946862,
+        6.767175608418821
+      ],
+      "scale": [
+        1.5701046105488294,
+        0.6375897032366764,
+        1.3398639123878369
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_a_357",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        60445.356804622075,
+        48696.715559122575,
+        5607.821689993379
+      ],
+      "rot": [
+        5.900891665658088,
+        -171.12002759297368,
+        -3.483314053993933
+      ],
+      "scale": [
+        1.6981256887417713,
+        0.6833528319939308,
+        1.310874373942703
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_a_1225",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        38873.05898851696,
+        49996.73147123682,
+        7612.941091864524
+      ],
+      "rot": [
+        7.738483901642933,
+        135.27384156801455,
+        -6.877358542989821
+      ],
+      "scale": [
+        1.745186529707465,
+        0.6345027813243342,
+        1.3687964458659154
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_a_420",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        49340.46392822313,
+        47154.032021553336,
+        5597.7063784942975
+      ],
+      "rot": [
+        5.4828906360704615,
+        151.82904837819203,
+        9.951241468016896
+      ],
+      "scale": [
+        1.6836066421036364,
+        0.6106967214694166,
+        1.1846991469470032
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_d_059",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_D/SM_Rock_Desert_Cliff_D.SM_Rock_Desert_Cliff_D",
+      "pos": [
+        55875.58064366899,
+        46851.55134664558,
+        5823.921024848083
+      ],
+      "rot": [
+        4.266643150250093,
+        -166.2553245054383,
+        -0.15883047275637097
+      ],
+      "scale": [
+        1.7300051386842905,
+        0.6831658059448062,
+        1.1609690482137514
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_d_1228",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_D/SM_Rock_Desert_Cliff_D.SM_Rock_Desert_Cliff_D",
+      "pos": [
+        53393.222950827556,
+        42944.02486781778,
+        8164.7721699126805
+      ],
+      "rot": [
+        2.9830803285889527,
+        -161.23792271314758,
+        -11.537277759741206
+      ],
+      "scale": [
+        1.5946944974585642,
+        0.653178816963651,
+        1.2359025116654696
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_macro_1068",
+      "mesh": "/Game/Env/Bio/Rock/PNW/PNWGL_Rock_Macro_B/SM_PNWGL_Rock_Macro_B.SM_PNWGL_Rock_Macro_B",
+      "pos": [
+        26247.432462744375,
+        53194.990873171766,
+        8339.261377417737
+      ],
+      "rot": [
+        -4.755240852431736,
+        148.5341000330207,
+        0.14059340491766292
+      ],
+      "scale": [
+        0.22319270665973698,
+        0.11880379234181171,
+        0.19167151377830033
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_d_948",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_D/SM_Rock_Desert_Cliff_D.SM_Rock_Desert_Cliff_D",
+      "pos": [
+        75942.86181445466,
+        57253.56474293025,
+        6209.9218589747425
+      ],
+      "rot": [
+        1.2437448674253453,
+        166.60077202091938,
+        0.9565341905350877
+      ],
+      "scale": [
+        1.5763186205268356,
+        0.6214009834454927,
+        1.3490100136778183
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_b_834",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_B/SM_Rock_Desert_Cliff_B.SM_Rock_Desert_Cliff_B",
+      "pos": [
+        72468.31758988366,
+        54868.501890186664,
+        8147.259439632848
+      ],
+      "rot": [
+        2.6488903486343087,
+        -167.00128048579128,
+        -5.877772323865247
+      ],
+      "scale": [
+        1.271005317761844,
+        0.7057434110680956,
+        1.2149056977764159
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_c_296",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        30884.83639367372,
+        50770.450976364285,
+        6905.039839005882
+      ],
+      "rot": [
+        -3.483931223988047,
+        168.02924842367665,
+        -4.891624361509204
+      ],
+      "scale": [
+        1.4244301615876225,
+        0.5190646396571357,
+        1.5144641152775782
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_a_819",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        68400.44676778783,
+        51047.2718992312,
+        6330.160651081946
+      ],
+      "rot": [
+        2.4837523206930214,
+        -123.37145925498317,
+        2.5322438197448385
+      ],
+      "scale": [
+        1.5879687561196905,
+        0.46521125432413113,
+        1.6927734764964284
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_b_1240",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_B/SM_Rock_Desert_Cliff_B.SM_Rock_Desert_Cliff_B",
+      "pos": [
+        35923.903403105716,
+        51479.149587146414,
+        7825.962685010148
+      ],
+      "rot": [
+        7.427341035602478,
+        164.21816749064175,
+        4.037379689376905
+      ],
+      "scale": [
+        1.3161796058217325,
+        0.46281463994310135,
+        1.4747013955257349
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_a_938",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        38499.29674557587,
+        52828.591979609664,
+        5526.8641835658345
+      ],
+      "rot": [
+        -3.146501116759013,
+        164.34784705758028,
+        5.480782007607008
+      ],
+      "scale": [
+        1.3270113106470574,
+        0.6448842414955679,
+        1.4212075685363201
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_a_1036",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_A/SM_Rock_Desert_Cliff_A.SM_Rock_Desert_Cliff_A",
+      "pos": [
+        43765.751835486415,
+        48693.53978380815,
+        5986.657667853406
+      ],
+      "rot": [
+        -4.423604607119627,
+        138.5611494564818,
+        11.999681839493249
+      ],
+      "scale": [
+        1.278846936211352,
+        0.5796383049861915,
+        1.712268366497757
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_b_645",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_B/SM_Rock_Desert_Cliff_B.SM_Rock_Desert_Cliff_B",
+      "pos": [
+        48871.81047270763,
+        43849.832929447606,
+        8390.744913918235
+      ],
+      "rot": [
+        6.416070940629675,
+        140.03825678482045,
+        7.650846913540988
+      ],
+      "scale": [
+        1.4316714794555605,
+        0.6367550496605228,
+        1.3842271359104656
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_cliff_838",
+      "mesh": "/Game/Env/Bio/Rock/Uluwatu/Rock_Uluwatu_Cliff_B/SM_Rock_Uluwatu_Cliff_B.SM_Rock_Uluwatu_Cliff_B",
+      "pos": [
+        27461.559828714086,
+        52660.278427706064,
+        8539.966446972328
+      ],
+      "rot": [
+        -1.2624964418589126,
+        182.934394767418,
+        -4.346465819400667
+      ],
+      "scale": [
+        0.7572092896646471,
+        0.3119246954105479,
+        0.8679438209705759
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_macro_1215",
+      "mesh": "/Game/Env/Bio/Rock/PNW/PNWGL_Rock_Macro_B/SM_PNWGL_Rock_Macro_B.SM_PNWGL_Rock_Macro_B",
+      "pos": [
+        66654.6180497759,
+        49353.95962201361,
+        7959.996534649649
+      ],
+      "rot": [
+        -1.005190501650013,
+        -131.49186390436716,
+        2.7826046718945907
+      ],
+      "scale": [
+        0.27167663288692534,
+        0.12252366213981689,
+        0.21359798103520736
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_d_122",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_D/SM_Rock_Desert_Cliff_D.SM_Rock_Desert_Cliff_D",
+      "pos": [
+        77252.52842843525,
+        54416.71938023076,
+        6743.7281164586275
+      ],
+      "rot": [
+        -0.7465789429623548,
+        157.21964684034853,
+        4.30273248664961
+      ],
+      "scale": [
+        1.5543693619917591,
+        0.6452882379314866,
+        1.5477308384820616
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_d_962",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_D/SM_Rock_Desert_Cliff_D.SM_Rock_Desert_Cliff_D",
+      "pos": [
+        56856.00748146213,
+        43559.470274800515,
+        7481.108013434573
+      ],
+      "rot": [
+        4.553933135760914,
+        -162.48633800572205,
+        -0.24812839959601263
+      ],
+      "scale": [
+        1.1898050955255095,
+        0.6307314780740155,
+        1.427088049260705
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_macro_865",
+      "mesh": "/Game/Env/Bio/Rock/PNW/PNWGL_Rock_Macro_B/SM_PNWGL_Rock_Macro_B.SM_PNWGL_Rock_Macro_B",
+      "pos": [
+        33788.75596411545,
+        50514.09662731054,
+        8689.41649870489
+      ],
+      "rot": [
+        5.929972050140886,
+        171.87411298048875,
+        4.092512694885372
+      ],
+      "scale": [
+        0.23442123369681644,
+        0.12562262508566582,
+        0.18452684967455465
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_b_806",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_B/SM_Rock_Desert_Cliff_B.SM_Rock_Desert_Cliff_B",
+      "pos": [
+        43753.837770619415,
+        49087.79892016924,
+        5820.749641173097
+      ],
+      "rot": [
+        -8.393211928854006,
+        134.5300426851902,
+        -1.5356124755728136
+      ],
+      "scale": [
+        1.5924127164290796,
+        0.6978539860367337,
+        1.2289889512780157
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_macro_039",
+      "mesh": "/Game/Env/Bio/Rock/PNW/PNWGL_Rock_Macro_B/SM_PNWGL_Rock_Macro_B.SM_PNWGL_Rock_Macro_B",
+      "pos": [
+        36464.34337330448,
+        52497.91992921491,
+        8184.176242300796
+      ],
+      "rot": [
+        -3.7710607433909225,
+        185.48855384511612,
+        3.3093684941300534
+      ],
+      "scale": [
+        0.2154238953394237,
+        0.08618411888365689,
+        0.21570232491590288
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_c_1227",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_C/SM_Rock_Desert_Cliff_C.SM_Rock_Desert_Cliff_C",
+      "pos": [
+        72743.99073667283,
+        56492.424088032065,
+        7225.024845831332
+      ],
+      "rot": [
+        -7.835675107636876,
+        -174.53694717917298,
+        10.897567955066592
+      ],
+      "scale": [
+        1.190934582031566,
+        0.4538575775220391,
+        1.396619287948104
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_b_141",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_B/SM_Rock_Desert_Cliff_B.SM_Rock_Desert_Cliff_B",
+      "pos": [
+        74213.10314920942,
+        58625.910213010204,
+        5627.746394873136
+      ],
+      "rot": [
+        -2.1040572764781196,
+        -181.23164420496303,
+        5.600002699103769
+      ],
+      "scale": [
+        1.1018713841178749,
+        0.5665929571412232,
+        1.584263791823883
+      ],
+      "static": true
+    },
+    {
+      "id": "pwr_scarp_desert_b_995",
+      "mesh": "/Game/Env/Bio/Rock/Desert/Rock_Desert_Cliff_B/SM_Rock_Desert_Cliff_B.SM_Rock_Desert_Cliff_B",
+      "pos": [
+        61887.33848235125,
+        49117.92115090797,
+        5766.929719390874
+      ],
+      "rot": [
+        -3.8022919132573723,
+        -177.75894389999388,
+        -2.0139072684081754
+      ],
+      "scale": [
+        1.2942257228270873,
+        0.643914480873637,
+        1.3468117720733737
+      ],
+      "static": true
+    }
+  ],
+  "checks": [
+    {
+      "exposed_height_max_m": 27.48391916188021,
+      "exposed_sample_fraction": 0.5245929976742725,
+      "bottom_contact_max_above_ground_m": -2.3316562090498465,
+      "full_projected_area_m2": 1371.6423431089925,
+      "minimum_exposed_water_clearance_m": 5.374785839770963,
+      "minimum_exposed_road_clearance_m": 18.65563544448189,
+      "minimum_exposed_base_clearance_m": 253.85294462416405,
+      "sample_count": 127272,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 107.6178159046969,
+      "highest_render_or_hull_point_m": 105.33369480717828,
+      "id": "pwr_scarp_desert_d_206",
+      "role": "desert_d",
+      "centre_m": [
+        401.6369732375411,
+        -509.2678939637468,
+        77.3134617236864
+      ],
+      "terrain_target_vertices_covered": 343
+    },
+    {
+      "exposed_height_max_m": 30.752783018413453,
+      "exposed_sample_fraction": 0.42756289677874443,
+      "bottom_contact_max_above_ground_m": -1.7486684308333906,
+      "full_projected_area_m2": 1275.6581370199965,
+      "minimum_exposed_water_clearance_m": 12.304681633910343,
+      "minimum_exposed_road_clearance_m": 18.563722325190305,
+      "minimum_exposed_base_clearance_m": 200.05099278889523,
+      "sample_count": 170120,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 111.22464542849428,
+      "highest_render_or_hull_point_m": 105.80447894629322,
+      "id": "pwr_scarp_desert_a_882",
+      "role": "desert_a",
+      "centre_m": [
+        566.2390102999226,
+        -455.39308314475693,
+        82.7237965514631
+      ],
+      "terrain_target_vertices_covered": 317
+    },
+    {
+      "exposed_height_max_m": 23.59124640250259,
+      "exposed_sample_fraction": 0.4976932178221753,
+      "bottom_contact_max_above_ground_m": -2.0461704045278495,
+      "full_projected_area_m2": 1296.2975142903958,
+      "minimum_exposed_water_clearance_m": 10.503949147075941,
+      "minimum_exposed_road_clearance_m": 20.332718704995052,
+      "minimum_exposed_base_clearance_m": 202.28980178629726,
+      "sample_count": 125933,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 110.59127016287133,
+      "highest_render_or_hull_point_m": 102.71957437610308,
+      "id": "pwr_scarp_desert_d_493",
+      "role": "desert_d",
+      "centre_m": [
+        458.2418012402634,
+        -471.90248142837646,
+        76.89645664199912
+      ],
+      "terrain_target_vertices_covered": 313
+    },
+    {
+      "exposed_height_max_m": 23.669812254531024,
+      "exposed_sample_fraction": 0.3644635875377683,
+      "bottom_contact_max_above_ground_m": -3.350341868095313,
+      "full_projected_area_m2": 1464.6764088123462,
+      "minimum_exposed_water_clearance_m": 23.81387758457469,
+      "minimum_exposed_road_clearance_m": 8.763369707286122,
+      "minimum_exposed_base_clearance_m": 207.1180312444433,
+      "sample_count": 171109,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 109.16072515055733,
+      "highest_render_or_hull_point_m": 112.28750601500835,
+      "id": "pwr_scarp_desert_a_224",
+      "role": "desert_a",
+      "centre_m": [
+        609.8265355174352,
+        -462.47604166578964,
+        87.00545470967522
+      ],
+      "terrain_target_vertices_covered": 347
+    },
+    {
+      "exposed_height_max_m": 22.602250558550537,
+      "exposed_sample_fraction": 0.4381438981489237,
+      "bottom_contact_max_above_ground_m": -1.8540688628612827,
+      "full_projected_area_m2": 1019.5104642525607,
+      "minimum_exposed_water_clearance_m": 26.083345667039566,
+      "minimum_exposed_road_clearance_m": 18.563722325190305,
+      "minimum_exposed_base_clearance_m": 191.63846515402165,
+      "sample_count": 143268,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 111.58406404422334,
+      "highest_render_or_hull_point_m": 112.95996225535409,
+      "id": "pwr_scarp_desert_b_372",
+      "role": "desert_b",
+      "centre_m": [
+        518.0802607768317,
+        -444.3405670306688,
+        87.81272437561105
+      ],
+      "terrain_target_vertices_covered": 264
+    },
+    {
+      "exposed_height_max_m": 25.037747855692032,
+      "exposed_sample_fraction": 0.31244655804528365,
+      "bottom_contact_max_above_ground_m": -8.036597583296881,
+      "full_projected_area_m2": 1109.3214714442638,
+      "minimum_exposed_water_clearance_m": 2.805979290422808,
+      "minimum_exposed_road_clearance_m": 5.611958580845615,
+      "minimum_exposed_base_clearance_m": 231.623472895957,
+      "sample_count": 170746,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 105.86642701211633,
+      "highest_render_or_hull_point_m": 109.92063560388279,
+      "id": "pwr_scarp_desert_a_1071",
+      "role": "desert_a",
+      "centre_m": [
+        657.5038537099197,
+        -483.5055900025877,
+        84.36608644477232
+      ],
+      "terrain_target_vertices_covered": 244
+    },
+    {
+      "exposed_height_max_m": 18.92343282961481,
+      "exposed_sample_fraction": 0.3355598961473229,
+      "bottom_contact_max_above_ground_m": -13.351981630940855,
+      "full_projected_area_m2": 1235.7180685745852,
+      "minimum_exposed_water_clearance_m": 33.61775037363636,
+      "minimum_exposed_road_clearance_m": 8.763369707286122,
+      "minimum_exposed_base_clearance_m": 201.8766988732089,
+      "sample_count": 124407,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 110.72814389221242,
+      "highest_render_or_hull_point_m": 115.39106651280335,
+      "id": "pwr_scarp_desert_d_1375",
+      "role": "desert_d",
+      "centre_m": [
+        438.09670571334004,
+        -460.316233760954,
+        90.91248736087456
+      ],
+      "terrain_target_vertices_covered": 288
+    },
+    {
+      "exposed_height_max_m": 23.94242394468273,
+      "exposed_sample_fraction": 0.4063512521704885,
+      "bottom_contact_max_above_ground_m": -1.655534191025211,
+      "full_projected_area_m2": 1122.2193232969082,
+      "minimum_exposed_water_clearance_m": 15.486767648650382,
+      "minimum_exposed_road_clearance_m": 14.940591959575524,
+      "minimum_exposed_base_clearance_m": 326.612882258468,
+      "sample_count": 167589,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 105.0625,
+      "highest_render_or_hull_point_m": 104.25366312956803,
+      "id": "pwr_scarp_desert_a_1239",
+      "role": "desert_a",
+      "centre_m": [
+        750.4402276678611,
+        -560.4030696599011,
+        81.847528627839
+      ],
+      "terrain_target_vertices_covered": 273
+    },
+    {
+      "exposed_height_max_m": 31.165972458059414,
+      "exposed_sample_fraction": 0.5458406848330393,
+      "bottom_contact_max_above_ground_m": -1.01241531123042,
+      "full_projected_area_m2": 1166.6843200641201,
+      "minimum_exposed_water_clearance_m": 7.114655630212113,
+      "minimum_exposed_road_clearance_m": 34.26057168630221,
+      "minimum_exposed_base_clearance_m": 234.50257557888597,
+      "sample_count": 168333,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 104.96504884364961,
+      "highest_render_or_hull_point_m": 90.99920720258882,
+      "id": "pwr_scarp_desert_a_357",
+      "role": "desert_a",
+      "centre_m": [
+        606.5023650088016,
+        -486.93306978308453,
+        71.04219637673906
+      ],
+      "terrain_target_vertices_covered": 241
+    },
+    {
+      "exposed_height_max_m": 29.493484554617794,
+      "exposed_sample_fraction": 0.42312056067034615,
+      "bottom_contact_max_above_ground_m": -7.782981368094866,
+      "full_projected_area_m2": 1167.1735588224099,
+      "minimum_exposed_water_clearance_m": 19.81654898535374,
+      "minimum_exposed_road_clearance_m": 9.898632291785225,
+      "minimum_exposed_base_clearance_m": 261.619421136674,
+      "sample_count": 169226,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 107.50212740679902,
+      "highest_render_or_hull_point_m": 112.80101802832095,
+      "id": "pwr_scarp_desert_a_1225",
+      "role": "desert_a",
+      "centre_m": [
+        391.0781217818804,
+        -498.6465619049477,
+        91.65665706210459
+      ],
+      "terrain_target_vertices_covered": 256
+    },
+    {
+      "exposed_height_max_m": 28.212622576999962,
+      "exposed_sample_fraction": 0.5168589174800355,
+      "bottom_contact_max_above_ground_m": -1.3751076027467022,
+      "full_projected_area_m2": 1188.9771977596126,
+      "minimum_exposed_water_clearance_m": 1.1622746778311606,
+      "minimum_exposed_road_clearance_m": 36.276789764323645,
+      "minimum_exposed_base_clearance_m": 207.96957752049966,
+      "sample_count": 166796,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 104.56378006560432,
+      "highest_render_or_hull_point_m": 87.86152347547251,
+      "id": "pwr_scarp_desert_a_420",
+      "role": "desert_a",
+      "centre_m": [
+        493.2894828632569,
+        -467.67252849523686,
+        69.06725913291841
+      ],
+      "terrain_target_vertices_covered": 240
+    },
+    {
+      "exposed_height_max_m": 27.23811920177055,
+      "exposed_sample_fraction": 0.5244700955905993,
+      "bottom_contact_max_above_ground_m": -1.052163756023461,
+      "full_projected_area_m2": 1251.8683028046628,
+      "minimum_exposed_water_clearance_m": 2.805979290422808,
+      "minimum_exposed_road_clearance_m": 34.26057168630221,
+      "minimum_exposed_base_clearance_m": 213.46386197941845,
+      "sample_count": 127523,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 107.99642009531341,
+      "highest_render_or_hull_point_m": 90.69230635211221,
+      "id": "pwr_scarp_desert_d_059",
+      "role": "desert_d",
+      "centre_m": [
+        557.2978013747673,
+        -467.4363979182796,
+        70.57895249396941
+      ],
+      "terrain_target_vertices_covered": 324
+    },
+    {
+      "exposed_height_max_m": 20.46540115185948,
+      "exposed_sample_fraction": 0.35572592622325694,
+      "bottom_contact_max_above_ground_m": -12.269471456708857,
+      "full_projected_area_m2": 1233.1734914065696,
+      "minimum_exposed_water_clearance_m": 34.89243340798989,
+      "minimum_exposed_road_clearance_m": 9.098782614339097,
+      "minimum_exposed_base_clearance_m": 179.90615457023333,
+      "sample_count": 124565,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 111.59375,
+      "highest_render_or_hull_point_m": 115.5735353545836,
+      "id": "pwr_scarp_desert_d_1228",
+      "role": "desert_d",
+      "centre_m": [
+        531.6986355849656,
+        -430.6924186538,
+        94.59826457300086
+      ],
+      "terrain_target_vertices_covered": 219
+    },
+    {
+      "exposed_height_max_m": 20.131079373694604,
+      "exposed_sample_fraction": 0.3854673523183959,
+      "bottom_contact_max_above_ground_m": -17.090273214646814,
+      "full_projected_area_m2": 570.5136723515823,
+      "minimum_exposed_water_clearance_m": 1.1622746778311606,
+      "minimum_exposed_road_clearance_m": 16.01710202010326,
+      "minimum_exposed_base_clearance_m": 325.5895145932848,
+      "sample_count": 231410,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 106.40625,
+      "highest_render_or_hull_point_m": 110.26632620063678,
+      "id": "pwr_scarp_macro_1068",
+      "role": "macro",
+      "centre_m": [
+        265.828981901806,
+        -532.3677965685059,
+        83.78789212852894
+      ],
+      "terrain_target_vertices_covered": 106
+    },
+    {
+      "exposed_height_max_m": 27.923045686617883,
+      "exposed_sample_fraction": 0.617278223871525,
+      "bottom_contact_max_above_ground_m": -2.2840226154508656,
+      "full_projected_area_m2": 1053.829868651827,
+      "minimum_exposed_water_clearance_m": 5.1305286460851285,
+      "minimum_exposed_road_clearance_m": 32.35284044503226,
+      "minimum_exposed_base_clearance_m": 344.97701459220406,
+      "sample_count": 125036,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 103.06343220821279,
+      "highest_render_or_hull_point_m": 99.3808906570484,
+      "id": "pwr_scarp_desert_d_948",
+      "role": "desert_d",
+      "centre_m": [
+        757.2257347003105,
+        -572.1298708099372,
+        76.2856400261949
+      ],
+      "terrain_target_vertices_covered": 227
+    },
+    {
+      "exposed_height_max_m": 29.143261848895918,
+      "exposed_sample_fraction": 0.49727560963222545,
+      "bottom_contact_max_above_ground_m": -7.664458170851361,
+      "full_projected_area_m2": 760.3296345929281,
+      "minimum_exposed_water_clearance_m": 1.6306635220767753,
+      "minimum_exposed_road_clearance_m": 4.347892287878759,
+      "minimum_exposed_base_clearance_m": 309.7113419730475,
+      "sample_count": 137829,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 105.0625,
+      "highest_render_or_hull_point_m": 109.63557665542135,
+      "id": "pwr_scarp_desert_b_834",
+      "role": "desert_b",
+      "centre_m": [
+        728.1176657235375,
+        -551.2175602402504,
+        93.7491740668915
+      ],
+      "terrain_target_vertices_covered": 164
+    },
+    {
+      "exposed_height_max_m": 26.51730723417721,
+      "exposed_sample_fraction": 0.3247867644789234,
+      "bottom_contact_max_above_ground_m": -29.56210695171832,
+      "full_projected_area_m2": 457.854120508082,
+      "minimum_exposed_water_clearance_m": 1.1622746778311606,
+      "minimum_exposed_road_clearance_m": 5.1305286460851285,
+      "minimum_exposed_base_clearance_m": 314.716336084256,
+      "sample_count": 97193,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 106.40625,
+      "highest_render_or_hull_point_m": 109.49665016386973,
+      "id": "pwr_scarp_desert_c_296",
+      "role": "desert_c",
+      "centre_m": [
+        308.150370590171,
+        -510.6588650887415,
+        87.87158936693235
+      ],
+      "terrain_target_vertices_covered": 85
+    },
+    {
+      "exposed_height_max_m": 14.746728329077328,
+      "exposed_sample_fraction": 0.21013594865980104,
+      "bottom_contact_max_above_ground_m": -25.211468915806797,
+      "full_projected_area_m2": 785.56280587372,
+      "minimum_exposed_water_clearance_m": 5.611958580845615,
+      "minimum_exposed_road_clearance_m": 3.468381146419215,
+      "minimum_exposed_base_clearance_m": 256.2270988106501,
+      "sample_count": 171094,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 105.0625,
+      "highest_render_or_hull_point_m": 108.86224793808108,
+      "id": "pwr_scarp_desert_a_819",
+      "role": "desert_a",
+      "centre_m": [
+        686.1435905094526,
+        -510.5944651797234,
+        82.6329594093984
+      ],
+      "terrain_target_vertices_covered": 137
+    },
+    {
+      "exposed_height_max_m": 29.400352080515887,
+      "exposed_sample_fraction": 0.556064500380512,
+      "bottom_contact_max_above_ground_m": -8.294878108985941,
+      "full_projected_area_m2": 554.2814290458192,
+      "minimum_exposed_water_clearance_m": 1.6306635220767753,
+      "minimum_exposed_road_clearance_m": 11.22391716169123,
+      "minimum_exposed_base_clearance_m": 297.2698593642721,
+      "sample_count": 139286,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 106.94053946537392,
+      "highest_render_or_hull_point_m": 111.82133426505001,
+      "id": "pwr_scarp_desert_b_1240",
+      "role": "desert_b",
+      "centre_m": [
+        364.21852225479574,
+        -512.5492866210815,
+        92.90229547083455
+      ],
+      "terrain_target_vertices_covered": 141
+    },
+    {
+      "exposed_height_max_m": 27.371083255206678,
+      "exposed_sample_fraction": 0.48194992462869873,
+      "bottom_contact_max_above_ground_m": -2.0115532833383583,
+      "full_projected_area_m2": 940.2972567256436,
+      "minimum_exposed_water_clearance_m": 1.1622746778311606,
+      "minimum_exposed_road_clearance_m": 25.602395835125513,
+      "minimum_exposed_base_clearance_m": 298.1868035612565,
+      "sample_count": 166509,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 106.04682747964836,
+      "highest_render_or_hull_point_m": 94.23967408031338,
+      "id": "pwr_scarp_desert_a_938",
+      "role": "desert_a",
+      "centre_m": [
+        383.75276612696103,
+        -525.7803612364545,
+        71.38505196842205
+      ],
+      "terrain_target_vertices_covered": 233
+    },
+    {
+      "exposed_height_max_m": 28.25397450769988,
+      "exposed_sample_fraction": 0.4338285619881523,
+      "bottom_contact_max_above_ground_m": -2.406711882470006,
+      "full_projected_area_m2": 1017.9277320870751,
+      "minimum_exposed_water_clearance_m": 7.8788715173837485,
+      "minimum_exposed_road_clearance_m": 21.08607344527619,
+      "minimum_exposed_base_clearance_m": 238.24707703477466,
+      "sample_count": 169484,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 109.24115396332365,
+      "highest_render_or_hull_point_m": 105.73336095100942,
+      "id": "pwr_scarp_desert_a_1036",
+      "role": "desert_a",
+      "centre_m": [
+        433.4245821230795,
+        -483.8214721144072,
+        78.8339693001904
+      ],
+      "terrain_target_vertices_covered": 250
+    },
+    {
+      "exposed_height_max_m": 21.44161048914711,
+      "exposed_sample_fraction": 0.45072092209470893,
+      "bottom_contact_max_above_ground_m": -10.367317167602053,
+      "full_projected_area_m2": 853.7554645505535,
+      "minimum_exposed_water_clearance_m": 33.6717514850737,
+      "minimum_exposed_road_clearance_m": 5.1305286460851285,
+      "minimum_exposed_base_clearance_m": 174.6819150373454,
+      "sample_count": 140029,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 111.59375,
+      "highest_render_or_hull_point_m": 115.19068895638569,
+      "id": "pwr_scarp_desert_b_645",
+      "role": "desert_b",
+      "centre_m": [
+        491.8194767059298,
+        -433.8956913814603,
+        97.6215852893514
+      ],
+      "terrain_target_vertices_covered": 187
+    },
+    {
+      "exposed_height_max_m": 21.515681165269356,
+      "exposed_sample_fraction": 0.3277658200602669,
+      "bottom_contact_max_above_ground_m": -27.043461110429064,
+      "full_projected_area_m2": 624.0332255693861,
+      "minimum_exposed_water_clearance_m": 4.347892287878759,
+      "minimum_exposed_road_clearance_m": 11.082909598466081,
+      "minimum_exposed_base_clearance_m": 320.99600669404896,
+      "sample_count": 290375,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 106.40625,
+      "highest_render_or_hull_point_m": 112.82355589487906,
+      "id": "pwr_scarp_cliff_838",
+      "role": "cliff",
+      "centre_m": [
+        271.8776808182528,
+        -523.9136500655912,
+        85.56420415203787
+      ],
+      "terrain_target_vertices_covered": 131
+    },
+    {
+      "exposed_height_max_m": 19.15421740903915,
+      "exposed_sample_fraction": 0.2838550403000353,
+      "bottom_contact_max_above_ground_m": -27.749277048787533,
+      "full_projected_area_m2": 697.2520943270137,
+      "minimum_exposed_water_clearance_m": 1.6306635220767753,
+      "minimum_exposed_road_clearance_m": 14.14640909314372,
+      "minimum_exposed_base_clearance_m": 242.4003293291722,
+      "sample_count": 232506,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 105.42188153672619,
+      "highest_render_or_hull_point_m": 108.75341863861948,
+      "id": "pwr_scarp_macro_1215",
+      "role": "macro",
+      "centre_m": [
+        667.0734813273699,
+        -497.3994386829917,
+        79.9512124103076
+      ],
+      "terrain_target_vertices_covered": 122
+    },
+    {
+      "exposed_height_max_m": 25.422864799857535,
+      "exposed_sample_fraction": 0.4003988477730999,
+      "bottom_contact_max_above_ground_m": -14.231190656358407,
+      "full_projected_area_m2": 1188.3289769110197,
+      "minimum_exposed_water_clearance_m": 30.037166259670148,
+      "minimum_exposed_road_clearance_m": 12.690547844312619,
+      "minimum_exposed_base_clearance_m": 318.7205587882225,
+      "sample_count": 126364,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 105.0625,
+      "highest_render_or_hull_point_m": 110.23561368141422,
+      "id": "pwr_scarp_desert_d_122",
+      "role": "desert_d",
+      "centre_m": [
+        769.4493791267075,
+        -543.3862880605764,
+        83.54417023700367
+      ],
+      "terrain_target_vertices_covered": 191
+    },
+    {
+      "exposed_height_max_m": 12.663549816131336,
+      "exposed_sample_fraction": 0.24226488307975083,
+      "bottom_contact_max_above_ground_m": -20.27446396380796,
+      "full_projected_area_m2": 802.846493597537,
+      "minimum_exposed_water_clearance_m": 39.23691773421428,
+      "minimum_exposed_road_clearance_m": 3.468381146419215,
+      "minimum_exposed_base_clearance_m": 185.94697299569276,
+      "sample_count": 117516,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 111.30828023189852,
+      "highest_render_or_hull_point_m": 114.39566646315728,
+      "id": "pwr_scarp_desert_d_962",
+      "role": "desert_d",
+      "centre_m": [
+        568.1879279182759,
+        -434.8331417964642,
+        89.87864565131378
+      ],
+      "terrain_target_vertices_covered": 122
+    },
+    {
+      "exposed_height_max_m": 12.775430592261998,
+      "exposed_sample_fraction": 0.1719120062235284,
+      "bottom_contact_max_above_ground_m": -24.17559440573261,
+      "full_projected_area_m2": 631.3901653474954,
+      "minimum_exposed_water_clearance_m": 3.1464016619581447,
+      "minimum_exposed_road_clearance_m": 5.1305286460851285,
+      "minimum_exposed_base_clearance_m": 305.9601364595471,
+      "sample_count": 231380,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 106.59057846000387,
+      "highest_render_or_hull_point_m": 110.17666306252325,
+      "id": "pwr_scarp_macro_865",
+      "role": "macro",
+      "centre_m": [
+        340.99119752264727,
+        -506.93186394094084,
+        86.92501489508138
+      ],
+      "terrain_target_vertices_covered": 61
+    },
+    {
+      "exposed_height_max_m": 20.516329226506194,
+      "exposed_sample_fraction": 0.5140069538068545,
+      "bottom_contact_max_above_ground_m": -2.061039029343725,
+      "full_projected_area_m2": 939.4425372768125,
+      "minimum_exposed_water_clearance_m": 1.6306635220767753,
+      "minimum_exposed_road_clearance_m": 33.61775037363636,
+      "minimum_exposed_base_clearance_m": 238.77726796921849,
+      "sample_count": 140930,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 108.27566539431345,
+      "highest_render_or_hull_point_m": 90.75711410761163,
+      "id": "pwr_scarp_desert_b_806",
+      "role": "desert_b",
+      "centre_m": [
+        439.68005762366727,
+        -489.7665880742139,
+        71.36595843936499
+      ],
+      "terrain_target_vertices_covered": 228
+    },
+    {
+      "exposed_height_max_m": 37.17324380367417,
+      "exposed_sample_fraction": 0.5586176822344362,
+      "bottom_contact_max_above_ground_m": -7.136841480632668,
+      "full_projected_area_m2": 388.85606590766815,
+      "minimum_exposed_water_clearance_m": 1.6306635220767753,
+      "minimum_exposed_road_clearance_m": 24.181065369766568,
+      "minimum_exposed_base_clearance_m": 315.75609695575037,
+      "sample_count": 231611,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 106.96735560733416,
+      "highest_render_or_hull_point_m": 111.79185230991902,
+      "id": "pwr_scarp_macro_039",
+      "role": "macro",
+      "centre_m": [
+        367.0369315746392,
+        -526.7317787154033,
+        82.28930277336917
+      ],
+      "terrain_target_vertices_covered": 88
+    },
+    {
+      "exposed_height_max_m": 28.206457580395266,
+      "exposed_sample_fraction": 0.6586229659356434,
+      "bottom_contact_max_above_ground_m": -5.332934507104625,
+      "full_projected_area_m2": 378.73257348850746,
+      "minimum_exposed_water_clearance_m": 1.1622746778311606,
+      "minimum_exposed_road_clearance_m": 19.019417534974018,
+      "minimum_exposed_base_clearance_m": 325.6854034905422,
+      "sample_count": 95437,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 105.0625,
+      "highest_render_or_hull_point_m": 109.82233849212975,
+      "id": "pwr_scarp_desert_c_1227",
+      "role": "desert_c",
+      "centre_m": [
+        725.1764032933353,
+        -562.3465794359682,
+        89.49004200474772
+      ],
+      "terrain_target_vertices_covered": 84
+    },
+    {
+      "exposed_height_max_m": 29.691096199661985,
+      "exposed_sample_fraction": 0.730080220660972,
+      "bottom_contact_max_above_ground_m": -1.6349484092144522,
+      "full_projected_area_m2": 588.757304647776,
+      "minimum_exposed_water_clearance_m": 3.468381146419215,
+      "minimum_exposed_road_clearance_m": 40.84481436037085,
+      "minimum_exposed_base_clearance_m": 350.15119472912016,
+      "sample_count": 138493,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 98.94116089915943,
+      "highest_render_or_hull_point_m": 94.51822408807483,
+      "id": "pwr_scarp_desert_b_141",
+      "role": "desert_b",
+      "centre_m": [
+        744.4015003112729,
+        -584.9417164995095,
+        72.69593958345257
+      ],
+      "terrain_target_vertices_covered": 101
+    },
+    {
+      "exposed_height_max_m": 24.77803191868665,
+      "exposed_sample_fraction": 0.6423472002656445,
+      "bottom_contact_max_above_ground_m": -1.5997976995132674,
+      "full_projected_area_m2": 698.6815413835412,
+      "minimum_exposed_water_clearance_m": 1.6306635220767753,
+      "minimum_exposed_road_clearance_m": 32.963378601085026,
+      "minimum_exposed_base_clearance_m": 245.21783010640664,
+      "sample_count": 138531,
+      "full_lod0_checked": true,
+      "hull_face_spacing_m": 2.5,
+      "original_bank_crest_m": 104.73221510077425,
+      "highest_render_or_hull_point_m": 91.05816409394515,
+      "id": "pwr_scarp_desert_b_995",
+      "role": "desert_b",
+      "centre_m": [
+        621.3145196151513,
+        -492.13993413402005,
+        71.75824907904311
+      ],
+      "terrain_target_vertices_covered": 158
+    }
+  ],
+  "preserves_frozen_height": true,
+  "hull_sources": {
+    "desert_a": {
+      "path": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v5\\outcrops-v3\\hulls\\SM_Rock_Desert_Cliff_A.json",
+      "sha256": "8172392e41b1a7f3d6f17c2f9b5d1dabd2f91e77e53a5feee50f539f729d695f",
+      "faces": 1580,
+      "source_lod0_vertices": 145745,
+      "glb_sha256": "6a42c4d7e2c41f8fe6db460f9159a40e77f36a886956a868cf9d5ec2c4ab49e1"
+    },
+    "desert_b": {
+      "path": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v5\\outcrops-v3\\hulls\\SM_Rock_Desert_Cliff_B.json",
+      "sha256": "0a533b31ebb81305bcef7f7e8da30f4e85fd3725dbdf1e0ffe68bb6c491bdf42",
+      "faces": 1174,
+      "source_lod0_vertices": 122373,
+      "glb_sha256": "c6cb72fa718b545e4bac7b42be00a45638770ca126d25640c6e1881ee460d13b"
+    },
+    "desert_c": {
+      "path": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v5\\outcrops-v3\\hulls\\SM_Rock_Desert_Cliff_C.json",
+      "sha256": "407a44695cb45eb269270eec1801bd611c54e7dc580f619ab5a08e1352372425",
+      "faces": 1258,
+      "source_lod0_vertices": 83039,
+      "glb_sha256": "38ee29394ced326095e7c703e8fc795aca583c8f7173c8963674e639b46808ac"
+    },
+    "desert_d": {
+      "path": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v5\\outcrops-v3\\hulls\\SM_Rock_Desert_Cliff_D.json",
+      "sha256": "d6ef50be6485ed9da02dee2bac4055c6cdcfcbbd433800c32888c395da840aff",
+      "faces": 1514,
+      "source_lod0_vertices": 91522,
+      "glb_sha256": "e6a07268afd392864b0b3fe5de056d8bcdba1b5a99c34f08d7ed6fb57adf80fe"
+    },
+    "macro": {
+      "path": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v5\\outcrops-v2\\hulls\\SM_PNWGL_Rock_Macro_B.json",
+      "sha256": "cd857340f3c6161747e5b30ea19e6ceb2a85e2eb9b4f1927acdfbe41ed5456df",
+      "faces": 70,
+      "source_lod0_vertices": 227070,
+      "glb_sha256": "752d30a54be54191fddae7034e22ea01bb136e736dd81b957869861ec5a0e730"
+    },
+    "cliff": {
+      "path": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v5\\outcrops-v2\\hulls\\SM_Rock_Uluwatu_Cliff_B.json",
+      "sha256": "f3ef38f276967a26b5548bda2b486f9caebcd8012ca56d11b27d763ebd0cdfc8",
+      "faces": 88,
+      "source_lod0_vertices": 286547,
+      "glb_sha256": "44729ea4fcfdbf45c86969b02d7e68a830e3f7f1c370cb3362a779822de5681b"
+    },
+    "stratum": {
+      "path": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v5\\outcrops-v2\\hulls\\SM_MassiveTundraRockFormation_01.json",
+      "sha256": "14ebb1b7c11187116f7727493f00b85fa7319c3429098f1112c8e5ffa02d1cd1",
+      "faces": 62,
+      "source_lod0_vertices": 228150,
+      "glb_sha256": "c10f23d5a483760d6c6eb583b0a06754ff81422ead5881ecfb1e5a1020d5f7a5"
+    }
+  }
+}

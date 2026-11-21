@@ -1,0 +1,18 @@
+{
+  "actor": "/Game/Levels/Halo1/Solo/LPE/LPE.LPE:PersistentLevel.StaticMeshActor_2",
+  "mesh": "/Game/MJOLNIR/GrassPilot/Playable/SM_PWR_SpringCascade.SM_PWR_SpringCascade",
+  "material": "/Game/MJOLNIR/GrassPilot/Playable/M_PWR_SpringCascade.M_PWR_SpringCascade",
+  "triangles": 10157,
+  "surface_sha256": "e5b973c554a62ddf097c1822fc0b7faba6263875492b3039eb43e0e6930363ea",
+  "shader_sha256": "f6e826d8eecfcb770beddebb9789df4e37524abee404f5f149ba093cb23cb2c0",
+  "collision": false,
+  "state": {
+    "mesh": "/Game/MJOLNIR/GrassPilot/Playable/SM_PWR_SpringCascade.SM_PWR_SpringCascade",
+    "expected": "/Game/MJOLNIR/GrassPilot/Playable/SM_PWR_SpringCascade.SM_PWR_SpringCascade",
+    "bedrock_material": "/Game/MJOLNIR/GrassPilot/Playable/MI_PWR_ExteriorCliffs_9c8b739f48f3.MI_PWR_ExteriorCliffs_9c8b739f48f3",
+    "collision": "<CollisionEnabled.NO_COLLISION: 0>",
+    "profile": "NoCollision",
+    "actor_collision": false,
+    "triangles": 10157
+  }
+}

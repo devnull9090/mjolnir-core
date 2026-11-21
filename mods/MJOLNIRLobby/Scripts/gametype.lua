@@ -67,7 +67,7 @@ function M.new(deps)
 
     local function icon(image, mode)
         if not deps.valid(image) then return false end
-        local name = mode and ICONS[mode.id]
+        local name = mode and (mode.icon or ICONS[mode.id])
         local tex = texture(name) or texture(ICON_STAND_INS[name])
         pcall(function()
             image:SetVisibility(tex and 3 or 2)

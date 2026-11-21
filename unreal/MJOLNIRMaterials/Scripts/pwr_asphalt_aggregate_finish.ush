@@ -1,0 +1,63 @@
+        // The nominal 17.6 m carriageway ends in small irregular bites. Edge
+        // stones are concentrated on the exposed lip and disappear into earth.
+        float edgeMetres = side + raggedEdge + (chip.r - .40) * .32;
+        float course = 1. - smoothstep(8.43,8.88,edgeMetres);
+        float apron = (1. - smoothstep(10.1,13.1,edgeMetres)) * cover;
+        float influence = saturate(mainRoute * apron);
+        float2 wheelDistances = (side - float2(2.65,5.30)) / float2(1.08,.91);
+        float2 wheelTracks = exp2(-wheelDistances * wheelDistances);
+        float wheel = saturate(wheelTracks.x + wheelTracks.y);
+
+        // The R/G relief stays near .4 across this scan's coarser mips. Shape
+        // the midtones around that centre so the pebbles survive minification.
+        float chipValue = dot(chip.rg,float2(.65,.35));
+        float exposed = smoothstep(.405,.535,chipValue);
+        float darkGrain = 1. - smoothstep(.29,.398,chipValue);
+        float faded = saturate(.49 + .19 * drift + .36 * (dust - .5)
+                                   + .22 * (mineralGrain - .35));
+        float3 binder = lerp(float3(.047,.047,.045),float3(.093,.087,.077),faded);
+        binder *= (.95 + .13 * dust - .085 * wheel) * (1. - .22 * darkGrain);
+        float3 aggregate = lerp(float3(.14,.137,.124),float3(.255,.248,.227),chip.r);
+        float faceCoverage = (.060 + .77 * exposed) * (.78 + .32 * mineralGrain);
+        float3 asphalt = lerp(binder,aggregate,faceCoverage) * .84;
+        float powder = smoothstep(.55,.88,.64 * dust + .23 * mineralGrain
+                                  + .14 * drift - .08 * wheel);
+        asphalt += powder * float3(.037,.035,.031);
+        // Compensate for the warm valley illumination observed in the native
+        // asphalt capture and preserve the warmer colours of the adjacent soil.
+        asphalt *= float3(1.14,1.42,2.25);
+
+        float dash = smoothstep(.18,.47,network.a * 2. - 1.)
+                   * (1. - smoothstep(.055,.15,side));
+        float paintSurvival = smoothstep(.44,.68,.54 * dust + .25 * mineralGrain
+                                        + .24 * (1. - exposed) + .18 * drift);
+        float paint = dash * smoothstep(.42,.82,hierarchy) * paintSurvival
+                    * (1. - smoothstep(.15,1.,pixelMetres));
+        asphalt = lerp(asphalt,float3(.21,.185,.144),paint * .29);
+
+        float lip = 1. - smoothstep(8.90,11.85,edgeMetres + (dust - .5) * .71);
+        float3 fines = lerp(float3(.089,.078,.067),float3(.173,.15,.122),dust);
+        float3 looseRock = lerp(stones * float3(1.16,1.23,1.38),
+                                float3(.21,.207,.193) * (.62 + mineralGrain),.36);
+        float gravel = saturate(.15 + .67 * mineralGrain + .16 * mineralFace + .28 * lip);
+        float3 shoulder = lerp(fines,looseRock,gravel);
+        // Resolve a sparse layer of 2-9 cm fractured stones over the filtered
+        // gravel scan. Pixel footprint softens silhouettes through the midrange.
+        float2 stoneGrid = rotated * 8.6 + (soil.rg - .12) * 1.2;
+        float2 cell = floor(stoneGrid);
+        float3 seed = frac(float3(cell.xyx) * float3(.1031,.11369,.13787));
+        seed += dot(seed,seed.yzx + 19.19);
+        float3 variation = frac((seed.xxy + seed.yzz) * seed.zyx);
+        float2 facet = frac(stoneGrid) - .5 - (variation.xy - .5) * .40;
+        facet.x += (variation.y - .5) * .92 * facet.y;
+        float radius = max(abs(facet.x) * 1.4 + abs(facet.y) * .35,
+                           abs(facet.y) * 1.63 + abs(facet.x) * .24);
+        float aaStone = clamp(pixelMetres * 4.3,.029,.40);
+        float extent = .12 + .26 * variation.z;
+        float pebble = (1. - smoothstep(extent-aaStone,extent+aaStone,radius))
+                     * (1. - smoothstep(.055,.18,pixelMetres)) * lip;
+        float facetLight = saturate(.46 + 1.45 * facet.x - 1.86 * facet.y
+                                    + .35 * chipN.y);
+        float3 clast = lerp(float3(.075,.079,.086),float3(.37,.39,.42),
+                            saturate(.16 + .55 * variation.z + .40 * facetLight));
+        shoulder = lerp(shoulder,clast,pebble * (.64 + .31 * mineralGrain));

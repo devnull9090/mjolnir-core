@@ -1,0 +1,76 @@
+{
+  "release": "0.1.0-playtest.13",
+  "release_sha256": "393ee1f857746222f975d57088179357aa936540434cbefe1f6a04558d3b4cc7",
+  "targets": [
+    {
+      "camera": "teton-road",
+      "source": "source.png",
+      "target": "target.png",
+      "baseline": "out/pwr/ground-life/visual-review/final.13/frames/teton-road.png",
+      "comparison": "baseline-review/compare.png",
+      "prompt": "Edit this actual Halo gameplay frame into a breathtaking, believable real-time Unreal Engine 5 shipping-game screenshot of the same alpine valley. Widescreen 16:9, same first-person standing eye, lens, camera angle and horizon; keep the enormous blue-violet celestial disk in the upper left at this exact size, the central needle and surrounding peak silhouettes, the pine belt on the left, the distant small Forerunner spire and the engineered road bending away in the lower right. This is the visual north star for the same play space. Spend the detail where a Warthog driver would see it. Give the pale Forerunner roadway weight: worn grey mineral-aggregate concrete panels at vehicle scale, subdued worn edge inlay, a shallow bevel with a few nicks, occasional grass and grit in the joints. The outside edge falls a few centimetres into compacted angular gravel: stones graded from coarse to fine, a rain-washed shallow swale, patches of dirt and low bent grass extending into the shoulder in irregular fingers. Where the pines meet that verge build a real forest ecotone: overlapping fescue and seed heads irregularly clustered in wind, mats of needles and moss, embedded glacial boulders, an occasional bleached limb, spreading roots emerging from soil hummocks, open glades with longer views. Sunlight from upper left grazing the landscape casts directional branch shadows, cool sky bounce makes shadow detail legible, stronger contact in recesses. The mountains must astonish: huge granite buttresses, with fracture planes and slanted sediment-free crystalline bands at tens of metres, angular ledges, scree fans aligned under the gullies, old snow caught locally on shelves, successively cooler, less contrasty ranges. Let the foreground read as summer with open drivable sightlines. Halo CE Silent Cartographer's alien sky, grounded natural muted colors, silver-green foliage, crisp stable gameplay focus, physically plausible PBR. Render the finished game view edge to edge. No titles, HUD, operators, signage, new bases, vertical cliffs blocking the road, cinematic bars or lens effects.",
+      "source_sha256": "554cc0e816903994e37dbb101cbcf97b404be5517e32ba25802da0897040d576",
+      "source_size": [
+        1600,
+        900
+      ],
+      "target_sha256": "3db40916697a886a0844fd76c35e213690659300e6fd8d476dd0a05664c3e3ba",
+      "target_size": [
+        1672,
+        941
+      ],
+      "camera_unreal_cm_pitch_yaw_horizontal_fov": [
+        -40750.83,
+        11418.72,
+        10956.16,
+        10.1908,
+        -73.1381,
+        70.0
+      ],
+      "source_viewport_px": [
+        1600.0,
+        900.0
+      ],
+      "baseline_review": "verdicts/round-1.json",
+      "baseline_visual_match_out_of_ten": 2.8
+    },
+    {
+      "camera": "southwest-forest-road-driver",
+      "source": "forest-road/source.png",
+      "target": "forest-road/target.png",
+      "baseline": "out/pwr/ground-life/visual-review/final.13/field-check/southwest-forest-road-driver.png",
+      "comparison": "forest-road/baseline-review/compare.png",
+      "prompt": "Transform this actual Halo forest-road gameplay screenshot into a detailed playable Unreal Engine 5 screenshot of the identical place. Keep the existing driver's camera, native 16:9 composition and lens, the positions of the major pines, the open dirt vehicle track through the foreground, ridges through the trees and huge pale-blue celestial disk above. Same bright temperate alpine afternoon, clear readable road. Concentrate on physical transitions and nuanced light at eye height. The road is unpaved compacted mineral earth, a broad subtly crowned Warthog-width route with two polished wheel paths, occasional rocky aggregate, old washouts and tiny damp patches where gravity would collect water. Its shallower eroded edges give way in uneven scallops to uncompressed gravel, fine blades, then a pine-needle and cone litter bed; roots intermittently penetrate a raised mossy embankment but keep the drive open. Mature conifers have weight: gently flared roots partially exposed in duff, embedded mossy granite with contact shadows, fern colonies in shade and dry silver-green grasses in openings, fallen twigs, occasional nurse log; deliberate patches of open ground reveal the material. Distinct boughs and local warm skylit clearings cast broken penumbral shadows, cooler open-sky light reveals the pine floor rather than black silhouettes. Deep background layers of trees and snow-flecked broken rock catch different light, with subtle aerial perspective. Ambitious Halo remaster quality as an unretouched in-engine frame with Nanite geometry, native instanced vegetation, natural hue variation and clear texture scales. Preserve the pictured road type and recognizable Halo sky, snow on high faces, crisp gameplay depth throughout the image. No text or HUD, no explosions, no extra vehicles/buildings, no motion blur, no border.",
+      "source_sha256": "852e12fedaab441c1f7e38ef81ff67d8d662ac5dd0c0a5c72f0a41e7185e0261",
+      "source_size": [
+        1600,
+        900
+      ],
+      "target_sha256": "5480d7ed7a01d03cf2ddf91e659001c2f550867e7a61dcead6161500efc7fa06",
+      "target_size": [
+        1672,
+        941
+      ],
+      "camera_unreal_cm_pitch_yaw_horizontal_fov": [
+        -58860.37,
+        54636.31,
+        10558.5,
+        -1.2998,
+        -97.9893,
+        82.0
+      ],
+      "source_viewport_px": [
+        1600.0,
+        900.0
+      ],
+      "baseline_review": "forest-road/verdicts/round-1.json",
+      "baseline_visual_match_out_of_ten": 2.7
+    }
+  ],
+  "priorities": [
+    "Preserve the B30 sky, base sightlines and the original vehicle routes.",
+    "Use visible tree pivots and the graded road edge to locate the forest floor. Keep raised stones and timber outside the driveable cross section.",
+    "Use broad exposed rock ribs, localized snow on mountain faces, and a recessive skyline visible through the saddle. Retain distance-readable shapes at the original view settings.",
+    "Compare the two archived FOVs for lighting, form and road readability, then compare native game/GPU frame times for the same scenes with the baseline settings."
+  ]
+}

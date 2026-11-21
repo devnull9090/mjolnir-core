@@ -1,0 +1,93 @@
+{
+  "score": 2.8,
+  "first_failed_gate": "layout",
+  "previous_score": 2.6,
+  "regressions": [
+    {
+      "where": "A2–B2 left lakeshore",
+      "what": "A new tall, shadowed cliff reaches the water and hides the sloping meadow and boulders that were visible in the previous capture."
+    },
+    {
+      "where": "E2–F3 right lake shoulder",
+      "what": "Widening the lake exposed a long straight terrace with a dark angular slit along its inner edge."
+    },
+    {
+      "where": "B3–D4 outlet wakes",
+      "what": "The pale water trailing the smallest boulder is fainter than before and harder to distinguish from the streambed."
+    }
+  ],
+  "previous_directives": [
+    {
+      "id": "r4-b1",
+      "status": "landed"
+    },
+    {
+      "id": "r4-b2",
+      "status": "not_done"
+    },
+    {
+      "id": "r4-n1",
+      "status": "partial"
+    },
+    {
+      "id": "r4-n2",
+      "status": "not_done"
+    },
+    {
+      "id": "r4-n3",
+      "status": "not_done"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "r5-b1",
+      "where": "A2–F3 lake margins and near banks",
+      "target": "Continuous meadow follows the far waterline and waist-high shrubs fill both near shoulders behind the cut bank and gravel.",
+      "current": "Wide strips of bare earth encircle the lake, with a few low grass clusters on the near banks.",
+      "change": "Plant a continuous irregular strip along the far waterline and fill both near shoulders with layered yellow-green sedges and shrubs up to roughly the height of the largest outlet boulder."
+    },
+    {
+      "id": "r5-b2",
+      "where": "A2–B2 and E2–F3 lake shoulders",
+      "target": "Both shores descend gently along the long axis of the lake.",
+      "current": "A steep dark wall rises from the left shore while a raised straight earth terrace ends in a slit on the right.",
+      "change": "Keep the expanded lake width and blend the cut into the terrain across the full width of each shoulder until the left hillside slopes to the lake and the right slit closes."
+    },
+    {
+      "id": "r5-b3",
+      "where": "C2–D2 far inlet",
+      "target": "A small bright cascade connects the inlet rocks to the lake with a narrow reflected streak below.",
+      "current": "The center inlet is a brown notch with an exposed pale triangular surface at its foot.",
+      "change": "Show a continuous two-step cascade between the inlet boulders down to lake level with a light reflection directly underneath."
+    }
+  ],
+  "next": [
+    {
+      "id": "r5-n1",
+      "where": "B2–E4 water and outlet rocks",
+      "target": "The lake holds soft olive vertical reflections and the slate-blue shallows carry narrow white wakes around three sloped boulders.",
+      "current": "Coarse blue ripples break the reflections, the shallows read brown, and dark upright boulder faces obscure the faint wakes.",
+      "change": "Reduce ripple contrast across the lake, cool the shallows, round the boulder faces toward the water and trace broken pale wakes tightly along each downstream flank."
+    },
+    {
+      "id": "r5-n2",
+      "where": "A3–B4 cut bank",
+      "target": "An irregular grassy lip overhangs visible roots above a sloping earth-and-pebble toe.",
+      "current": "A straight grass-topped ledge drops into an almost black gap at the water.",
+      "change": "Break up the lip, expose fine hanging roots and extend a lit earth slope with embedded gray stones from beneath the overhang down to the stream."
+    },
+    {
+      "id": "r5-n3",
+      "where": "E3–F4 gravel shelf",
+      "target": "A broad mound of raised gray and brown rounded stones thins into grass clumps at the top.",
+      "current": "A pale flat pebbled strip ends sharply at short dark grass.",
+      "change": "Build a convex gravel shelf with overlapping rounded pea- through fist-sized stones and thin their coverage progressively into taller grass."
+    }
+  ],
+  "excluded": [
+    "Distant mountains and sky."
+  ],
+  "unverifiable": [
+    "Water and vegetation movement cannot be judged from still captures."
+  ]
+}

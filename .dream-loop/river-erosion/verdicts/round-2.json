@@ -1,0 +1,78 @@
+{
+  "score": 2.3,
+  "first_failed_gate": "layout",
+  "previous_score": 2.2,
+  "regressions": [
+    {
+      "where": "D3–D4 beside the largest rock",
+      "what": "New grass beside the largest rock makes its right flank read as planted dry ground where the target shows open water."
+    }
+  ],
+  "previous_directives": [
+    {
+      "id": "r1-b1",
+      "status": "not_done"
+    },
+    {
+      "id": "r1-b2",
+      "status": "partial"
+    },
+    {
+      "id": "r1-b3",
+      "status": "not_done"
+    },
+    {
+      "id": "r1-n1",
+      "status": "not_done"
+    },
+    {
+      "id": "r1-n2",
+      "status": "partial"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "r2-b1",
+      "where": "A3–F4 outlet",
+      "target": "The lake flows into a widening apron of shallow water that occupies nearly the entire bottom edge.",
+      "current": "The outlet narrows to a dark strip left of center and dry ground reaches the right flank of the largest rock.",
+      "change": "Extend the water surface around both sides of the largest rock and fan it out to about 90% of the bottom edge."
+    },
+    {
+      "id": "r2-b2",
+      "where": "A3–B4 and E3–F4 banks",
+      "target": "The left bank projects over a steep exposed face and the opposite gravel crescent rises into continuous grass.",
+      "current": "Both banks are low smooth slopes with isolated grass clumps and the right gravel patch has a straight upper edge.",
+      "change": "Cut a recessed face below a projecting grass lip on the left and curve the right gravel edge up into a continuous grass verge."
+    },
+    {
+      "id": "r2-b3",
+      "where": "B3–D4 midstream rocks",
+      "target": "The rear-left rock is about two-thirds the width of the largest rock and the front-left rock is about half its width.",
+      "current": "The rear-left and front-left stones are both less than half their target widths and the largest rock sits against the bank.",
+      "change": "Enlarge both left rocks to those proportions and group all three inside the widened channel."
+    }
+  ],
+  "next": [
+    {
+      "id": "r2-n1",
+      "where": "B2–E4 water",
+      "target": "Broad olive reflections on the lake give way to a visible gravel bed and narrow white wakes around the rocks.",
+      "current": "Blue flecks cover the lake and a gray foam streak runs down an almost black streambed.",
+      "change": "Broaden and soften the lake reflections, show submerged gravel through the shallows and localize foam around each rock."
+    },
+    {
+      "id": "r2-n2",
+      "where": "E3–F4 gravel",
+      "target": "Distinct rounded pebbles of several sizes overlap at the waterline and thin into the grass.",
+      "current": "The gravel has lost its regular rows but reads as a flat speckled patch.",
+      "change": "Add irregularly spaced raised pebbles in several sizes along the curved waterline and taper their density inland."
+    }
+  ],
+  "excluded": [
+    "Sky, mountains and distant upland terrain are outside the outlet scope."
+  ],
+  "unverifiable": [
+    "Still captures cannot establish water motion."
+  ]
+}

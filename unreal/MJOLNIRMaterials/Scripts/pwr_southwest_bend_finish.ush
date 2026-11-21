@@ -1,0 +1,88 @@
+    // Both sizes retain the photogrammetry RGB. The local atlas puts the
+    // source colour in perceptual RGB; A is the independent measured relief.
+    float2x2 mineralRot=float2x2(.60,-.80,.80,.60);
+    float2 mineralUV=mul(mineralRot,m)/1.92+float2(.38,.63);
+    float2 mineralDx=mul(mineralRot,dx)/1.92;
+    float2 mineralDy=mul(mineralRot,dy)/1.92;
+    float3 nativeGravel=Texture2DSampleGrad(PathGravel,SiteEarthSampler,mineralUV,mineralDx,mineralDy).rgb;
+    float2 mineralN=Texture2DSampleGrad(PathGravelNormal,SiteEarthSampler,mineralUV,mineralDx,mineralDy).rg*2-1;
+    float3 coarse=stone.rgb*(stone.rgb*(stone.rgb*.305306011+.682171111)+.012522878);
+    float3 luma=float3(.2126,.7152,.0722);
+    float soilL = dot(soil,luma), gravelL = dot(nativeGravel,luma);
+    float compact = smoothstep(.50,.90,survey.x);
+    float deposit = 1-smoothstep(.10,.48,survey.x);
+    float pocket = saturate(.47+2.7*(soilL-.11)+.26*sin(dot(m,float2(.55,.29))+.71*sin(.40*m.y)));
+    float recovered = smoothstep(.42,.80,stone.a);
+    float bearing = deposit*(.37+.58*pocket);
+    float scattered = smoothstep(.07,.23,gravelL)*smoothstep(.57,.78,stone.a);
+    float stoneFraction = saturate(.078+.56*bearing+.18*scattered-.05*compact);
+    float3 trampled = soil*float3(.89,.79,.67)+float3(.019,.016,.013);
+    float3 packed = soil*float3(.97,.83,.68)+float3(.031,.024,.017);
+    float3 clay = trampled*float3(.86,.90,.95);
+    float3 ground = lerp(lerp(trampled,clay,deposit),packed,compact);
+    float3 pebbles = lerp(coarse*float3(.98,.93,.88),nativeGravel*float3(1.04,.97,.87),.34);
+    // Silt bridges the darker matrix and the pale faces even in the gravel
+    // islands. Occasional protruding stones reach the driving paths.
+    pebbles = lerp(ground*.81,pebbles,.53+.37*recovered);
+    float3 color=lerp(ground,pebbles,stoneFraction);
+    color*=lerp(.94,1.025,smoothstep(.24,.66,stone.a))*(1-.105*bearing);
+
+    float moss=smoothstep(.18,.38,litter.g)*(1-smoothstep(.44,.61,litter.g));
+    float pine=smoothstep(.44,.78,litter.g);
+    float3 humus=lerp(soil*float3(.47,.44,.40),float3(.070,.040,.025)*(.55+.91*litter.r),.61);
+    float3 mossColour=lerp(float3(.037,.050,.024),float3(.116,.133,.061),litter.r);
+    float3 russet=lerp(float3(.093,.049,.024),float3(.244,.135,.061),litter.r);
+    float3 forest=lerp(lerp(humus,mossColour,moss*.67),russet,pine);
+    forest=lerp(forest,pebbles*.81,scattered*(1-pine)*.30);
+    float contact=smoothstep(.89,.995,duff);
+    forest*=1-contact*(.27+.10*(1-litter.r));
+    float fringe=saturate(1-abs(duff-.47)*2);
+    duff=saturate((duff-.035)*1.37+fringe*(.49*(litter.g-.36)+.30*(litter.r-.45)));
+    color=lerp(color,forest,duff);
+    float2 gravelN=mul(mineralN,mineralRot);
+    float2 litterN=mul(litter.ba*2-1,pineRot);
+    float2 n=lerp(soilNormal*lerp(.53,.33,compact),gravelN*.70,stoneFraction);
+    n=lerp(n,litterN*.68,duff);
+
+    float damp=0, pool=0;
+    [branch] if (wetField>.025)
+    {
+        float depth=wetField-.18*(stone.a-.50)-.30*(gravelL-.12);
+        damp=smoothstep(.075,.34,depth)*(1-duff);
+        float2 q=m-float2(-588.944,541.320);
+        float waterBody;
+        if (dot(q,q)<2.25)
+        {
+            // Three different shallow lobes share a dark basin. Their long
+            // axes diverge; a genuine gravel crest can protrude through any.
+            float2 a=q-float2(-.028,-.061), b=q-float2(.195,.178), c=q-float2(-.275,.070);
+            float one=length(mul(float2x2(.88,.475,-.475,.88),a)/float2(.27,.127));
+            float two=length(mul(float2x2(.65,-.76,.76,.65),b)/float2(.17,.10));
+            float three=length(mul(float2x2(.42,.91,-.91,.42),c)/float2(.122,.075));
+            float relief=.36*(stone.a-.48)+.14*sin(dot(q,float2(17.1,-29.3)));
+            waterBody=1-smoothstep(.65,1.17,min(min(one,two),three)+relief);
+        }
+        else
+        {
+            float uneven=.25*sin(m.x*7.61+m.y*3.72)+.22*sin(m.y*8.5-m.x*2.2)+.21*(stone.a-.5);
+            waterBody=smoothstep(.19,.47,depth+uneven-.25);
+        }
+        pool=waterBody*smoothstep(.23,.58,depth)*(1-smoothstep(.77,.95,stone.a))*(1-duff);
+        color=lerp(color,color*float3(.53,.59,.65),damp);
+        // Open daylight appears through small canopy gaps. Keep soft silty
+        // margins and retain the directional specular response in motion.
+        float3 reflectedSky=lerp(float3(.029,.046,.065),float3(.063,.111,.169),saturate(.64+.75*(depth-.55)));
+        color=lerp(color,lerp(color*.69,reflectedSky,.83),pool);
+        float2 film=.013*float2(sin(m.x*9.6+m.y*1.7),sin(m.y*13.3-m.x*4.3));
+        n=lerp(n,film,.99*pool);
+    }
+    n*=rsqrt(max(1.,dot(n,n)*1.025));
+    float3 terrainNormal=float3(n,sqrt(saturate(1-dot(n,n))));
+    float rough=lerp(.92-.12*compact,.94,duff)-.19*damp;
+    originalGround=lerp(originalGround,color,alpineField.r);
+    WetNormal=normalize(lerp(WetNormal,terrainNormal,alpineField.r));
+    WetRough=lerp(WetRough,lerp(rough,.077,pool),alpineField.r);
+    WetSpec=lerp(WetSpec,lerp(.205,.47,pool),alpineField.r);
+    RoadMetal=lerp(RoadMetal,0.,alpineField.r);
+}
+// End PWR Southwest forest floor

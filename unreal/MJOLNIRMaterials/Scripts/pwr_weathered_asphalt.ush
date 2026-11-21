@@ -1,0 +1,99 @@
+// Begin PWR weathered asphalt
+// RoadNetwork stores metric signed distance. Its green channel identifies paved
+// approaches and excludes wet crossings, base courts and the dirt service routes.
+float pavedOffset = (network.b-.5)*32.;
+float2 offsetChange = float2(ddx(pavedOffset),ddy(pavedOffset));
+[branch] if (cover>.002 && (alpineFar || alpineField.r<.002))
+{
+    float hierarchy = saturate(network.g/max(cover,.001));
+    float mainRoute = smoothstep(.43,.68,hierarchy);
+    float side = abs(pavedOffset);
+    [branch] if (mainRoute<.999 && side>6.2 && side<14.2)
+    {
+        // Read the original hierarchy on the inboard side of this specific
+        // road. Dirt-only junctions never reach the primary classification.
+        float det = earthDx.x*earthDy.y-earthDx.y*earthDy.x;
+        float2 grad = float2(earthDy.y*offsetChange.x-earthDx.y*offsetChange.y,
+                             earthDx.x*offsetChange.y-earthDy.x*offsetChange.x);
+        float2 inward = -sign(det*pavedOffset)*grad*rsqrt(max(dot(grad,grad),1e-16));
+        float2 nearRoad = Texture2DSampleLevel(RoadAtlas,RoadAtlasSampler,
+            rect+inward*(4.9/2000.),min(2.,max(0.,log2(max(pixelMetres,1.))))).rg;
+        mainRoute = max(mainRoute,smoothstep(.46,.67,nearRoad.g/max(nearRoad.r,.001)));
+    }
+    [branch] if (mainRoute>.001)
+    {
+        float2 m = WorldCM.xy*.01;
+        float2x2 turn = float2x2(.85717,-.51504,.51504,.85717);
+        float2x2 unpack = float2x2(.85717,.51504,-.51504,.85717);
+        float2 dX = mul(turn,earthDx), dY = mul(turn,earthDy);
+        float2 rotated = mul(turn,m);
+
+        // A physical crushed-mineral relief scan supplies the closely packed
+        // inclusions and their surface normals in the bituminous binder.
+        float2 fineUV = rotated/.91 + float2(.27,.81);
+        float2 tile = float2(1008./2048.,1008./1024.);
+        float4 chip = Texture2DSampleGrad(SweepFloorDetail,SiteEarthSampler,
+            frac(fineUV)*tile + float2(8./2048.,8./1024.),
+            dX*tile/.91,dY*tile/.91);
+        float2 chipN = mul(unpack,chip.ba*2.-1.);
+
+        // Independently scaled campaign gravel and soil scans break up both
+        // the fine aggregate and the outer apron under distance filtering.
+        float2 shoulderUV = m/2.68 + float2(.62,.17);
+        float3 stones = Texture2DSampleGrad(PathGravel,SiteEarthSampler,shoulderUV,
+            earthDx/2.68,earthDy/2.68).rgb;
+        float2 stonesN = Texture2DSampleGrad(PathGravelNormal,SiteEarthSampler,shoulderUV,
+            earthDx/2.68,earthDy/2.68).rg*2.-1.;
+        float2 soilUV = rotated/7.23 + float2(.16,.43);
+        float3 soil = Texture2DSampleGrad(SiteEarth,SiteEarthSampler,soilUV,dX/7.23,dY/7.23).rgb;
+        float3 luma = float3(.2126,.7152,.0722);
+        float gravelValue = dot(stones,luma);
+        float dust = smoothstep(.046,.155,dot(soil,luma));
+        float mineralFace = smoothstep(.38,.75,chip.r*.65+chip.g*.35);
+        float mineralGrain = saturate((gravelValue-.048)*4.5);
+        float2 washUV = m*float2(.105,.083);
+        float drift = sin(washUV.x+.57*sin(washUV.y*1.63))*.46
+                    +sin(washUV.y-.38*washUV.x)*.29;
+        float raggedEdge = (dust-.5)*.77+(mineralGrain-.34)*.89+drift*.46;
+
+        // Keep the asphalt centred inside the original 17.6-metre footprint.
+        // Fractured edge aggregate and fine mineral carry into the grassy grade.
+        float course = 1.-smoothstep(8.19,9.04,side+raggedEdge);
+        float apron = (1.-smoothstep(10.1,13.1,side+raggedEdge))*cover;
+        float influence = saturate(mainRoute*apron);
+        float faded = saturate(.49+.31*drift+.44*(dust-.5)+.20*(mineralGrain-.35));
+        float wheel = saturate(exp2(-pow((side-2.65)/1.08,2.))
+                             +exp2(-pow((side-5.30)/.91,2.)));
+        float3 binder = lerp(float3(.047,.047,.045),float3(.093,.087,.077),faded);
+        binder *= .94+.14*dust-.06*wheel;
+        float3 stoneFace = lerp(float3(.10,.099,.092),float3(.215,.209,.190),chip.r);
+        float exposed = (.16+.60*mineralFace)*(.66+.38*mineralGrain)*(1.-.10*wheel);
+        float3 asphalt = lerp(binder,stoneFace,exposed)*.84;
+        // Powder from the verge settles in irregular worn patches of the
+        // charcoal wearing course, particularly outside the cleaned wheel paths.
+        float powder = smoothstep(.58,.89,.65*dust+.23*mineralGrain+.18*drift-.06*wheel);
+        asphalt += powder*float3(.036,.031,.024);
+
+        // The centre guide survives in flecks between exposed stones. The
+        // transverse slabs, raised-metal border and continuous edge tape are gone.
+        float dash = smoothstep(.18,.47,network.a*2.-1.)*(1.-smoothstep(.055,.15,side));
+        float paint = dash*smoothstep(.42,.82,hierarchy)*saturate(.44+.55*dust-.73*mineralFace)
+                    *(1.-smoothstep(.15,1.0,pixelMetres));
+        asphalt = lerp(asphalt,float3(.34,.255,.135)*(.78+.32*mineralGrain),paint*.72);
+
+        float3 fines = lerp(float3(.089,.075,.059),float3(.173,.143,.107),dust);
+        float3 looseRock = lerp(stones*float3(1.04,1.,.94),
+                                float3(.217,.206,.175)*(.64+mineralGrain),.47);
+        float gravel = saturate(.20+.65*mineralGrain+.21*mineralFace+.10*drift);
+        float3 shoulder = lerp(fines,looseRock,gravel);
+        float2 n = lerp(stonesN*.73+chipN*.19,chipN*(.32+.16*exposed)+stonesN*.14,course);
+        n *= rsqrt(max(1.,dot(n,n)*1.03));
+        float3 facing = float3(n,sqrt(saturate(1.-dot(n,n))));
+        originalGround = lerp(originalGround,lerp(shoulder,asphalt,course),influence);
+        WetNormal = normalize(lerp(WetNormal,facing,influence));
+        WetRough = lerp(WetRough,lerp(.89-.08*gravel,.86-.074*exposed-.045*wheel,course),influence);
+        WetSpec = lerp(WetSpec,lerp(.245,.295+.021*exposed,course),influence);
+        RoadMetal = lerp(RoadMetal,0.,influence);
+    }
+}
+// End PWR weathered asphalt

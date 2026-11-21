@@ -1,0 +1,117 @@
+{
+  "$id": "1",
+  "Resolution": 1024,
+  "NodeCount": 20,
+  "Result": "Success",
+  "StartTime": "2026-11-09T08:39:45.2895152-07:00",
+  "EndTime": "2026-11-09T08:39:58.3219357-07:00",
+  "Duration": "00:00:13.0324205",
+  "SecondsTaken": {
+    "$id": "2",
+    "$values": [
+      {
+        "$id": "3",
+        "Item1": "Northwest massif",
+        "Item2": "00:00:01.9200000"
+      },
+      {
+        "$id": "4",
+        "Item1": "Western shoulder",
+        "Item2": "00:00:01.7560000"
+      },
+      {
+        "$id": "5",
+        "Item1": "Southwest massif",
+        "Item2": "00:00:01.0850000"
+      },
+      {
+        "$id": "6",
+        "Item1": "Northeast massif",
+        "Item2": "00:00:01.1560000"
+      },
+      {
+        "$id": "7",
+        "Item1": "Eastern escarpment",
+        "Item2": "00:00:01.0330000"
+      },
+      {
+        "$id": "8",
+        "Item1": "Southeast massif",
+        "Item2": "00:00:01.0110000"
+      },
+      {
+        "$id": "9",
+        "Item1": "Western foothills",
+        "Item2": "00:00:01.0050000"
+      },
+      {
+        "$id": "10",
+        "Item1": "Eastern foothills",
+        "Item2": "00:00:01.0670000"
+      },
+      {
+        "$id": "11",
+        "Item1": "Northern saddle",
+        "Item2": "00:00:00.9510000"
+      },
+      {
+        "$id": "12",
+        "Item1": "Southern foothills",
+        "Item2": "00:00:00.9640000"
+      },
+      {
+        "$id": "13",
+        "Item1": "Landform group",
+        "Item2": "00:00:00.0050000"
+      },
+      {
+        "$id": "14",
+        "Item1": "Landform group",
+        "Item2": "00:00:00.0040000"
+      },
+      {
+        "$id": "15",
+        "Item1": "Landform group",
+        "Item2": "00:00:00.0030000"
+      },
+      {
+        "$id": "16",
+        "Item1": "Complete watershed relief",
+        "Item2": "00:00:00.0050000"
+      },
+      {
+        "$id": "17",
+        "Item1": "Primary drainage erosion",
+        "Item2": "00:00:00.3680000"
+      },
+      {
+        "$id": "18",
+        "Item1": "Talus and foothill settling",
+        "Item2": "00:00:00.5860000"
+      },
+      {
+        "$id": "19",
+        "Item1": "pwr_height",
+        "Item2": "00:00:00.0010000"
+      },
+      {
+        "$id": "20",
+        "Item1": "pwr_flow"
+      },
+      {
+        "$id": "21",
+        "Item1": "pwr_wear"
+      },
+      {
+        "$id": "22",
+        "Item1": "pwr_deposits"
+      }
+    ]
+  },
+  "FastestNode": {
+    "$ref": "20"
+  },
+  "SlowestNode": {
+    "$ref": "3"
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "score": 2.7,
+  "first_failed_gate": "layout",
+  "previous_score": 2.5,
+  "regressions": [
+    {
+      "where": "E3–F4 gravel at the waterline",
+      "what": "Individual light stones were easier to distinguish in the previous capture, while the current shelf blends into the streambed as a continuous tan band."
+    }
+  ],
+  "previous_directives": [
+    {
+      "id": "r3-b1",
+      "status": "not_done"
+    },
+    {
+      "id": "r3-b2",
+      "status": "partial"
+    },
+    {
+      "id": "r3-n1",
+      "status": "partial"
+    },
+    {
+      "id": "r3-n2",
+      "status": "partial"
+    },
+    {
+      "id": "r3-n3",
+      "status": "partial"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "r4-b1",
+      "where": "A2–F3 lake outline",
+      "target": "At half frame height the open water extends roughly from 11% to 87% of frame width.",
+      "current": "The shorelines still pinch the water between approximately 20% and 70% of frame width at that height.",
+      "change": "Cut the two midlake shelves back to the target endpoints at half frame height, keeping the near cut bank and the three outlet rocks in place."
+    },
+    {
+      "id": "r4-b2",
+      "where": "A2–B3 left bank and E2–F4 right shoulder",
+      "target": "Tall grasses and shrubs form continuous masses around the lake and over the shoulder, with one low stone showing above the right grass.",
+      "current": "Denser short grass lines the outlet, but broad bare areas remain behind both banks and several large boulders stand clear on the right.",
+      "change": "Extend overlapping blade and shrub clumps from both outlet edges across the bare shelves to the far shoreline, with taller clumps screening all but one low right-hand stone."
+    }
+  ],
+  "next": [
+    {
+      "id": "r4-n1",
+      "where": "B2–E4 lake and outlet",
+      "target": "Broad olive vertical reflections give way to slate-blue shallows with narrow bright foam curling around the three grey rocks.",
+      "current": "The calmer lake reflects separate blue and tan patches, and the brown outlet has weak grey streaks against rock faces that fall nearly black.",
+      "change": "Reflect the vegetated shore as broad olive bands, retain a blue-grey surface over the visible bed, lift the rocks' shadowed faces and concentrate white foam along their waterlines."
+    },
+    {
+      "id": "r4-n2",
+      "where": "A3–B4 eroded left bank",
+      "target": "A ragged rooted lip overhangs a lit brown slope with loose stones at its toe.",
+      "current": "The lip has a rougher edge but still overhangs an almost black slot without a readable soil slope.",
+      "change": "Bring the earth face forward below the lip, slope it into scattered toe stones and light the rough soil enough to distinguish it from the narrow root shadows."
+    },
+    {
+      "id": "r4-n3",
+      "where": "E3–F4 gravel fan",
+      "target": "Rounded grey pebbles and fist-sized cobbles form a raised wedge with dark gaps and scattered stones entering the grass.",
+      "current": "A tan strip of small pale flecks runs flush into the channel and ends in a dense grass line.",
+      "change": "Raise the fan above the bed and distribute grey stones of several sizes with visible sides and contact shadows, tapering their density inland through the grass."
+    }
+  ],
+  "excluded": [
+    "Distant mountains and sky."
+  ],
+  "unverifiable": [
+    "Water flow and foam motion cannot be judged from still captures."
+  ]
+}

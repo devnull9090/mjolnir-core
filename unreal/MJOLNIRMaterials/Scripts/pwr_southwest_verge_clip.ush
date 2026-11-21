@@ -1,0 +1,6 @@
+    const float2 fittedWheels[GRADE_EDGE_COUNT]={GRADE_EDGE_ROWS};
+    float gradePosition=clamp((localStation-58.)*.5,0.,float(GRADE_EDGE_COUNT-1));
+    int pairIndex=min((int)gradePosition,GRADE_LAST_PAIR);
+    float2 banks=lerp(fittedWheels[pairIndex],fittedWheels[pairIndex+1],gradePosition-pairIndex);
+    float outsideWheel=max(banks.x-localCross,localCross-banks.y);
+    float gradeClip=(1-smoothstep(2.58,2.97,outsideWheel))*(1-smoothstep(152.7,153.2,localStation));

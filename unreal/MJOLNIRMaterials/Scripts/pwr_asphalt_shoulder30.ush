@@ -1,0 +1,67 @@
+        // The original road cut supplies the grade. The narrow broken crust
+        // sits inside it; exposed aggregate gives way to humus on the outside.
+        float fromLip = edgeMetres-8.67;
+        float innerBed = 1.-smoothstep(.52,2.42,fromLip+.37*(dust-.5));
+        float brokenCrust = smoothstep(.29,.60,chip.a+.21*(gravelValue-.12))
+                          * (1.-smoothstep(.035,.22,abs(fromLip+.12*(chip.a-.48))));
+        asphalt *= 1.-.29*brokenCrust;
+        float3 soilFines = lerp(float3(.066,.059,.049),float3(.123,.112,.095),dust);
+        float3 aggregateBed = lerp(stones*float3(.90,1.02,1.14),
+                             float3(.15,.148,.139)*(.55+mineralGrain),.24);
+        float gravel = saturate(.13+.54*mineralGrain+.16*mineralFace+.31*innerBed);
+        float3 shoulder = lerp(soilFines,aggregateBed,gravel);
+        float looseHeight = 0.;
+        [branch] if (fromLip>-.44 && fromLip<4.5 && grainFoot<.14)
+        {
+            // The atlas holds 205 irregular impressions cut from the shipped
+            // scree and crushed-stone scans, at 5 mm per texel. The colour
+            // inside each silhouette and the fine soil grain are independent.
+            float2 q = float2(.98*m.x+.31*m.y,-.47*m.x+1.06*m.y)*1.43;
+            float2 base = floor(q), f = frac(q);
+            float high = step(1.,f.x+f.y);
+            float3 mixWeight = lerp(float3(1.-f.x-f.y,f.x,f.y),
+                                    float3(f.x+f.y-1.,1.-f.x,1.-f.y),high);
+            float2 vertices[3] = {base+high.xx,base+float2(1.-high,high),base+float2(high,1.-high)};
+            float coverStone=0.,stoneAlbedo=0.,matrixGrain=0.;
+            [unroll] for (int i=0;i<3;++i)
+            {
+                uint2 id=asuint(int2(vertices[i]));
+                uint h=(id.x*0x68bc21ebu)^(id.y*0x02e5be93u);
+                h^=h>>16u; h*=0x7feb352du; h^=h>>15u; h*=0x846ca68bu; h^=h>>16u;
+                float3 seed=float3(uint3(h,h>>10u,h>>20u)&1023u)/1023.;
+                float s,c; sincos(seed.x*6.2831853,s,c);
+                float2x2 spin=float2x2(c,-s,s,c);
+                float2 invPeriod=lerp(.88,1.76,seed.y)/float2(1.12,5.04);
+                float2 uv=mul(spin,m)*invPeriod+seed.yz;
+                float2 gx=mul(spin,earthDx)*invPeriod, gy=mul(spin,earthDy)*invPeriod;
+                // Inset anisotropic footprints within the narrow packed strip.
+                float2 reach=.68*(abs(gx)+abs(gy));
+                float lodLimit=min(1.,.18/max(.00001,max(reach.x,reach.y)));
+                float2 inset=max(0.,reach*lodLimit-5./float2(224.,1008.));
+                float2 scale=1.-2.*inset, tile=float2(224./2048.,1008./1024.);
+                float4 fragment=Texture2DSampleGrad(SweepFloorDetail,SiteEarthSampler,
+                    (frac(uv)*scale+inset)*tile+float2(1816./2048.,8./1024.),
+                    gx*scale*tile*lodLimit,gy*scale*tile*lodLimit);
+                float face=fragment.r*smoothstep(.035,.44,mixWeight[i]);
+                // Overlapping crowns retain a solid silhouette across lattice boundaries.
+                stoneAlbedo+=face*(fragment.a-.49);
+                coverStone=1.-(1.-coverStone)*(1.-face);
+                matrixGrain+=mixWeight[i]*(fragment.b-.50);
+            }
+            float visibility=1.-smoothstep(.046,.14,grainFoot);
+            float deposit=(.38+.62*innerBed)*smoothstep(-.44,-.18,fromLip);
+            float face=coverStone*visibility*deposit;
+            float darkMatrix=1.-innerBed*.21-.23*brokenCrust;
+            shoulder*=darkMatrix*(1.+visibility*.24*matrixGrain);
+            float scanValue=saturate(.49+stoneAlbedo/max(.05,coverStone));
+            float3 mineralColour=lerp(float3(.071,.075,.085),float3(.315,.289,.246),scanValue);
+            shoulder=lerp(shoulder,mineralColour,face);
+            looseHeight=face*(.005+.012*scanValue)-.006*brokenCrust;
+        }
+        // Convert filtered metric height into slopes. Physical scan normals
+        // light loose facets independently of the low-relief wearing course.
+        float2 shoulderDerivative=float2(ddx(looseHeight),ddy(looseHeight));
+        float2 shoulderSlope=float2(earthDy.y*shoulderDerivative.x-earthDx.y*shoulderDerivative.y,
+                                    earthDx.x*shoulderDerivative.y-earthDy.x*shoulderDerivative.x)*inverseGroundDet;
+        float2 n = lerp(stonesN*.61+chipN*.18-clamp(shoulderSlope,-.62,.62),
+                        chipN*.74+stonesN*.045,course);

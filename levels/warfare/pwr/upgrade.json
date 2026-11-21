@@ -1,0 +1,385 @@
+{
+  "PWR": {
+    "conversion": "C:/haloce/ce_conversions/warfare/PWR/expansion/world-v3/converted",
+    "level": "pwr.level.json",
+    "sbsp": "pwr.sbsp",
+    "surface_policy": "C:/haloce/ce_conversions/warfare/PWR/expansion/world-v3/source-build/pwr.surfaces.json",
+    "heightfield": "levels/warfare/pwr/terrain/runtime-v3/runtime-master.json",
+    "authored_decor": "out/pwr/pcg-v3/authored-decor.json",
+    "authored_material_overrides": "levels/warfare/pwr/material-overrides-v3.json",
+    "authored_collision": "C:/haloce/ce_conversions/warfare/PWR/expansion/world-v3/source-build/terrain-collision-extra.json",
+    "shaders": [
+      "levels_b30_shaders_beach",
+      "blood_ground"
+    ],
+    "cliff_shaders": [],
+    "landscape": "LPW",
+    "chunk": 965,
+    "components": 16,
+    "map_mesh_chunk": true,
+    "bake_foliage": true,
+    "pcg_foliage": "out/pwr/pcg-v3/grass/foliage.json",
+    "pcg_foliage_only": true,
+    "native_rock_materials": false,
+    "tree_variant": "Tree_Pine",
+    "pcg_tree_palette": {
+      "recipes": [
+        {
+          "recipe": "Pine_Optimized",
+          "weight": 0.88
+        },
+        {
+          "recipe": "Pine_Sapling_A",
+          "weight": 0.12
+        }
+      ]
+    },
+    "pcg_trees": "out/pwr/pcg-v3/trees.selected.json",
+    "pcg_tree_limit": 3000,
+    "pine_cull_cm": [160000, 300000],
+    "rocks": "beach",
+    "rock_roughness": 0.7,
+    "rock_palette": "coastal",
+    "tess": false,
+    "sky_mesh": false,
+    "haze": {
+      "color": [
+        0.32,
+        0.43,
+        0.58
+      ],
+      "density": 0.0,
+      "falloff": 0.025,
+      "start": 35000,
+      "cutoff": 0,
+      "max_opacity": 0.0
+    },
+    "environment": {
+      "light_scale": 8192,
+      "sun": {
+        "intensity": 4,
+        "pitch": -42,
+        "yaw": -35,
+        "source_angle": 1,
+        "atmosphere_sun": true,
+        "color": [
+          1,
+          0.98,
+          0.94
+        ]
+      },
+      "skylight": {
+        "intensity": 2,
+        "physical": true,
+        "recapture_after_load": true,
+        "color": [
+          0.98,
+          0.99,
+          1
+        ],
+        "lower": [
+          0.3,
+          0.31,
+          0.28
+        ]
+      },
+      "post": {
+        "exposure_bias": 0.6,
+        "tone_curve": 1
+      },
+      "clouds": false,
+      "water": {
+        "style": "ocean",
+        "waves": 0.04,
+        "params": {
+          "WaterColor": [
+            0.025,
+            0.12,
+            0.15,
+            1.0
+          ],
+          "Absorption": [
+            0.45,
+            0.17,
+            0.1,
+            1.0
+          ],
+          "Clarity": 8.0,
+          "Roughness": 0.22,
+          "Specular": 0.35,
+          "FoamAmount": 0.0,
+          "ParaBrightness": 0.45,
+          "PerpBrightness": 0.2,
+          "DetailStrength": 0.035,
+          "Shelf": [0, 40, 5, 0],
+          "ShoreParams": [0, 14, 0.12, 0]
+        }
+      }
+    },
+    "waterfalls": {
+      "hide": [],
+      "falls": [
+        {
+          "pos": [
+            -22075.01923635996,
+            -49320.4218092674,
+            11844.188946639508
+          ],
+          "yaw": 46.312639933108024,
+          "sheet": false,
+          "effects": [
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                -19497.569760291728,
+                -45095.48012736181,
+                10690.945122859768
+              ],
+              "rot": [
+                0,
+                46.312639933108024,
+                0
+              ],
+              "scale": [
+                1.5,
+                1.5,
+                1.0
+              ]
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/LargeWaterfall/NS_PNW_WaterfallSplash_01.NS_PNW_WaterfallSplash_01",
+              "pos": [
+                -18955.23010318165,
+                -45613.52230356537,
+                10690.945122859768
+              ],
+              "rot": [
+                0,
+                46.312639933108024,
+                0
+              ],
+              "scale": [
+                1.5,
+                1.5,
+                1.0
+              ]
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                -18412.890446071575,
+                -46131.56447976893,
+                10690.945122859768
+              ],
+              "rot": [
+                0,
+                46.312639933108024,
+                0
+              ],
+              "scale": [
+                1.5,
+                1.5,
+                1.0
+              ]
+            }
+          ]
+        },
+        {
+          "pos": [
+            -4471.345653241595,
+            -4001.578532410166,
+            9316.314356117275
+          ],
+          "yaw": 78.17845009682634,
+          "sheet": false,
+          "effects": [
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                -4761.967842972701,
+                -2112.30693536092,
+                9255.702507607231
+              ],
+              "rot": [
+                0,
+                78.17845009682634,
+                0
+              ],
+              "scale": [
+                1.5,
+                1.5,
+                1.0
+              ]
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                -4027.875039122878,
+                -2265.9550897133417,
+                9255.702507607231
+              ],
+              "rot": [
+                0,
+                78.17845009682634,
+                0
+              ],
+              "scale": [
+                1.5,
+                1.5,
+                1.0
+              ]
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                -3293.7822352730554,
+                -2419.6032440657636,
+                9255.702507607231
+              ],
+              "rot": [
+                0,
+                78.17845009682634,
+                0
+              ],
+              "scale": [
+                1.5,
+                1.5,
+                1.0
+              ]
+            }
+          ]
+        },
+        {
+          "pos": [
+            5082.047650763953,
+            35531.87839996386,
+            8858.0571094946
+          ],
+          "yaw": 28.617049793676436,
+          "sheet": false,
+          "effects": [
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                7322.775508214734,
+                37664.64847609632,
+                8764.760863870557
+              ],
+              "rot": [
+                0,
+                28.617049793676436,
+                0
+              ],
+              "scale": [
+                1.5,
+                1.5,
+                1.0
+              ]
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                7681.990335133503,
+                37006.26810873888,
+                8764.760863870557
+              ],
+              "rot": [
+                0,
+                28.617049793676436,
+                0
+              ],
+              "scale": [
+                1.5,
+                1.5,
+                1.0
+              ]
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                8041.205162052272,
+                36347.88774138144,
+                8764.760863870557
+              ],
+              "rot": [
+                0,
+                28.617049793676436,
+                0
+              ],
+              "scale": [
+                1.5,
+                1.5,
+                1.0
+              ]
+            }
+          ]
+        },
+        {
+          "pos": [
+            22599.775596225063,
+            55365.72405144652,
+            6776.0687133584825
+          ],
+          "yaw": 72.39977728987954,
+          "sheet": false,
+          "effects": [
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                22069.4712239752,
+                56167.13920838097,
+                6209.614669251351
+              ],
+              "rot": [
+                0,
+                72.39977728987954,
+                0
+              ],
+              "scale": [
+                1.5,
+                1.5,
+                1.0
+              ]
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/LargeWaterfall/NS_PNW_WaterfallSplash_01.NS_PNW_WaterfallSplash_01",
+              "pos": [
+                22784.363343325043,
+                55940.35901151296,
+                6209.614669251351
+              ],
+              "rot": [
+                0,
+                72.39977728987954,
+                0
+              ],
+              "scale": [
+                1.5,
+                1.5,
+                1.0
+              ]
+            },
+            {
+              "system": "/Game/FX/Library/Environment/PNW/Liquids/Splashes/AmbientRiverSplash/NS_PNW_AmbientRiverSplash_01.NS_PNW_AmbientRiverSplash_01",
+              "pos": [
+                23499.255462674886,
+                55713.57881464496,
+                6209.614669251351
+              ],
+              "rot": [
+                0,
+                72.39977728987954,
+                0
+              ],
+              "scale": [
+                1.5,
+                1.5,
+                1.0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

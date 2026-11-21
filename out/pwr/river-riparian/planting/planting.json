@@ -1,0 +1,167 @@
+{
+  "owner": "PWR_RiparianCanopy",
+  "groups": [
+    {
+      "name": "Rye",
+      "mesh": "/Game/Megascans/3D_Plants/Tall_Grass_rbeki/SM_Tall_Grass_rbeki_01.SM_Tall_Grass_rbeki_01",
+      "material": "",
+      "count": 697,
+      "bands": 3,
+      "cull": [
+        26000,
+        33500
+      ],
+      "source_origin_cm": [
+        -8.02686882019043,
+        -3.5348472595214844,
+        42.23466110229492
+      ],
+      "source_extent_cm": [
+        30.240510940551758,
+        33.59251022338867,
+        45.14213943481445
+      ],
+      "casts_shadow": false,
+      "wind_until_cm": 5400
+    },
+    {
+      "name": "RushFan",
+      "mesh": "/Game/Env/Bio/Grass/Rushes/Grass_Rushes_A/SM_Grass_Rushes_A.SM_Grass_Rushes_A",
+      "material": "",
+      "count": 959,
+      "bands": 3,
+      "cull": [
+        25000,
+        32500
+      ],
+      "source_origin_cm": [
+        -3.65533447265625,
+        -2.342561721801758,
+        38.27270746231079
+      ],
+      "source_extent_cm": [
+        47.59449768066406,
+        38.92032051086426,
+        38.57347631454468
+      ],
+      "casts_shadow": false,
+      "wind_until_cm": 5400
+    },
+    {
+      "name": "RushStem",
+      "mesh": "/Game/Env/Bio/Grass/Rushes/Grass_Rushes_B/SM_Grass_Rushes_B.SM_Grass_Rushes_B",
+      "material": "",
+      "count": 733,
+      "bands": 3,
+      "cull": [
+        26000,
+        34000
+      ],
+      "source_origin_cm": [
+        -0.6270246505737305,
+        0.0,
+        38.33524762094021
+      ],
+      "source_extent_cm": [
+        24.572575569152832,
+        22.890064239501953,
+        38.53601397573948
+      ],
+      "casts_shadow": false,
+      "wind_until_cm": 5400
+    },
+    {
+      "name": "WillowCrown",
+      "mesh": "/Game/Megascans/3D_Plants/Downy_Willow_wknlfiuqx/S_Downy_Willow_wknlfiuqx_0_Var10_lod0.S_Downy_Willow_wknlfiuqx_0_Var10_lod0",
+      "material": "MI_PWR_RiparianWillow",
+      "count": 148,
+      "bands": 3,
+      "cull": [
+        35000,
+        41000
+      ],
+      "source_origin_cm": [
+        -5.756496429443359,
+        -20.249954223632812,
+        44.85272932052612
+      ],
+      "source_extent_cm": [
+        61.660099029541016,
+        63.90931701660156,
+        46.95105791091919
+      ],
+      "casts_shadow": true,
+      "wind_until_cm": 7200
+    },
+    {
+      "name": "WillowTall",
+      "mesh": "/Game/Megascans/3D_Plants/Downy_Willow_wknlfiuqx/S_Downy_Willow_wknlfiuqx_0_Var17_lod0.S_Downy_Willow_wknlfiuqx_0_Var17_lod0",
+      "material": "MI_PWR_RiparianWillow",
+      "count": 92,
+      "bands": 3,
+      "cull": [
+        35000,
+        42500
+      ],
+      "source_origin_cm": [
+        -5.319637298583984,
+        23.637351989746094,
+        78.6797784268856
+      ],
+      "source_extent_cm": [
+        62.47916030883789,
+        45.927955627441406,
+        79.38194337487221
+      ],
+      "casts_shadow": true,
+      "wind_until_cm": 7200
+    },
+    {
+      "name": "SunRye",
+      "mesh": "/Game/Env/Bio/Grass/CanyonPrinceWildRye/SM_Grass_CanyonPrinceWildRye.SM_Grass_CanyonPrinceWildRye",
+      "material": "MI_PWR_RiparianCanyon",
+      "count": 2604,
+      "bands": 3,
+      "cull": [
+        26300,
+        33400
+      ],
+      "source_origin_cm": [
+        5.3004150390625,
+        0.7001495361328125,
+        51.91503795981407
+      ],
+      "source_extent_cm": [
+        82.09076690673828,
+        73.99246215820312,
+        51.71333423256874
+      ],
+      "casts_shadow": false,
+      "wind_until_cm": 5400
+    },
+    {
+      "name": "SunWild",
+      "mesh": "/Game/Megascans/3D_Plants/Wild_Grass_vlkhcbxia/S_Wild_Grass_vlkhcbxia_0_Var12_lod0.S_Wild_Grass_vlkhcbxia_0_Var12_lod0",
+      "material": "MI_PWR_RiparianWild",
+      "count": 1746,
+      "bands": 3,
+      "cull": [
+        25800,
+        33000
+      ],
+      "source_origin_cm": [
+        -4.070219039916992,
+        2.080878257751465,
+        15.73794174194336
+      ],
+      "source_extent_cm": [
+        24.894113540649414,
+        24.742572784423828,
+        19.70559310913086
+      ],
+      "casts_shadow": false,
+      "wind_until_cm": 5400
+    }
+  ],
+  "terrain_sha256": "8a7322fc3fb1314607aa9affdd4572549d53cc1bcd423b17e8272e5ba84dbe68"
+}

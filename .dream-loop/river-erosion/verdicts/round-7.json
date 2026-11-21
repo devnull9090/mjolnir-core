@@ -1,0 +1,89 @@
+{
+  "score": 3.8,
+  "first_failed_gate": "light_colour",
+  "previous_score": 2.6,
+  "regressions": [
+    {
+      "where": "A4 left bank",
+      "what": "The new soil face hides several cobbles visible at the foot of the previous bank, leaving a longer uninterrupted dark strip."
+    }
+  ],
+  "previous_directives": [
+    {
+      "id": "r6-b1",
+      "status": "partial"
+    },
+    {
+      "id": "r6-b2",
+      "status": "landed"
+    },
+    {
+      "id": "r6-b3",
+      "status": "not_done"
+    },
+    {
+      "id": "r6-n1",
+      "status": "not_done"
+    },
+    {
+      "id": "r6-n2",
+      "status": "partial"
+    },
+    {
+      "id": "r6-n3",
+      "status": "not_done"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "r7-b1",
+      "where": "B3-E4 lake and outlet",
+      "target": "Muted olive-grey lake reflections give way to cool blue-grey ripple highlights over the visibly submerged gravel.",
+      "current": "Blue and gold patches alternate across the lake, while the ochre gravel dominates the outlet so strongly that it looks exposed.",
+      "change": "Reduce the gold reflection across the lake and carry broken blue-grey sky reflections between and below all three rocks while retaining visible gravel beneath."
+    },
+    {
+      "id": "r7-b2",
+      "where": "A3-B4 and E3-F4 bank vegetation",
+      "target": "Sunlit yellow-green grass tips stand out against olive foliage, including on the left bank.",
+      "current": "Dark green and brown foliage merges across the left shoulder, and the right shoulder has only a few pale tips.",
+      "change": "Lift the sunlit foliage by about 0.08 in normalized luminance and concentrate the yellow-green highlights on blade tips and the upper surfaces of shrub clumps."
+    },
+    {
+      "id": "r7-b3",
+      "where": "A4 left cutbank and C3-D3 outlet rocks",
+      "target": "Shaded soil and rock faces retain enough grey-brown light to show roots, stones and fractures.",
+      "current": "The soil edge and downstream boulder faces contain broad near-black patches that erase surface relief.",
+      "change": "Lift the ambient fill on the water-facing soil and boulders until individual stones and fractures remain visible in shadow."
+    }
+  ],
+  "next": [
+    {
+      "id": "r7-n1",
+      "where": "A2-F3 waterline and both outer shoulders",
+      "target": "Tall overlapping grass and shrubs extend to the frame edges, and low planted points interrupt the far shore and both near arcs.",
+      "current": "The shrubs cluster halfway up the banks, and smooth exposed arcs still trace the nearly oval lake.",
+      "change": "Extend dense grass stands to both frame edges and build several uneven planted points projecting into the water, with gravel tapering below their tips."
+    },
+    {
+      "id": "r7-n2",
+      "where": "A3-B4 left cutbank and E3-F4 right beach",
+      "target": "Roots drape over a sloping soil face above embedded cobbles opposite a convex ridge of overlapping grey gravel.",
+      "current": "The left edge forms a steep continuous strip with a dark gap below, while the right beach is a pale flat band.",
+      "change": "Slope the left face into a toe of partly buried cobbles, hang irregular roots from its lip, and build the right ridge from overlapping grey pebbles and fist-sized stones."
+    },
+    {
+      "id": "r7-n3",
+      "where": "B3-D4 three outlet rocks",
+      "target": "Low sloping rock flanks split the current into thin bright wakes that curl around each stone.",
+      "current": "The larger rocks have near-vertical faces, and broad grey foam patches sit downstream with little white contact at the sides.",
+      "change": "Bevel the steep faces and wrap narrow broken foam lines from the upstream contact around both flanks of each rock before letting them trail downstream."
+    }
+  ],
+  "excluded": [
+    "Distant mountains and sky are outside this pass."
+  ],
+  "unverifiable": [
+    "The still captures cannot establish the motion of the waterfall, ripples or wakes."
+  ]
+}

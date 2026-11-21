@@ -1,0 +1,13 @@
+{
+  "terrain_sha256": "8a7322fc3fb1314607aa9affdd4572549d53cc1bcd423b17e8272e5ba84dbe68",
+  "total": 6979,
+  "unique_roots": 6979,
+  "root_bedding_cm": [
+    0.843,
+    4.003
+  ],
+  "closest_water_edge_m": 1.617,
+  "max_distance_from_outlet_m": 245.968,
+  "maximum_route_or_base_mask": 0.0,
+  "maximum_water_mask": 0.18743672909091655
+}

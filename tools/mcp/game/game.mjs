@@ -241,6 +241,42 @@ function readMessage(file) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Publish one already-encoded request without resending it on a file lock.
+ * Windows can refuse replacement while the game's reader has the old target
+ * open. Retry only that rename, keeping the same temporary file and payload.
+ * This does not coordinate multiple callers of the single-request mailbox.
+ */
+async function publishRequestFile(temporary, target, payload, {
+  writeFile = fs.promises.writeFile,
+  rename = fs.promises.rename,
+  unlink = fs.promises.unlink,
+  wait = sleep,
+  now = () => performance.now(),
+} = {}) {
+  try {
+    await writeFile(temporary, payload);
+    const deadline = now() + 500;
+    while (true) {
+      try {
+        await rename(temporary, target);
+        return;
+      } catch (error) {
+        const remaining = deadline - now();
+        if (!['EPERM', 'EBUSY'].includes(error.code) || remaining <= 0) throw error;
+        await wait(Math.min(20, remaining));
+        if (now() >= deadline) throw error;
+      }
+    }
+  } catch (error) {
+    // Never delete the live target to work around a failed replacement.
+    try { await unlink(temporary); }
+    catch (cleanupError) {
+      if (cleanupError.code !== 'ENOENT') log('could not clean unpublished request', temporary, String(cleanupError));
+    }
+    throw error;
+  }
+}
+
 let nextId = Date.now() % 1_000_000;
 
 /** Read the heartbeat the mod writes about once a second. */
@@ -266,8 +302,7 @@ async function bridgeCall(op, body, timeoutMs = 15_000) {
   try { fs.unlinkSync(responseFile); } catch { /* first call of the session */ }
 
   const temporary = path.join(bridge, `request.${id}.tmp`);
-  fs.writeFileSync(temporary, encodeMessage({ id, op }, body));
-  fs.renameSync(temporary, requestFile);
+  await publishRequestFile(temporary, requestFile, encodeMessage({ id, op }, body));
 
   const deadline = Date.now() + timeoutMs;
   let nextProcessCheck = Date.now() + 2_000;
@@ -456,6 +491,8 @@ define({
       height: { type: "number", description: "Window height, default 720." },
       wait_seconds: { type: "number", description: "How long to wait for the bridge, default 240." },
       via: { type: "string", enum: ["steam", "exe"], description: "Launch route, default steam." },
+      save_suffix: { type: "string", pattern: "^[A-Za-z0-9_-]{1,48}$",
+        description: "Use a separate Unreal Saved directory for a rehearsal. Window settings then apply only to this launch." },
     },
   },
   async run(args) {
@@ -465,19 +502,34 @@ define({
 
     const notes = [];
     const windowed = args.windowed !== false;
-    if (windowed) {
+    const isolated = args.save_suffix !== undefined;
+    if (isolated && (typeof args.save_suffix !== "string" || !/^[A-Za-z0-9_-]{1,48}$/.test(args.save_suffix))) {
+      return { ...text("Invalid save_suffix."), isError: true };
+    }
+    const launchArgs = isolated ? [`-saveddirsuffix=${args.save_suffix}`] : [];
+    if (windowed && isolated) {
+      const width = args.width ?? 1280, height = args.height ?? 720;
+      if (![width,height].every(n => Number.isInteger(n) && n > 0 && n <= 16384)) {
+        return { ...text("Invalid window dimensions."), isError: true };
+      }
+      launchArgs.push("-windowed", `-ResX=${width}`, `-ResY=${height}`);
+    } else if (windowed) {
       const display = setDisplayMode("windowed", args.width ?? 1280, args.height ?? 720);
       notes.push(`display: ${display.changed.join(" ")} (original saved to ${path.basename(display.backup)})`);
     }
 
     const via = args.via ?? "steam";
-    if (via === "steam") {
+    if (via === "steam" && isolated) {
+      const steam = steamLibraries().map(root => path.join(root, "steam.exe")).find(file => fs.existsSync(file));
+      if (!steam) return { ...text("Steam executable unavailable for isolated launch."), isError: true };
+      spawn(steam, ["-applaunch", STEAM_APP_ID, ...launchArgs], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+    } else if (via === "steam") {
       spawn("cmd", ["/c", "start", "", `steam://rungameid/${STEAM_APP_ID}`], {
         detached: true,
         stdio: "ignore",
       }).unref();
     } else {
-      spawn(p.exe, [], { cwd: p.win64, detached: true, stdio: "ignore" }).unref();
+      spawn(p.exe, launchArgs, { cwd: p.win64, detached: true, stdio: "ignore" }).unref();
     }
 
     const waitSeconds = args.wait_seconds ?? 240;
@@ -667,6 +719,7 @@ define({
           "quadruples the tokens; raise it only when reading small text off the HUD.",
       },
       foreground: { type: "boolean", description: "Force the focus-stealing capture path." },
+      background_only: { type: "boolean", description: "Capture the game window without activating it. Report an error if a background frame is unavailable." },
     },
   },
   async run(args) {
@@ -679,7 +732,11 @@ define({
     fs.mkdirSync(SCRATCH, { recursive: true });
     const file = path.join(SCRATCH, `shot-${Date.now()}.png`);
     const flags = ["-ProcessName", PROCESS_NAME, "-OutFile", file, "-MaxWidth", String(args.max_width ?? 800)];
+    if (args.background_only && args.foreground) {
+      return { ...text("Choose either foreground or background_only."), isError: true };
+    }
     if (args.foreground) flags.push("-ForceForeground");
+    if (args.background_only) flags.push("-BackgroundOnly");
 
     const result = await powershell(CAPTURE_SCRIPT, flags);
     if (!result.ok) return { content: [{ type: "text", text: `capture failed: ${result.error}` }], isError: true };
@@ -750,8 +807,8 @@ async function inGameInput(steps, gapMs, pid) {
   const id = Date.now() % 1_000_000_000;
   fs.rmSync(ackFile, { force: true });
   const temporary = path.join(bridge, `input_cmd.${id}.tmp`);
-  fs.writeFileSync(temporary, [`id ${id}`, ...script.lines, ""].join("\n"));
-  fs.renameSync(temporary, path.join(bridge, "input_cmd.txt"));
+  await publishRequestFile(temporary, path.join(bridge, "input_cmd.txt"),
+    [`id ${id}`, ...script.lines, ""].join("\n"));
 
   const deadline = Date.now() + script.duration + 5_000;
   while (Date.now() < deadline) {
@@ -856,4 +913,4 @@ export async function callTool(name, args = {}) {
   }
 }
 
-export { INSTALL, paths, setInstall, bridgeCall, bridgeStatus, gameProcess, log };
+export { INSTALL, paths, setInstall, bridgeCall, bridgeStatus, gameProcess, log, publishRequestFile };

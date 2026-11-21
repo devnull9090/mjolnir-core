@@ -1,0 +1,67 @@
+// Begin PWR Southwest forest floor
+[branch] if (!alpineFar && alpineField.r > .002)
+{
+    float3 survey = saturate(alpineField.gba / max(alpineField.r,.001));
+    float worn = survey.x;
+    float duff = survey.y;
+    float wetField = survey.z;
+    float2 m = WorldCM.xy*.01;
+    float2x2 rockRot = float2x2(.93969,-.34202,.34202,.93969);
+    float2x2 pineRot = float2x2(.76604,.64279,-.64279,.76604);
+    float2x2 pad = float2x2(1008./2048.,0,0,1008./1024.);
+    float2 stoneUV = mul(rockRot,m)/3.35 + float2(.23,.17);
+    float2 pineUV = mul(pineRot,m)/2.40 + float2(.74,.47);
+    float2 dx = earthDx, dy = earthDy;
+    // Wrap the two scans inside their individual mip gutters. Derivatives
+    // follow unwrapped world coordinates across every repeat of the material.
+    float4 stone = Texture2DSampleGrad(SweepFloorDetail, SiteEarthSampler,
+        mul(pad,frac(stoneUV)) + float2(8./2048.,8./1024.),
+        mul(pad,mul(rockRot,dx)/3.35),mul(pad,mul(rockRot,dy)/3.35));
+    float4 litter = Texture2DSampleGrad(SweepFloorDetail, SiteEarthSampler,
+        mul(pad,frac(pineUV)) + float2(1032./2048.,8./1024.),
+        mul(pad,mul(pineRot,dx)/2.40),mul(pad,mul(pineRot,dy)/2.40));
+    float3 soil = Texture2DSampleGrad(SiteEarth,SiteEarthSampler,
+        m/4.15 + float2(.34,.72),dx/4.15,dy/4.15).rgb;
+    float2 soilNormal = 2*Texture2DSampleGrad(SiteNormal,SiteEarthSampler,
+        m/4.15 + float2(.34,.72),dx/4.15,dy/4.15).rg-1.;
+    float lum = dot(soil,float3(.2126,.7152,.0722));
+    float vari = saturate(.14+4.2*lum);
+    float aggregate = smoothstep(.37,.74,stone.g + .26*(stone.r-.49));
+    float drift = .80+.20*sin(dot(m,float2(.22,-.37))+.85*sin(m.x*.33));
+    float3 hardpack = lerp(float3(.075,.052,.034),float3(.258,.192,.125),vari);
+    float3 stoneColour = lerp(float3(.074,.068,.062),float3(.48,.46,.42),
+                              smoothstep(.12,.83,stone.r));
+    float chip = aggregate * (.95-.79*worn) * drift;
+    float3 substrate = lerp(hardpack*.77,hardpack*(1.10+.10*vari),worn);
+    substrate *= .89+.19*stone.r;
+    float3 color = lerp(substrate,stoneColour,chip);
+    color *= lerp(.77,1.02,smoothstep(.16,.60,stone.g)+worn*.09);
+    // Packed duff separates needles, moss and broken soil. Long needles
+    // keep their amber-brown value among the dark organic material.
+    float moss = smoothstep(.10,.38,litter.g)*(1-smoothstep(.54,.70,litter.g));
+    float pine = smoothstep(.53,.81,litter.g);
+    float3 bark = lerp(float3(.043,.028,.018),float3(.165,.109,.068),litter.r);
+    float3 mossColour = lerp(float3(.047,.055,.023),float3(.144,.166,.061),litter.r);
+    float3 pineColour = lerp(float3(.096,.049,.022),float3(.367,.218,.103),litter.r);
+    float3 forest = lerp(lerp(bark,mossColour,moss),pineColour,pine);
+    duff = saturate((duff-.06)*1.18 + .18*(litter.r-.46));
+    color = lerp(color,forest,duff);
+    float rim = smoothstep(.05,.32,wetField);
+    float pool = smoothstep(.32,.69,wetField+.075*(stone.r-.50));
+    color *= 1-.32*rim;
+    color = lerp(color,float3(.049,.045,.041),pool*.67);
+    float2 gravelN = mul(stone.ba*2-1,rockRot);
+    float2 duffN = mul(litter.ba*2-1,pineRot);
+    float2 n = lerp(soilNormal*.54,gravelN*.94,.25+.70*chip);
+    n = lerp(n,soilNormal*.29,worn*.68);
+    n = lerp(n,duffN*.89,duff) * (1-.98*pool);
+    n *= rsqrt(max(1.,dot(n,n)*1.025));
+    float3 terrainNormal = float3(n,sqrt(saturate(1-dot(n,n))));
+    float rough = lerp(.90-.13*worn,.91,duff)-.13*rim;
+    originalGround = lerp(originalGround,color,alpineField.r);
+    WetNormal = normalize(lerp(WetNormal,terrainNormal,alpineField.r));
+    WetRough = lerp(WetRough,lerp(rough,.105,pool),alpineField.r);
+    WetSpec = lerp(WetSpec,lerp(.27,.52,pool),alpineField.r);
+    RoadMetal = lerp(RoadMetal,0.,alpineField.r);
+}
+// End PWR Southwest forest floor

@@ -1,0 +1,483 @@
+{
+  "$id": "1",
+  "Assets": {
+    "$id": "2",
+    "$values": [
+      {
+        "$id": "3",
+        "Terrain": {
+          "$id": "4",
+          "Id": "588e16e8-336b-4ca0-b00c-605c0ed7d188",
+          "Nodes": {
+            "$id": "5",
+            "755": {
+              "$id": "6",
+              "$type": "QuadSpinner.Gaea.Nodes.File, Gaea.Nodes",
+              "FileName": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\levels\\warfare\\pwr\\terrain\\world-height-seed-v2.png",
+              "Id": 755,
+              "Name": "Approved World Height Seed",
+              "Position": {
+                "$id": "7",
+                "X": 26782.51,
+                "Y": 26104.5
+              },
+              "Ports": {
+                "$id": "8",
+                "$values": [
+                  {
+                    "$id": "9",
+                    "Name": "In",
+                    "Type": "PrimaryIn",
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "6"
+                    }
+                  },
+                  {
+                    "$id": "10",
+                    "Name": "Out",
+                    "Type": "PrimaryOut",
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "6"
+                    }
+                  }
+                ]
+              },
+              "Modifiers": {
+                "$id": "11",
+                "$values": [
+                  {
+                    "$id": "12",
+                    "$type": "QuadSpinner.Gaea.Nodes.Modifiers.Blur, Gaea.Nodes",
+                    "Factor": 0.02,
+                    "Name": "Blur",
+                    "Parent": {
+                      "$ref": "6"
+                    },
+                    "HasUI": true,
+                    "Intrinsic": true
+                  }
+                ]
+              }
+            },
+            "701": {
+              "$id": "13",
+              "$type": "QuadSpinner.Gaea.Nodes.Erosion2, Gaea.Nodes",
+              "Duration": 4.0,
+              "Downcutting": 0.1,
+              "ErosionScale": 120.0,
+              "Seed": 20568,
+              "SuspendedLoadDischargeAmount": 0.15,
+              "SuspendedLoadDischargeAngle": 31.448593,
+              "BedLoadDischargeAmount": 0.1,
+              "BedLoadDischargeAngle": 41.473347,
+              "CoarseSedimentsDischargeAmount": 0.1,
+              "CoarseSedimentsDischargeAngle": 16.848438,
+              "Shape": 0.0,
+              "ShapeDetailScale": 0.02,
+              "Id": 701,
+              "Version": 2,
+              "Name": "Restrained Watershed Refinement",
+              "Position": {
+                "$id": "14",
+                "X": 27444.05,
+                "Y": 26227.832
+              },
+              "Ports": {
+                "$id": "15",
+                "$values": [
+                  {
+                    "$id": "16",
+                    "Name": "In",
+                    "Type": "PrimaryIn, Required",
+                    "Record": {
+                      "$id": "17",
+                      "From": 755,
+                      "To": 701,
+                      "FromPort": "Out",
+                      "ToPort": "In",
+                      "IsValid": true
+                    },
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "13"
+                    }
+                  },
+                  {
+                    "$id": "18",
+                    "Name": "Out",
+                    "Type": "PrimaryOut",
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "13"
+                    }
+                  },
+                  {
+                    "$id": "19",
+                    "Name": "Flow",
+                    "Type": "Out",
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "13"
+                    }
+                  },
+                  {
+                    "$id": "20",
+                    "Name": "Wear",
+                    "Type": "Out",
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "13"
+                    }
+                  },
+                  {
+                    "$id": "21",
+                    "Name": "Deposits",
+                    "Type": "Out",
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "13"
+                    }
+                  },
+                  {
+                    "$id": "22",
+                    "Name": "Precipitation",
+                    "Type": "In",
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "13"
+                    }
+                  },
+                  {
+                    "$id": "23",
+                    "Name": "Mask",
+                    "Type": "In",
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "13"
+                    }
+                  }
+                ]
+              },
+              "Modifiers": {
+                "$id": "24",
+                "$values": []
+              }
+            },
+            "737": {
+              "$id": "25",
+              "$type": "QuadSpinner.Gaea.Nodes.Export, Gaea.Nodes",
+              "Format": "FloatRaw32",
+              "OutputPath": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\gaea-world-v2\\pwr_height.graw",
+              "Id": 737,
+              "Name": "pwr_height",
+              "Position": {
+                "$id": "26",
+                "X": 27803.834,
+                "Y": 26141.166
+              },
+              "SaveDefinition": {
+                "$id": "27",
+                "Node": 737,
+                "Filename": "pwr_height",
+                "Format": "EXR",
+                "IsEnabled": true,
+                "DisabledInProfiles": {
+                  "$id": "28",
+                  "$values": []
+                }
+              },
+              "Ports": {
+                "$id": "29",
+                "$values": [
+                  {
+                    "$id": "30",
+                    "Name": "In",
+                    "Type": "PrimaryIn, Required",
+                    "Record": {
+                      "$id": "31",
+                      "From": 701,
+                      "To": 737,
+                      "FromPort": "Out",
+                      "ToPort": "In",
+                      "IsValid": true
+                    },
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "25"
+                    }
+                  },
+                  {
+                    "$id": "32",
+                    "Name": "Out",
+                    "Type": "PrimaryOut",
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "25"
+                    }
+                  }
+                ]
+              },
+              "Modifiers": {
+                "$id": "33",
+                "$values": []
+              }
+            },
+            "673": {
+              "$id": "34",
+              "$type": "QuadSpinner.Gaea.Nodes.Export, Gaea.Nodes",
+              "Format": "GaeaRaw",
+              "Location": "Explicit",
+              "OutputPath": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\gaea-world-v2\\pwr_flow.graw",
+              "Id": 673,
+              "Name": "pwr_flow",
+              "Position": {
+                "$id": "35",
+                "X": 27878.477,
+                "Y": 26249.832
+              },
+              "RenderIntentOverride": "Mask",
+              "Ports": {
+                "$id": "36",
+                "$values": [
+                  {
+                    "$id": "37",
+                    "Name": "In",
+                    "Type": "PrimaryIn, Required",
+                    "Record": {
+                      "$id": "38",
+                      "From": 701,
+                      "To": 673,
+                      "FromPort": "Flow",
+                      "ToPort": "In",
+                      "IsValid": true
+                    },
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "34"
+                    }
+                  },
+                  {
+                    "$id": "39",
+                    "Name": "Out",
+                    "Type": "PrimaryOut",
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "34"
+                    }
+                  }
+                ]
+              },
+              "Modifiers": {
+                "$id": "40",
+                "$values": []
+              }
+            },
+            "211": {
+              "$id": "41",
+              "$type": "QuadSpinner.Gaea.Nodes.Export, Gaea.Nodes",
+              "Format": "GaeaRaw",
+              "Location": "Explicit",
+              "OutputPath": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\gaea-world-v2\\pwr_wear.graw",
+              "Id": 211,
+              "Name": "pwr_wear",
+              "Position": {
+                "$id": "42",
+                "X": 27939.31,
+                "Y": 26395.666
+              },
+              "RenderIntentOverride": "Mask",
+              "Ports": {
+                "$id": "43",
+                "$values": [
+                  {
+                    "$id": "44",
+                    "Name": "In",
+                    "Type": "PrimaryIn, Required",
+                    "Record": {
+                      "$id": "45",
+                      "From": 701,
+                      "To": 211,
+                      "FromPort": "Wear",
+                      "ToPort": "In",
+                      "IsValid": true
+                    },
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "41"
+                    }
+                  },
+                  {
+                    "$id": "46",
+                    "Name": "Out",
+                    "Type": "PrimaryOut",
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "41"
+                    }
+                  }
+                ]
+              },
+              "Modifiers": {
+                "$id": "47",
+                "$values": []
+              }
+            },
+            "121": {
+              "$id": "48",
+              "$type": "QuadSpinner.Gaea.Nodes.Export, Gaea.Nodes",
+              "Format": "GaeaRaw",
+              "Location": "Explicit",
+              "OutputPath": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\gaea-world-v2\\pwr_deposits.graw",
+              "Id": 121,
+              "Name": "pwr_deposits",
+              "Position": {
+                "$id": "49",
+                "X": 27939.31,
+                "Y": 26523.166
+              },
+              "RenderIntentOverride": "Mask",
+              "Ports": {
+                "$id": "50",
+                "$values": [
+                  {
+                    "$id": "51",
+                    "Name": "In",
+                    "Type": "PrimaryIn, Required",
+                    "Record": {
+                      "$id": "52",
+                      "From": 701,
+                      "To": 121,
+                      "FromPort": "Deposits",
+                      "ToPort": "In",
+                      "IsValid": true
+                    },
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "48"
+                    }
+                  },
+                  {
+                    "$id": "53",
+                    "Name": "Out",
+                    "Type": "PrimaryOut",
+                    "IsExporting": true,
+                    "Parent": {
+                      "$ref": "48"
+                    }
+                  }
+                ]
+              },
+              "Modifiers": {
+                "$id": "54",
+                "$values": []
+              }
+            }
+          },
+          "Groups": {
+            "$id": "55"
+          },
+          "Notes": {
+            "$id": "56"
+          },
+          "GraphTabs": {
+            "$id": "57",
+            "$values": [
+              {
+                "$id": "58",
+                "Name": "Graph 1",
+                "Color": "Brass",
+                "ZoomFactor": 0.6299605249474372,
+                "ViewportLocation": {
+                  "$id": "59",
+                  "X": 25965.795,
+                  "Y": 25842.66
+                }
+              }
+            ]
+          },
+          "Width": 2000.0,
+          "Height": 400.0,
+          "Ratio": 0.2,
+          "Regions": {
+            "$id": "60",
+            "$values": []
+          }
+        },
+        "Automation": {
+          "$id": "61",
+          "Bindings": {
+            "$id": "62",
+            "$values": []
+          },
+          "Expressions": {
+            "$id": "63"
+          },
+          "Variables": {
+            "$id": "64"
+          }
+        },
+        "BuildDefinition": {
+          "$id": "65",
+          "Type": "Standard",
+          "Destination": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\gaea-world-v2",
+          "Resolution": 1024,
+          "BakeResolution": 1024,
+          "TileResolution": 256,
+          "BucketResolution": 1024,
+          "NumberOfTiles": 2,
+          "EdgeBlending": 0.25,
+          "TileZeroIndex": true,
+          "TilePattern": "_y%Y%_x%X%",
+          "OrganizeFiles": "NodeSubFolder",
+          "PostBuildScript": ""
+        },
+        "State": {
+          "$id": "66",
+          "BakeResolution": 1024,
+          "PreviewResolution": 512,
+          "HDResolution": 4096,
+          "SelectedNode": 737,
+          "NodeBookmarks": {
+            "$id": "67",
+            "$values": []
+          },
+          "Viewport": {
+            "$id": "68",
+            "CameraPosition": {
+              "$id": "69",
+              "$values": []
+            },
+            "Camera": {
+              "$id": "70"
+            },
+            "RenderMode": "Realistic",
+            "AmbientOcclusion": true,
+            "Shadows": true
+          }
+        },
+        "BuildProfiles": {
+          "$id": "71"
+        }
+      }
+    ]
+  },
+  "Id": "4b35ab01",
+  "Branch": 1,
+  "Macros": {
+    "$id": "72",
+    "$values": []
+  },
+  "Metadata": {
+    "$id": "73",
+    "Name": "PWR World Watershed Refinement",
+    "Description": "PWR approved world reference v1, height seed v2. File + restrained native Erosion2; not a finished terrain until UI import, visual inspection, height calibration and export pass. Terrains powered by QuadSpinner Gaea. Adapted from the official Gaea2Houdini SimpleErosion example; see reference/LICENSE.Gaea2Houdini.",
+    "Version": "2.2.0.0",
+    "Owner": "",
+    "DateCreated": "2025-06-26 14:07:48Z",
+    "DateLastBuilt": "2025-06-26 14:07:48Z",
+    "DateLastSaved": "2026-11-09 03:38:05Z",
+    "ModifiedVersion": "2.3.1.0"
+  }
+}

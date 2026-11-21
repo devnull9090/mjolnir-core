@@ -42,6 +42,14 @@ pub struct Lod {
     pub normals: Vec<f32>,
     /// First UV channel, uv per vertex.
     pub uvs: Vec<f32>,
+    /// Remaining UV channels, in native order starting at TEXCOORD_1.
+    pub extra_uvs: Vec<Vec<f32>>,
+    /// Linear normalized vertex color bytes in RGBA order (native FColor is BGRA).
+    pub colors: Vec<u8>,
+    /// Known source counts distinguish absent attributes from an incomplete decoder.
+    /// Nanite geometry and skeletal colors currently leave these unknown.
+    pub source_uv_channels: Option<u32>,
+    pub source_color_vertices: Option<u32>,
     pub indices: Vec<u32>,
     /// False when the LOD's buffers live in the `.ubulk`.
     pub inlined: bool,
@@ -406,29 +414,26 @@ fn read_buffers(w: &mut Walker<'_>, lod: &mut Lod, trace: bool) -> Result<(), Er
         )));
     }
     let uv_raw = w.bytes(u_elem as usize * u_num as usize)?;
-    lod.uvs = Vec::with_capacity(vertices as usize * 2);
-    for v in 0..vertices as usize {
-        let at = v * num_texcoords as usize * uv_size;
-        if full_precision_uvs {
-            let u = f32::from_le_bytes(uv_raw[at..at + 4].try_into().unwrap());
-            let vv = f32::from_le_bytes(uv_raw[at + 4..at + 8].try_into().unwrap());
-            lod.uvs.extend_from_slice(&[u, vv]);
-        } else {
-            let u = half(u16::from_le_bytes([uv_raw[at], uv_raw[at + 1]]));
-            let vv = half(u16::from_le_bytes([uv_raw[at + 2], uv_raw[at + 3]]));
-            lod.uvs.extend_from_slice(&[u, vv]);
-        }
-    }
+    read_uv_channels(lod, uv_raw, vertices, num_texcoords, full_precision_uvs)?;
 
     // FColorVertexBuffer: strip flags, stride, count, data when non-empty.
     let _strip = w.u16()?;
     let color_stride = w.u32()?;
     let color_count = w.u32()?;
+    lod.source_color_vertices = Some(color_count);
+    lod.colors.clear();
     if color_count > 0 {
         let (c_elem, c_num) = (w.u32()?, w.u32()?);
-        w.skip(c_elem as usize * c_num as usize)?;
+        if color_stride != 4
+            || color_count != vertices
+            || u64::from(c_elem) * u64::from(c_num) != u64::from(color_count) * 4
+        {
+            return Err(Error::Format(format!(
+                "unexpected vertex colors: stride {color_stride}, {color_count} vs {vertices} vertices, bulk {c_elem}x{c_num}"
+            )));
+        }
+        lod.colors = rgba_from_bgra(w.bytes(color_count as usize * 4)?);
     }
-    let _ = color_stride;
 
     // FRawStaticIndexBuffer: wide flag, bulk-serialized bytes, and one
     // trailing bool (bShouldExpandTo32Bit).
@@ -993,20 +998,52 @@ fn read_buffers_positions_tangents(
         )));
     }
     let uv_raw = w.bytes(u_elem as usize * u_num as usize)?;
-    lod.uvs = Vec::with_capacity(vertices as usize * 2);
+    read_uv_channels(lod, uv_raw, vertices, num_texcoords, full_precision_uvs)?;
+    Ok(())
+}
+
+fn read_uv_channels(
+    lod: &mut Lod,
+    raw: &[u8],
+    vertices: u32,
+    channels: u32,
+    full: bool,
+) -> Result<(), Error> {
+    let size = if full { 8 } else { 4 };
+    if channels > 8 || raw.len() != vertices as usize * channels as usize * size {
+        return Err(Error::Format(
+            "UV buffer length/channel count mismatch".into(),
+        ));
+    }
+    let mut decoded = vec![Vec::with_capacity(vertices as usize * 2); channels as usize];
     for v in 0..vertices as usize {
-        let at = v * num_texcoords as usize * uv_size;
-        if full_precision_uvs {
-            let u = f32::from_le_bytes(uv_raw[at..at + 4].try_into().unwrap());
-            let vv = f32::from_le_bytes(uv_raw[at + 4..at + 8].try_into().unwrap());
-            lod.uvs.extend_from_slice(&[u, vv]);
-        } else {
-            let u = half(u16::from_le_bytes([uv_raw[at], uv_raw[at + 1]]));
-            let vv = half(u16::from_le_bytes([uv_raw[at + 2], uv_raw[at + 3]]));
-            lod.uvs.extend_from_slice(&[u, vv]);
+        for (channel, values) in decoded.iter_mut().enumerate() {
+            let at = (v * channels as usize + channel) * size;
+            let pair = if full {
+                [
+                    f32::from_le_bytes(raw[at..at + 4].try_into().unwrap()),
+                    f32::from_le_bytes(raw[at + 4..at + 8].try_into().unwrap()),
+                ]
+            } else {
+                [
+                    half(u16::from_le_bytes([raw[at], raw[at + 1]])),
+                    half(u16::from_le_bytes([raw[at + 2], raw[at + 3]])),
+                ]
+            };
+            values.extend_from_slice(&pair);
         }
     }
+    let mut decoded = decoded.into_iter();
+    lod.uvs = decoded.next().unwrap_or_default();
+    lod.extra_uvs = decoded.collect();
+    lod.source_uv_channels = Some(channels);
     Ok(())
+}
+
+fn rgba_from_bgra(raw: &[u8]) -> Vec<u8> {
+    raw.chunks_exact(4)
+        .flat_map(|c| [c[2], c[1], c[0], c[3]])
+        .collect()
 }
 
 /// IEEE half to f32.
@@ -1031,4 +1068,50 @@ fn half(bits: u16) -> f32 {
         _ => (sign << 31) | ((exp + 127 - 15) << 23) | (frac << 13),
     };
     f32::from_bits(f)
+}
+
+#[cfg(test)]
+mod attribute_tests {
+    use super::*;
+
+    #[test]
+    fn native_interleaved_float_uvs_keep_every_channel() {
+        let values = [
+            0.0f32, 0.5, -7.0, 12.0, 900.0, -300.0, 1.0, 2.0, 13.0, 14.0, 1024.0, 2048.0,
+        ];
+        let raw: Vec<u8> = values.into_iter().flat_map(f32::to_le_bytes).collect();
+        let mut lod = Lod::default();
+        read_uv_channels(&mut lod, &raw, 2, 3, true).unwrap();
+        assert_eq!(lod.uvs, [0.0, 0.5, 1.0, 2.0]);
+        assert_eq!(
+            lod.extra_uvs,
+            [
+                vec![-7.0, 12.0, 13.0, 14.0],
+                vec![900.0, -300.0, 1024.0, 2048.0]
+            ]
+        );
+        assert_eq!(lod.source_uv_channels, Some(3));
+        assert!(read_uv_channels(&mut lod, &raw[..raw.len() - 1], 2, 3, true).is_err());
+    }
+
+    #[test]
+    fn half_uvs_and_absent_uvs_are_distinct_and_valid() {
+        let values = [0u16, 0x3800, 0x3c00, 0x4000, 0x4200, 0x4400, 0x4500, 0x4600];
+        let raw: Vec<u8> = values.into_iter().flat_map(u16::to_le_bytes).collect();
+        let mut lod = Lod::default();
+        read_uv_channels(&mut lod, &raw, 2, 2, false).unwrap();
+        assert_eq!(lod.uvs, [0.0, 0.5, 3.0, 4.0]);
+        assert_eq!(lod.extra_uvs, [vec![1.0, 2.0, 5.0, 6.0]]);
+        read_uv_channels(&mut lod, &[], 2, 0, false).unwrap();
+        assert!(lod.uvs.is_empty() && lod.extra_uvs.is_empty());
+        assert_eq!(lod.source_uv_channels, Some(0));
+    }
+
+    #[test]
+    fn native_bgra_masks_preserve_alpha_and_do_not_apply_gamma() {
+        assert_eq!(
+            rgba_from_bgra(&[1, 2, 3, 4, 50, 100, 150, 200]),
+            [3, 2, 1, 4, 150, 100, 50, 200]
+        );
+    }
 }

@@ -1,0 +1,205 @@
+{
+  "schema": "pwr-layout-v3",
+  "code": "PWR",
+  "title": "Pelican Warfare",
+  "seed": 20568,
+  "protocol": 20569,
+  "layout_revision": 3,
+  "coordinates": {
+    "authoring": "metres, Z up",
+    "unreal": "[100*x, -100*y, 100*z] centimetres",
+    "blam": "metres / 3.048",
+    "origin_m": [
+      0,
+      0,
+      0
+    ]
+  },
+  "play_area_m": {
+    "min": [
+      -950.0,
+      -950.0,
+      -20
+    ],
+    "max": [
+      950.0,
+      950.0,
+      650.0
+    ]
+  },
+  "scenario_bounds_m": {
+    "min": [
+      -1000.0,
+      -1000.0,
+      -20
+    ],
+    "max": [
+      1000.0,
+      1000.0,
+      650.0
+    ]
+  },
+  "homes_m": {
+    "red": [
+      -590.0,
+      -130.0,
+      107.9497634899293
+    ],
+    "blue": [
+      600.0,
+      -130.0,
+      111.94544540745812
+    ]
+  },
+  "captures_m": [
+    [
+      -232.0,
+      -156.0,
+      109.83434221910416
+    ],
+    [
+      0.0,
+      510.0,
+      129.22743956304473
+    ],
+    [
+      240.0,
+      -170.0,
+      112.26462066698302
+    ]
+  ],
+  "capture_radius_m": 20.0,
+  "warmup_m": [
+    -568.0,
+    -130.0,
+    107.9497634899293
+  ],
+  "spawns_m": {
+    "red": [
+      [
+        -608.0,
+        -130.0,
+        108.7497634899293
+      ],
+      [
+        -596.0,
+        -130.0,
+        108.7497634899293
+      ],
+      [
+        -584.0,
+        -130.0,
+        108.7497634899293
+      ],
+      [
+        -572.0,
+        -130.0,
+        108.7497634899293
+      ],
+      [
+        -608.0,
+        -143.0,
+        108.7497634899293
+      ],
+      [
+        -596.0,
+        -143.0,
+        108.7497634899293
+      ],
+      [
+        -584.0,
+        -143.0,
+        108.7497634899293
+      ],
+      [
+        -572.0,
+        -143.0,
+        108.7497634899293
+      ]
+    ],
+    "blue": [
+      [
+        582.0,
+        -130.0,
+        112.74544540745812
+      ],
+      [
+        594.0,
+        -130.0,
+        112.74544540745812
+      ],
+      [
+        606.0,
+        -130.0,
+        112.74544540745812
+      ],
+      [
+        618.0,
+        -130.0,
+        112.74544540745812
+      ],
+      [
+        582.0,
+        -143.0,
+        112.74544540745812
+      ],
+      [
+        594.0,
+        -143.0,
+        112.74544540745812
+      ],
+      [
+        606.0,
+        -143.0,
+        112.74544540745812
+      ],
+      [
+        618.0,
+        -143.0,
+        112.74544540745812
+      ]
+    ]
+  },
+  "flights_m": {
+    "red": {
+      "start": [
+        -850.0,
+        -180.0,
+        550.0
+      ],
+      "end": [
+        850.0,
+        -180.0,
+        550.0
+      ],
+      "yaw": 0
+    },
+    "blue": {
+      "start": [
+        850.0,
+        180.0,
+        550.0
+      ],
+      "end": [
+        -850.0,
+        180.0,
+        550.0
+      ],
+      "yaw": 180
+    }
+  },
+  "insertion_seconds": 60.0,
+  "forced_exit_seconds": 54.0,
+  "descent_timeout_seconds": 120.0,
+  "flight_envelope_status": "derived from final master and reserved structure envelope; requires live physics validation",
+  "provenance": {
+    "master_manifest_sha256": "dbf21bef91497c28405c5f7c0826d0f0ac1a06c64472176ae693e9a9b2f93d1e",
+    "master_height_sha256": "57901a25a6df231e9e729b4c25f0ad34bf7bfe169069ba508cc4b29d1002f508",
+    "geometry_sha256": "2bad0fc72f4204932d8f66e2fc096e8d47f4a0c901d4a246a5ac0bb0b425f7c4",
+    "policy_sha256": "9348f52108e9252c79af6f5fd79963115bed32b541a42a9f6dc7c19bdb1fa010",
+    "terrain_max_m": 399.56085205078125,
+    "reserved_obstacle_max_m": 399.56085205078125,
+    "minimum_flight_clearance_m": 150.43914794921875,
+    "placement_semantics": "homes/captures/warmup are support floors; spawn origins already include +0.8m; prepare_runtime named flags add home/capture +1.2m and warmup +0.8m"
+  }
+}

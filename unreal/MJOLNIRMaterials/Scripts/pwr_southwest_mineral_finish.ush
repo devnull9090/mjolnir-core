@@ -1,0 +1,64 @@
+    float lum = dot(soil,float3(.2126,.7152,.0722));
+    float compact = smoothstep(.49,.93,survey.x);
+    float deposit = 1-smoothstep(.065,.50,survey.x);
+    // Larger clusters follow the surveyed median and edge washes. Grit remains
+    // part of the earth in the travel paths; only a few grains crest the dust.
+    float pocket = saturate(.54 + (lum-.11)*2.7 + .16*sin(m.x*.48+m.y*.27+.8*sin(m.y*.35)));
+    float bearing = saturate(deposit*(.50+.64*pocket));
+    float top = stone.g+.29*(stone.r-.48);
+    float chip = smoothstep(lerp(.80,.53,bearing),lerp(.92,.76,bearing),top) *
+                 (.145+.76*bearing)*(1-.95*compact);
+    float fine = saturate(.11+3.65*lum+.19*(stone.r-.46));
+    float3 earth = lerp(float3(.064,.040,.028),float3(.196,.129,.086),fine);
+    float3 wheelEarth = lerp(float3(.105,.065,.038),float3(.245,.168,.104),fine);
+    float3 road = lerp(earth,wheelEarth,compact*.87);
+    float3 slate = lerp(float3(.062,.062,.064),float3(.266,.255,.230),
+                        smoothstep(.16,.80,stone.r));
+    float dull = saturate((stone.g-.74)*2.8) * bearing;
+    slate = lerp(slate,slate*float3(1.18,.99,.82),dull*.45);
+    float3 color = lerp(road,slate,chip);
+    color *= lerp(.93,1.015,smoothstep(.21,.65,stone.g));
+    color *= lerp(1.,.93,deposit*(1-compact));
+    // Read the accumulated humus and long amber fans as one organic bed.
+    // Restrict moss to small patches below the living crowns.
+    float moss = smoothstep(.18,.39,litter.g)*(1-smoothstep(.43,.61,litter.g));
+    float pine = smoothstep(.49,.78,litter.g);
+    float3 humus = lerp(float3(.046,.024,.013),float3(.146,.075,.040),
+                       saturate(litter.r*.96));
+    float3 mossColour = lerp(float3(.048,.057,.024),float3(.126,.134,.051),litter.r);
+    float3 amber = lerp(float3(.115,.053,.024),float3(.310,.170,.071),litter.r);
+    float3 forest = lerp(lerp(humus,mossColour,moss*.62),amber,pine);
+    float contact = smoothstep(.887,.994,duff);
+    forest *= 1-contact*(.32+.13*(1-litter.r));
+    duff = saturate((duff-.04)*1.32+.22*(litter.r-.39));
+    color = lerp(color,forest,duff);
+    float2 gravelN = mul(stone.ba*2-1,rockRot);
+    float2 duffN = mul(litter.ba*2-1,pineRot);
+    // Quiet the aggregate normals in the clear swaths with the same mask as
+    // their albedo, so the sun cannot make buried grains flash white.
+    float2 n = lerp(soilNormal*.38,gravelN*.67,chip*(.81+.13*bearing));
+    n = lerp(n,soilNormal*.19,compact*.65);
+    n = lerp(n,duffN*.65,duff);
+    // Resolve the diffuse 0.5 m catchment mask into stone-cut shorelines.
+    // A high pebble projects through shallow film, deeper centres clear it.
+    float bank = .28*(stone.g-.46)+.13*(stone.r-.44)+.12*sin(m.x*9.5+m.y*13.2);
+    float edgeDepth = wetField-bank;
+    float damp = smoothstep(.095,.29,edgeDepth)*(1-duff);
+    float pool = smoothstep(.45,.67,edgeDepth)*(1-duff);
+    float emergent = smoothstep(.73,.92,top)*(1-.74*pool);
+    pool *= 1-emergent;
+    float3 submerged = lerp(color*.38,float3(.035,.052,.064),.68+.13*pool);
+    color = lerp(color,color*.52,damp);
+    color = lerp(color,submerged,pool);
+    float2 ripples = .011*float2(sin(dot(m,float2(3.0,5.4))),sin(dot(m,float2(-4.7,2.2))));
+    n = lerp(n,ripples,pool*.99);
+    n *= rsqrt(max(1.,dot(n,n)*1.025));
+    float3 terrainNormal = float3(n,sqrt(saturate(1-dot(n,n))));
+    float rough = lerp(.92-.16*compact,.93,duff)-.13*damp;
+    originalGround = lerp(originalGround,color,alpineField.r);
+    WetNormal = normalize(lerp(WetNormal,terrainNormal,alpineField.r));
+    WetRough = lerp(WetRough,lerp(rough,.078,pool),alpineField.r);
+    WetSpec = lerp(WetSpec,lerp(.20,.44,pool),alpineField.r);
+    RoadMetal = lerp(RoadMetal,0.,alpineField.r);
+}
+// End PWR Southwest forest floor

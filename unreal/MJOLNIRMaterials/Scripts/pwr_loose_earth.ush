@@ -1,0 +1,42 @@
+// Begin PWR forest tracks and loose earth
+float4 loose = Texture2DSample(ForestFloor,RoadAtlasSampler,rect);
+float2 earthDx = ddx(WorldCM.xy)*.01, earthDy = ddy(WorldCM.xy)*.01;
+[branch] if (loose.r>.002)
+{
+    float3 mixLoose = saturate(loose.gba/max(loose.r,.001));
+    float2 pEarth = WorldCM.xy*.01;
+    float2 dirtUV = pEarth/2.1 + float2(.31,.87);
+    float2 gravelUV = mul(float2x2(.8,.6,-.6,.8),pEarth)/1.58 + .72;
+    float3 dirtScan = Texture2DSampleGrad(SiteEarth,SiteEarthSampler,dirtUV,earthDx/2.1,earthDy/2.1).rgb;
+    float2 gravelDx=mul(float2x2(.8,.6,-.6,.8),earthDx)/1.58;
+    float2 gravelDy=mul(float2x2(.8,.6,-.6,.8),earthDy)/1.58;
+    float3 gravelScan = Texture2DSampleGrad(PathGravel,SiteEarthSampler,gravelUV,gravelDx,gravelDy).rgb;
+    float2 dirtN = Texture2DSampleGrad(SiteNormal,SiteEarthSampler,dirtUV,earthDx/2.1,earthDy/2.1).rg*2-1;
+    float3 luminance = float3(.2126,.7152,.0722);
+    float exposure = clamp(sqrt(dot(dirtScan,luminance))/.43,.52,1.63);
+    float pebble = clamp(sqrt(dot(gravelScan,luminance))/.43,.49,1.77);
+    float macroBreak = .5+.26*sin(dot(pEarth,float2(.117,-.131))+
+                                 .8*sin(pEarth.x*.073))+.19*sin(dot(pEarth,float2(.42,.083)));
+    float3 dryFloor = lerp(float3(.122,.083,.047),float3(.198,.148,.091),saturate(macroBreak));
+    float3 dampFloor = float3(.102,.080,.053)*(1-.12*macroBreak);
+    float3 earth = lerp(dryFloor,dampFloor,.53*mixLoose.y)*exposure;
+    float3 stones = lerp(float3(.155,.130,.095),float3(.236,.209,.153),macroBreak)*pebble;
+    float crossTrack = (network.b-.5)*32;
+    float wander = .27*sin(dot(pEarth,float2(.073,.04)))+.16*(network.a-.5);
+    float side = abs(crossTrack+wander);
+    float lodWear = 1-smoothstep(.45,3.8,pixelMetres);
+    float track = exp2(-pow((side-2.04)/.64,2)) * mixLoose.z * lodWear;
+    float berm = exp2(-pow((side-2.91)/.41,2)) * mixLoose.z * lodWear;
+    float pebbles = saturate(.15+.79*mixLoose.x+.18*berm-.25*track+.13*(pebble-1));
+    float3 floorShade=lerp(earth,stones,pebbles);
+    floorShade*=1-track*(.19+.19*mixLoose.y);
+    // Retain a thin, irregular living median where the wheels do not pass.
+    float median=(1-smoothstep(.32,1.37,side))*mixLoose.z*(.065+.11*macroBreak);
+    originalGround=lerp(originalGround,floorShade,loose.r*(1-median));
+    float2 xy=dirtN*lerp(.39,.61,mixLoose.x);
+    WetNormal=normalize(lerp(WetNormal,float3(xy,sqrt(saturate(1-dot(xy,xy)))),loose.r));
+    float surfaceRough=lerp(.88,.76,mixLoose.y)-track*(.12+.05*mixLoose.y);
+    WetRough=lerp(WetRough,surfaceRough,loose.r);
+    WetSpec=lerp(WetSpec,.23+.025*track,loose.r);
+}
+// End PWR forest tracks and loose earth

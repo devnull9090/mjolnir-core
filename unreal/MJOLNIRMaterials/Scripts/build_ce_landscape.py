@@ -20,11 +20,59 @@ tools/level/bake_editor_world.sh, which retargets the cooked world to the
 game's property layout and bakes the map around it.
 """
 import json
+import math
 import os
 import sys
 from array import array
 
 import unreal
+
+
+def open_scratch_level(levels, assets, content_dir):
+    """Leave the generated world before deleting it, including on repeat builds."""
+    package = "/Game/__MJOLNIR_Scratch"
+    # Startup registry discovery may not have reached this file yet.
+    exists = (os.path.isfile(os.path.join(content_dir, "__MJOLNIR_Scratch.umap"))
+              or assets.does_asset_exist(package))
+    ok = levels.load_level(package) if exists else levels.new_level(package)
+    if not ok:
+        raise RuntimeError(f"could not {'load' if exists else 'create'} scratch level {package}")
+
+
+def requested_pine_culls(pine, groups):
+    """Resolve the exact bake request; reject disagreement before creating instances."""
+    def distance_pair(value):
+        if (not isinstance(value, (list, tuple)) or len(value) != 2
+                or any(isinstance(v, bool) or not isinstance(v, (int, float))
+                       or not math.isfinite(v) or int(v) != v for v in value)
+                or not 0 <= value[0] < value[1] <= 2147483647):
+            raise RuntimeError(f"Invalid pine HISM cull distances: {value!r}")
+        return [int(v) for v in value]
+
+    declared = distance_pair(pine["cull_cm"]) if "cull_cm" in pine else None
+    requested = {}
+    for row in pine["groups"]:
+        index = row["group"]
+        if (isinstance(index, bool) or not isinstance(index, int)
+                or not 1 <= index <= len(groups) or index in requested):
+            raise RuntimeError(f"Invalid pine HISM group index: {index!r}")
+        cull = distance_pair(groups[index - 1]["cull"])
+        if declared is None:
+            declared = cull
+        if cull != declared:
+            raise RuntimeError(f"Pine HISM group {index} cull {cull} differs from request {declared}")
+        requested[index] = cull
+    if not requested:
+        raise RuntimeError("Pine HISM instances requested without groups")
+    return declared, requested
+
+
+def verify_pine_cull(component, expected):
+    actual = [component.get_editor_property("instance_start_cull_distance"),
+              component.get_editor_property("instance_end_cull_distance")]
+    if actual != expected:
+        raise RuntimeError(f"Pine HISM cull distances changed: requested {expected}, got {actual}")
+
 
 # One landscape a map, each its own world, bake folder and chunk (MJ_LANDSCAPE_NAME,
 # MJ_LANDSCAPE_CHUNK; Death Island's are the defaults, LTS and 979): two maps
@@ -53,7 +101,7 @@ tools = unreal.AssetToolsHelpers.get_asset_tools()
 # already exists"), for whichever map's folder the gather had not reached
 # (Ice Fields, then Yoyorast, 2026-10-16). So scan first, and take what is
 # left off the disk.
-les.new_level("/Game/__MJOLNIR_Scratch")
+open_scratch_level(les, eal, unreal.Paths.project_content_dir())
 unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([FOLDER, TEXTURES], True)
 for folder in (FOLDER, TEXTURES):
     if eal.does_directory_exist(folder):
@@ -128,6 +176,21 @@ landscape = unreal.MjolnirUIBuilderLibrary.create_landscape(
     spec["sections"], spec["quads"], heights.tolist(), master, holes)
 if not landscape:
     raise RuntimeError("create_landscape failed")
+
+# Optional audited support for meshes draped within centimetres of LOD0.
+# Unrelated maps retain automatic Landscape LOD selection.
+lod_policy_path = os.environ.get("MJ_LANDSCAPE_LOD_POLICY")
+if lod_policy_path:
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "tools", "level")))
+    from landscape_lod_policy import apply_policy, digest
+    with open(lod_policy_path, encoding="utf-8") as handle:
+        lod_policy = json.load(handle)
+    lod_readback = apply_policy(landscape, unreal.LandscapeComponent, lod_policy, spec, src)
+    lod_readback.update(policy_path=os.path.abspath(lod_policy_path), policy_sha256=digest(lod_policy_path))
+    with open(os.path.join(src, "landscape-lod.readback.json"), "w", encoding="utf-8") as handle:
+        json.dump(lod_readback, handle, indent=2)
+        handle.write("\n")
+    unreal.log("Landscape LOD policy verified: " + str(lod_readback["forced_components"]) + " components pinned to LOD0")
 
 
 def standin(entry):
@@ -223,11 +286,61 @@ if FOLIAGE:
     for entry in fspec["standins"]:
         standin(entry)
     groups = fspec["groups"]
+    pine = fspec.get("pine_hism") or {}
+    if pine.get("instances"):
+        pine_cull, pine_group_culls = requested_pine_culls(pine, groups)
     placed = unreal.MjolnirUIBuilderLibrary.bake_foliage(
         world, fspec["bin"], fspec["actor"], [g["mesh"] for g in groups], [g["bands"] for g in groups],
         [unreal.Vector2D(*g["cull"]) for g in groups], [g["flags"] for g in groups])
     if placed < 0:
         raise RuntimeError(f"bake_foliage failed for {FOLIAGE}")
+    # Complete pines are spatial HISM groups, not thousands of decor actors.
+    # Check the actual editor instances against their exact sidecar transforms.
+    if pine.get("instances"):
+        import struct
+        wanted = {f"MJFol_{row['group']}_1_0": row for row in pine["groups"]}
+        actual_count = component_count = 0
+        position_error = rotation_error = scale_error = 0.0
+        pine_ids = {"MJDecor_" + ident for row in pine["groups"] for ident in row["ids"]}
+        if any("MJDecor_" + d["id"] in pine_ids for d in fspec.get("decor", [])):
+            raise RuntimeError("Instanced pine also scheduled for decor actor creation")
+        for actor in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+            if actor.get_name() in pine_ids:
+                raise RuntimeError("Instanced pine also exists as a decor actor")
+            for component in actor.get_components_by_class(unreal.HierarchicalInstancedStaticMeshComponent):
+                row = wanted.pop(component.get_name(), None)
+                if row is None:
+                    continue
+                count = component.get_instance_count()
+                if count != row["count"]:
+                    raise RuntimeError("Pine HISM group instance count changed")
+                with open(f"{fspec['bin']}.xf{row['group']}", "rb") as stream:
+                    exact = list(struct.iter_unpack("<10f", stream.read()))
+                for index, target in enumerate(exact):
+                    t = component.get_instance_transform(index, world_space=True)
+                    position_error = max(position_error, *(abs(a - b) for a, b in zip(
+                        [t.translation.x, t.translation.y, t.translation.z], target[:3])))
+                    rotation_error = max(rotation_error, abs(1 - abs(sum(a * b for a, b in zip(
+                        [t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w], target[3:7])))))
+                    scale_error = max(scale_error, *(abs(a - b) for a, b in zip(
+                        [t.scale3d.x, t.scale3d.y, t.scale3d.z], target[7:10])))
+                verify_pine_cull(component, pine_group_culls[row["group"]])
+                actual_count += count
+                component_count += 1
+        if (wanted or actual_count != pine["instances"] or component_count != pine["components"]
+                or position_error > .01 or rotation_error > 1e-5 or scale_error > 1e-5):
+            raise RuntimeError("Pine HISM exact transform/component verification failed")
+        pine_receipt = {"schema": 1, "instances": actual_count, "hism_components": component_count,
+                        "maximum_position_error_cm": position_error, "maximum_quaternion_dot_error": rotation_error,
+                        "maximum_scale_error": scale_error, "cull_cm": pine_cull,
+                        "decor_actor_copies": 0, "world": PACKAGE}
+        with open(os.path.join(os.path.dirname(FOLIAGE), "pine_hism.verification.json"), "w", encoding="utf-8") as stream:
+            json.dump(pine_receipt, stream, indent=2)
+        unreal.log("MJOLNIR pine HISM verified: " + json.dumps(pine_receipt))
+    if fspec.get("render_only_hism") or fspec.get("render_only_pines"):
+        sys.path.insert(0, os.path.dirname(__file__))
+        from build_render_only_hism import apply as apply_exterior_hism
+        apply_exterior_hism(fspec, TEXTURES)
     # The cladding rocks' cooked materials (MJ_CLAD: tools/level/clad_materials.py):
     # made here, by ce_vehicle_instances_editor.py on the plan, once this
     # script has imported the landscape textures they name (T_LandEdge: a

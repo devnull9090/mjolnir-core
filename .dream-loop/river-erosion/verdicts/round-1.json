@@ -1,0 +1,21 @@
+{
+  "score": 2.2,
+  "first_failed_gate": "layout",
+  "previous_score": 1.8,
+  "regressions": [
+    {"where": "B4–D4", "what": "The previous outlet had excessive foam but a continuous water surface, while the current foreground reads as a dark dirt track."},
+    {"where": "E4–F4", "what": "A new rectangular field of evenly spaced bright pebbles cuts across the right bank."}
+  ],
+  "previous_directives": [],
+  "blockers": [
+    {"id": "r1-b1", "where": "A3–F4 outlet", "target": "The lake opens directly into a fan of shallow water that reaches nearly both bottom corners.", "current": "The lake pinches into a narrow central flow flanked by wide expanses of exposed ground.", "change": "Widen the visibly wetted channel to roughly 85–90% of the bottom edge and carry water continuously from the lake around the central rocks."},
+    {"id": "r1-b2", "where": "A3–B4 left bank and E3–F4 right bank", "target": "A grass-topped cut bank projects from the left opposite a low, sloping crescent of gravel on the right.", "current": "Both shores are broad bare slopes with scattered boulders and isolated plant tufts.", "change": "Shape the left edge into a projecting sod lip with an exposed vertical face, slope the right gravel shelf into the water, and fill both upper banks with contiguous grass."},
+    {"id": "r1-b3", "where": "B3–D4 midstream rocks", "target": "Three partly submerged rocks form a triangle with two large rear rocks and a smaller front-left rock.", "current": "One large central rock dominates while several small rocks are scattered across the banks and foreground.", "change": "Group three rocks within the wetted channel, with the medium rock immediately behind and left of the largest and the low front-left rock about half its width."}
+  ],
+  "next": [
+    {"id": "r1-n1", "where": "B2–E4 water", "target": "The lake carries broad olive reflections that give way to transparent amber-gray shallows and short white wakes.", "current": "The lake has dense blue flecks and the stream is dark with a foamy streak down its center.", "change": "Broaden lake reflections, expose the stony bed through shallow water, and concentrate foam at the upstream faces and trailing edges of rocks."},
+    {"id": "r1-n2", "where": "A4–B4 and D4–F4 gravel", "target": "Pebbles vary in scale and overlap irregularly along the waterline.", "current": "Pebbles repeat in aligned rows across sharply bounded patches.", "change": "Break up the rows with varied stone sizes, rotations and spacing, blending gravel into soil and grass along irregular edges."}
+  ],
+  "excluded": ["Sky, surrounding mountains and distant upland terrain are outside the outlet scope."],
+  "unverifiable": ["The still captures cannot establish water motion."]
+}

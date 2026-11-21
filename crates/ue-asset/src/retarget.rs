@@ -50,6 +50,25 @@ fn slot_named(usmap: &Usmap, class: &str, name: &str) -> Option<(u16, PropType, 
     None
 }
 
+/// Explicit reflected-name differences verified in UE-5.5-stock.usmap and
+/// Meteorite-2607-CU3.usmap. Keep these scoped to the same struct in both
+/// layouts: a case-insensitive search could conflate unrelated properties.
+/// Exact names still win, and aliases pass the usual type/array checks.
+fn property_alias(from_class: &str, to_class: &str, name: &str) -> Option<&'static str> {
+    if from_class != to_class {
+        return None;
+    }
+    match (from_class, name) {
+        ("GrassVariety", "MinLod") => Some("MinLOD"),
+        ("GrassVariety", "MinLOD") => Some("MinLod"),
+        ("FloatInterval", "Min") => Some("min"),
+        ("FloatInterval", "min") => Some("Min"),
+        ("FloatInterval", "MAX") => Some("max"),
+        ("FloatInterval", "max") => Some("MAX"),
+        _ => None,
+    }
+}
+
 fn byte_like(t: &PropType) -> bool {
     matches!(t, PropType::Byte)
         || matches!(t, PropType::Enum(inner, _) if **inner == PropType::Byte)
@@ -131,7 +150,11 @@ pub fn block(
             continue;
         };
         let here = format!("{path}.{name}");
-        match slot_named(to, to_class, &name) {
+        let destination = slot_named(to, to_class, &name).or_else(|| {
+            property_alias(from_class, to_class, &name)
+                .and_then(|alias| slot_named(to, to_class, alias))
+        });
+        match destination {
             Some((to_slot, to_ty, dim))
                 if compatible(&ty, &to_ty) && element < dim.max(1) as u16 =>
             {

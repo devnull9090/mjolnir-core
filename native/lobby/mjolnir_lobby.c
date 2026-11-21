@@ -2949,6 +2949,8 @@ static volatile LONG end_game_request;
 static void end_game_tick(void);
 static volatile DWORD sim_thread_id;
 static void forge_doors_tick(void);
+static void warfare_tick(void);
+static int warfare_keep_playing(void);
 static void lifts_tick(void);
 static void roster_tick(void);
 static unsigned char *watch_globals;
@@ -3103,6 +3105,7 @@ static void __fastcall hook_main_tick(void) {
     }
     main_tick_trampoline();
     forge_doors_tick();
+    warfare_tick();
 }
 
 /* Move `stolen` bytes of `fn` to a trampoline and jump from `fn` to `hook`. */
@@ -3600,11 +3603,11 @@ static char __fastcall hook_end_check(unsigned *winner, char *tie, unsigned *rea
                          winner ? (int)*winner : -1, tie ? *tie : -1, at ? teams : " none");
         }
     }
-    if (ends && (*out == 0 || *out == 2) && keep_lobby && join_in_progress) {
+    if (ends && (*out == 0 || *out == 2) && ((keep_lobby && join_in_progress) || warfare_keep_playing())) {
         static DWORD last;
         if (GetTickCount() - last > 30000) {
             last = GetTickCount();
-            fireteam_log("game: the engine would end the match for too few players (reason %u); a public game plays on",
+            fireteam_log("game: the engine would end the match for too few players (reason %u); the joinable/PWR game plays on",
                          *out);
         }
         if (tie) *tie = 0;
@@ -6767,6 +6770,7 @@ static void sound_trace_arm(void) {
    finds the same module, statics and all, and the install guards skip a
    second install. */
 #include "forge_doors_runtime.h"
+#include "warfare_runtime.h"
 #include "lifts_runtime.h"
 #include "roster_runtime.h"
 #include "medals_runtime.h"

@@ -1,0 +1,239 @@
+{
+  "schema": "pwr-constrained-terrain-rejection-v1",
+  "status": "REJECTED; no master published",
+  "source_manifest_sha256": "b26005fe6a8a22a0ed6c944fb4f1684e79161b57d330ffba98de9149ad95b26c",
+  "baseline_manifest_sha256": "814c7a8b3796394f2a8027c10b9577424acff5c23972d65265f9d86f3b7fd3ec",
+  "geometry_sha256": "2bad0fc72f4204932d8f66e2fc096e8d47f4a0c901d4a246a5ac0bb0b425f7c4",
+  "protection": {
+    "thresholds": {
+      "road": 0.001,
+      "bases": 0.5,
+      "flat": 0.5,
+      "water": 0.01,
+      "shore": 0.5
+    },
+    "vertices_by_mask": {
+      "road": 99915,
+      "bases": 74007,
+      "flat": 74007,
+      "water": 80031,
+      "shore": 51258
+    },
+    "collar_cells": 2,
+    "support_points": 27388,
+    "vehicle_support_discs": 16,
+    "vehicle_support_radius_m": 12,
+    "protected_vertices": 309214,
+    "protected_fraction": 0.3037223953693272,
+    "engineered_bank": {
+      "source": "immutable baseline",
+      "maximum_road_water_gap_m": 80,
+      "maximum_distance_to_each_m": 60,
+      "minimum_existing_grade": 0.35,
+      "selected_vertices": 16049,
+      "additional_vertices_before_collar": 6815
+    },
+    "compatibility_collar": {
+      "maximum_extension_m": 12.0,
+      "compatibility_target_grade": 0.7,
+      "original_vertices": 307956,
+      "added_vertices": 1258,
+      "actual_max_extension_m": 11.904761904761905,
+      "original_mask_sha256": "509bf394f87c58916de54346c94132f49d4bbaedd1b9d311e5c6dd9608568620",
+      "final_mask_sha256": "586ded908b830dafd828e2a58356d19ba76616e6126be4fc30e587483ffc4457",
+      "regions": [
+        {
+          "vertices": 34,
+          "bounds_m": [
+            [
+              456.3492063492065,
+              -996.031746031746
+            ],
+            [
+              474.20634920634916,
+              -984.1269841269841
+            ]
+          ]
+        },
+        {
+          "vertices": 61,
+          "bounds_m": [
+            [
+              563.4920634920636,
+              -976.1904761904761
+            ],
+            [
+              587.3015873015875,
+              -966.2698412698412
+            ]
+          ]
+        },
+        {
+          "vertices": 249,
+          "bounds_m": [
+            [
+              123.01587301587301,
+              -972.2222222222222
+            ],
+            [
+              238.09523809523807,
+              -942.4603174603175
+            ]
+          ]
+        },
+        {
+          "vertices": 77,
+          "bounds_m": [
+            [
+              -236.1111111111111,
+              -696.4285714285714
+            ],
+            [
+              -204.3650793650794,
+              -680.5555555555555
+            ]
+          ]
+        },
+        {
+          "vertices": 54,
+          "bounds_m": [
+            [
+              -111.11111111111109,
+              -656.7460317460318
+            ],
+            [
+              -87.30158730158723,
+              -644.8412698412699
+            ]
+          ]
+        },
+        {
+          "vertices": 166,
+          "bounds_m": [
+            [
+              748.015873015873,
+              -587.3015873015872
+            ],
+            [
+              773.8095238095239,
+              -531.7460317460318
+            ]
+          ]
+        },
+        {
+          "vertices": 103,
+          "bounds_m": [
+            [
+              123.01587301587301,
+              -547.6190476190476
+            ],
+            [
+              164.68253968253975,
+              -531.7460317460318
+            ]
+          ]
+        },
+        {
+          "vertices": 32,
+          "bounds_m": [
+            [
+              595.2380952380952,
+              -494.04761904761904
+            ],
+            [
+              607.1428571428571,
+              -478.17460317460313
+            ]
+          ]
+        },
+        {
+          "vertices": 316,
+          "bounds_m": [
+            [
+              -176.58730158730157,
+              408.7301587301588
+            ],
+            [
+              -109.1269841269841,
+              503.968253968254
+            ]
+          ]
+        },
+        {
+          "vertices": 48,
+          "bounds_m": [
+            [
+              511.9047619047619,
+              428.57142857142867
+            ],
+            [
+              539.6825396825398,
+              446.42857142857156
+            ]
+          ]
+        },
+        {
+          "vertices": 7,
+          "bounds_m": [
+            [
+              -226.19047619047615,
+              734.1269841269841
+            ],
+            [
+              -222.22222222222217,
+              738.0952380952381
+            ]
+          ]
+        },
+        {
+          "vertices": 105,
+          "bounds_m": [
+            [
+              -236.1111111111111,
+              742.063492063492
+            ],
+            [
+              -218.2539682539682,
+              781.7460317460318
+            ]
+          ]
+        },
+        {
+          "vertices": 6,
+          "bounds_m": [
+            [
+              -192.46031746031747,
+              748.015873015873
+            ],
+            [
+              -190.47619047619048,
+              751.984126984127
+            ]
+          ]
+        }
+      ]
+    }
+  },
+  "blend": {
+    "method": "biharmonic minimum-curvature displacement with fixed boundary rows",
+    "blend_m": 180.0,
+    "solver_unknowns": 439817,
+    "solver_iterations": 402,
+    "solver_max_residual": 3.335954765759652e-07,
+    "solver_amg_levels": 4,
+    "max_correction_grade": 0.8685553556688637,
+    "correction_grade_limit": 0.75,
+    "max_earthwork_m": 65.08410163152786,
+    "far_field_vertices": 269050,
+    "far_field_max_error_m": 0.0,
+    "protected_max_abs_error_m": 0.0,
+    "worst_grid_xy": [
+      392,
+      893
+    ],
+    "worst_position_m": [
+      -222.22222222222217,
+      771.8253968253969
+    ]
+  }
+}

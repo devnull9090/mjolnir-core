@@ -1,0 +1,16 @@
+// Read the stock granite scan in broad, dipping beds as well as at surface
+// scale. This keeps separate mineral values when the small rock grain mips out.
+float2 strataXY = float2(dot(W.xy, float2(.67,.74)), W.z + dot(W.xy,float2(.23,-.13)));
+float bend = AP::noise(W.xy/14500.0) - .5;
+float2 beds = strataXY/float2(9400.,5700.) + float2(bend*.75,bend*.37);
+float3 broadA = Texture2DSample(RockD,RockDSampler,beds).rgb;
+float3 broadB = Texture2DSample(RockD,RockDSampler,beds*.43+float2(7.1,13.2)).rgb;
+float lum = dot(rock,float3(.2126,.7152,.0722));
+float scan = dot(lerp(broadA,broadB,.42),float3(.2126,.7152,.0722));
+float grain = clamp(scan / max(dot(rockMean,float3(.2126,.7152,.0722)),.001),.46,1.53);
+float mineral = smoothstep(.58,1.31,grain);
+float3 granite = lerp(rock,lum*float3(.85,.97,1.12),.64)
+               * lerp(float3(.54,.64,.74),float3(1.29,1.27,1.21),mineral);
+float ambientExposure = lerp(.52,1.19,smoothstep(.12,.88,fieldGeology.a));
+float rockBand = smoothstep(18000.,40500.,W.z)*(1.-seamWeight);
+rock = lerp(rock,granite*ambientExposure,rockBand);

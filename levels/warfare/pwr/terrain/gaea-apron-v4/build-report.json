@@ -1,0 +1,151 @@
+{
+  "$id": "1",
+  "Resolution": 1024,
+  "NodeCount": 27,
+  "Result": "Success",
+  "StartTime": "2026-11-09T12:13:10.0365841-07:00",
+  "EndTime": "2026-11-09T12:13:25.2142164-07:00",
+  "Duration": "00:00:15.1776323",
+  "SecondsTaken": {
+    "$id": "2",
+    "$values": [
+      {
+        "$id": "3",
+        "Item1": "Northwest inner ridge",
+        "Item2": "00:00:01.7400000"
+      },
+      {
+        "$id": "4",
+        "Item1": "Northwest distant shoulder",
+        "Item2": "00:00:01.3940000"
+      },
+      {
+        "$id": "5",
+        "Item1": "North saddle west",
+        "Item2": "00:00:01.0660000"
+      },
+      {
+        "$id": "6",
+        "Item1": "North saddle east",
+        "Item2": "00:00:00.7980000"
+      },
+      {
+        "$id": "7",
+        "Item1": "Northeast inner ridge",
+        "Item2": "00:00:00.8380000"
+      },
+      {
+        "$id": "8",
+        "Item1": "Northeast distant shoulder",
+        "Item2": "00:00:00.8480000"
+      },
+      {
+        "$id": "9",
+        "Item1": "West inner range",
+        "Item2": "00:00:00.7660000"
+      },
+      {
+        "$id": "10",
+        "Item1": "Western outer range",
+        "Item2": "00:00:00.8410000"
+      },
+      {
+        "$id": "11",
+        "Item1": "Southwest inner ridge",
+        "Item2": "00:00:00.8180000"
+      },
+      {
+        "$id": "12",
+        "Item1": "Southwest distant range",
+        "Item2": "00:00:00.7890000"
+      },
+      {
+        "$id": "13",
+        "Item1": "Eastern inner ridge",
+        "Item2": "00:00:00.7220000"
+      },
+      {
+        "$id": "14",
+        "Item1": "Eastern distant range",
+        "Item2": "00:00:00.7350000"
+      },
+      {
+        "$id": "15",
+        "Item1": "Southeast lake shoulder",
+        "Item2": "00:00:00.8020000"
+      },
+      {
+        "$id": "16",
+        "Item1": "Southeast distant range",
+        "Item2": "00:00:00.8540000"
+      },
+      {
+        "$id": "17",
+        "Item1": "Southern valley west",
+        "Item2": "00:00:00.8320000"
+      },
+      {
+        "$id": "18",
+        "Item1": "Southern valley east",
+        "Item2": "00:00:00.8100000"
+      },
+      {
+        "$id": "19",
+        "Item1": "Independent range group",
+        "Item2": "00:00:00.0030000"
+      },
+      {
+        "$id": "20",
+        "Item1": "Independent range group",
+        "Item2": "00:00:00.0040000"
+      },
+      {
+        "$id": "21",
+        "Item1": "Independent range group",
+        "Item2": "00:00:00.0040000"
+      },
+      {
+        "$id": "22",
+        "Item1": "Independent range group",
+        "Item2": "00:00:00.0070000"
+      },
+      {
+        "$id": "23",
+        "Item1": "Full8km mountain ring",
+        "Item2": "00:00:00.0030000"
+      },
+      {
+        "$id": "24",
+        "Item1": "Range scale drainage",
+        "Item2": "00:00:00.2630000"
+      },
+      {
+        "$id": "25",
+        "Item1": "Secondary gullies and talus",
+        "Item2": "00:00:00.1460000"
+      },
+      {
+        "$id": "26",
+        "Item1": "apron_height"
+      },
+      {
+        "$id": "27",
+        "Item1": "apron_flow"
+      },
+      {
+        "$id": "28",
+        "Item1": "apron_wear"
+      },
+      {
+        "$id": "29",
+        "Item1": "apron_deposits"
+      }
+    ]
+  },
+  "FastestNode": {
+    "$ref": "26"
+  },
+  "SlowestNode": {
+    "$ref": "3"
+  }
+}

@@ -1,0 +1,104 @@
+// Flow-aligned alluvium in the sculpted outlet and its two shallow lake terraces.
+// The section table comes from the same surveyed river as the water and terrain.
+[branch] if (hwXY.x>-402. && hwXY.x< -234. && hwXY.y>748. && hwXY.y<904.)
+{
+    const float4 rows[32]={REACH_ROWS};
+    const float dy=(REACH_Y_HIGH-REACH_Y_LOW)/31.;
+    float linearY=clamp((hwXY.y-REACH_Y_LOW)/dy,0.,30.9999);
+    int row=(int)linearY;
+    float4 sec=lerp(rows[row],rows[row+1],frac(linearY));
+    float slopeX=(rows[row+1].x-rows[row].x)/dy;
+    float2 crossDir=normalize(float2(1.,-slopeX));
+    float2 flowDir=float2(crossDir.y,-crossDir.x);
+    float side=(hwXY.x-sec.x)*crossDir.x;
+    float station=sec.y+(hwXY.x-sec.x)*flowDir.x;
+    float outside=max(0.,abs(side)-sec.w);
+    float reach=smoothstep(-23.,-12.,station)*(1.-smoothstep(44.,63.,station));
+    reach*=1.-smoothstep(8.,16.,outside);
+    float2 terraceA=(hwXY-float2(-302.,859.))/float2(19.,34.);
+    float2 terraceB=(hwXY-float2(-351.,851.))/float2(36.,16.);
+    float terrace=max(exp(-dot(terraceA,terraceA)),exp(-dot(terraceB,terraceB)));
+    terrace=smoothstep(.05,.79,terrace);
+    float focus=max(terrace,reach);
+    [branch] if (focus>.001)
+    {
+        float elevation=WorldCM.z*.01-lerp(142.4,sec.z,reach);
+        float bar=smoothstep(-.45,.50,side/max(sec.w,1.));
+        float bankAsymmetry=lerp(.52,bar,reach);
+        float2 uv=hwXY/3.65+float2(.417,.212);
+        float3 grit=Texture2DSampleGrad(PathGravel,SiteEarthSampler,uv,hwDx/3.65,hwDy/3.65).rgb;
+        float2 gritN=Texture2DSampleGrad(PathGravelNormal,SiteEarthSampler,uv,hwDx/3.65,hwDy/3.65).rg*2.-1.;
+        float3 fineSoil=Texture2DSampleGrad(SiteEarth,SiteEarthSampler,hwXY/3.82,hwDx/3.82,hwDy/3.82).rgb;
+        float broad=.5+.24*sin(dot(hwXY,float2(.21,.09)))+.15*sin(dot(hwXY,float2(-.36,.27)))+.10*sin(station*.85+.6*sin(side));
+        float gravelTop=lerp(1.45,.65,bankAsymmetry)+.64*(broad-.5);
+        float turf=smoothstep(gravelTop-.28,gravelTop+.40,elevation+.1*sin(side*1.5));
+        float wetness=1.-smoothstep(-.08,.57,elevation+(broad-.5)*.16);
+        float silt=dot(fineSoil,float3(.24,.58,.18));
+        float3 mud=(.038+.69*silt)*float3(1.18,.96,.65);
+        float bedL=dot(grit,float3(.24,.58,.18));
+        float3 bed=lerp(mud, .025+grit*float3(1.12,1.09,.98),.36+.44*bar);
+        float scarp=reach*(1.-bar)*smoothstep(-.22,.22,elevation)*(1.-turf);
+        float layerWave=sin((WorldCM.z*.01+.12*sin(station*.3)+.028*sin(station*2.1))*15.);
+        float lamina=(1.-smoothstep(.06,.26,pixelMetres))*.13*layerWave;
+        bed=lerp(bed,mud*(.91+lamina+.13*broad),scarp);
+        // Rounded embedded stones at a fixed metric scale. Each of the four
+        // nearest jittered lattice sites has its own axis, size, mineral and
+        // orientation. The largest profile fits inside the four-site stencil.
+        float mineralCover=saturate(.61+.26*broad+.15*bankAsymmetry-.37*scarp);
+        float resolved=1.-smoothstep(.035,.12,pixelMetres);
+        float3 sortedMean=lerp(float3(.116,.113,.087),float3(.220,.208,.174),broad);
+        float3 flatBed=lerp(bed,sortedMean,mineralCover*.54);
+        float2 stoneN=gritN*.33;
+        float3 sortedBed=flatBed;
+        [branch] if(resolved>.001 && turf<.999)
+        {
+            float2x2 orientation=float2x2(.914,.406,-.406,.914);
+            float2 p=mul(orientation,hwXY)/.269;
+            p+=float2(.16*sin(dot(hwXY,float2(1.15,.58))),
+                      .19*sin(dot(hwXY,float2(-.53,.92))));
+            float2 lo=floor(p);
+            float rock=0., crown=0.;
+            float3 rockColor=0.;
+            [unroll] for(int k=0;k<4;k++)
+            {
+                float2 site=lo+float2(k&1,k>>1);
+                uint2 seed=asuint(int2(site));
+                uint bits=(seed.x*0x68bc21ebu)^(seed.y*0x02e5be93u);
+                bits^=bits>>16u; bits*=0x7feb352du; bits^=bits>>15u; bits*=0x846ca68bu; bits^=bits>>16u;
+                float4 h=float4(uint4(bits,bits>>8u,bits>>16u,bits>>24u)&255u)/255.;
+                float2 offset=p-site-(h.xy-.5)*.39;
+                float2 axis=normalize(float2(.18+1.8*h.z-1.,1.8*h.w-.61));
+                float2 ortho=float2(-axis.y,axis.x);
+                float2 radii=float2(.31+.33*h.x,.235+.22*h.y)*lerp(.91,1.08,bankAsymmetry);
+                float2 local=float2(dot(offset,axis),dot(offset,ortho))/radii;
+                float profile=1.-dot(local,local);
+                float edge=smoothstep(-.07,.19,profile);
+                if(edge>0. && profile>crown-.05)
+                {
+                    crown=profile;
+                    rock=edge;
+                    float3 mineral=lerp(float3(.095,.108,.105),float3(.31,.278,.215),h.y);
+                    mineral=lerp(mineral,float3(.188,.173,.152),.34*h.w);
+                    rockColor=mineral*(.81+.21*saturate(profile)*saturate(profile)+.56*bedL);
+                    float2 normalXY=mul(transpose(orientation),local.x*axis+local.y*ortho);
+                    stoneN=lerp(stoneN,normalXY*float2(.51,-.51)+.14*gritN,edge*resolved);
+                }
+            }
+            sortedBed=lerp(flatBed,lerp(bed*.86,rockColor,rock),resolved*mineralCover);
+        }
+        // At the splash line damp soil darkens. Underwater, Flux already
+        // attenuates the transmitted bed light. Keep pale glacial minerals.
+        float immersion=1.-smoothstep(-.38,-.03,elevation);
+        sortedBed*=lerp(1.,lerp(.75,.99,immersion),wetness);
+        sortedBed+=immersion*float3(.024,.021,.016)*mineralCover;
+        float3 sod=lerp(preShoreColor,max(.043,dot(preShoreColor,float3(.24,.58,.18)))*float3(.78,1.03,.55),.53+.13*broad);
+        float3 surface=lerp(sortedBed,sod,turf);
+        float face=focus*(1.-smoothstep(2.6,4.5,elevation));
+        originalGround=lerp(originalGround,surface,face);
+        float3 patchNormal=normalize(float3(stoneN,sqrt(saturate(1.-dot(stoneN,stoneN)))));
+        WetNormal=normalize(lerp(WetNormal,lerp(patchNormal,preShoreNormal,turf),face));
+        WetRough=lerp(WetRough,lerp(lerp(.83,.48,wetness),preShoreRough,turf),face);
+        WetSpec=lerp(WetSpec,lerp(lerp(.23,.32,wetness),preShoreSpec,turf),face);
+        RoadMetal=lerp(RoadMetal,0.,face);
+    }
+}

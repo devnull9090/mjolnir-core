@@ -33,7 +33,7 @@ Modes.writeChoice = function(_, code, id) writes.match_variant = code .. " " .. 
 local modules = {
     ui = UI,
     modes = Modes,
-    presence = { init = function() end },
+    presence = { init = function() end, registerModes = function() end },
     class_lifetime = { new = function() return function() end end },
     gametype = { new = function() return {} end },
     postgame = { new = function() return {} end },
@@ -46,7 +46,7 @@ local modules = {
     -- No world index here (MapLive.worlds returns nil: "cannot say").
     maplive = { register = function() calls[#calls+1] = "register"; return true end, release = function() return {} end,
         worlds = function() return nil end },
-    settings = { variantLine = function() return "" end },
+    settings = { variantLine = function() return "" end, registerModes = function() end },
     net = { on = function() end, toClients = function() calls[#calls+1] = "starting message" end },
     json = { encode = function() return "{}" end },
 }

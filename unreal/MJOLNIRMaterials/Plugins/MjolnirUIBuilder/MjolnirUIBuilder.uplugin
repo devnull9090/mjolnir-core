@@ -8,6 +8,7 @@
 	"CreatedBy": "MJOLNIR",
 	"CanContainContent": false,
 	"Installed": false,
+	"Plugins": [ { "Name": "PCG", "Enabled": true, "TargetAllowList": ["Editor"] } ],
 	"Modules": [
 		{
 			"Name": "MjolnirUIBuilder",

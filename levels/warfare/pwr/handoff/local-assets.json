@@ -1,0 +1,69 @@
+{
+  "worktree": "C:/Users/will/.codex/worktrees/pelican-warfare/haloce",
+  "branch": "codex/pelican-warfare-wip-43",
+  "files": [
+    {
+      "path": "out/pwr/river-riparian/saturday.43/pelican-warfare-0.1.0-playtest.43.mjolnir",
+      "role": "Verified .43 map",
+      "bytes": 571317309,
+      "sha256": "c150968c5c0a689d0582f2c6279ad4951000fc5cfbc8d3c8763320d92687492f"
+    },
+    {
+      "path": "out/pwr/river-riparian/saturday.43/pelican-warfare-runtime-0.1.0-playtest.43.zip",
+      "role": "Multiplayer runtime",
+      "bytes": 4542278,
+      "sha256": "21369353e66881e683bb549b0041ce83d268c1785f8a366a310b21ff3065a9de"
+    },
+    {
+      "path": "out/pwr/river-riparian/saturday.43/solo/pelican-warfare-runtime-0.1.0-playtest.43.zip",
+      "role": "Solo rehearsal runtime",
+      "bytes": 4542292,
+      "sha256": "a81695c2ee6cbc9f4b2bc3e7c02de782142bf44d33f922db91b17da9635725bb"
+    },
+    {
+      "path": "levels/warfare/pwr/bases_v1/forerunner_bases.blend",
+      "role": "Original authored bases and packed stock reference geometry and textures",
+      "bytes": 56261262,
+      "sha256": "dcf16f3967c1701e790905aba665d79a51bed710c1e1c395211f7613cbd261e8"
+    },
+    {
+      "path": "levels/warfare/pwr/bases_v1/textures/native-fr-diagonal-orhg.png",
+      "role": "Stock material export used by the Blender scene",
+      "bytes": 3301968,
+      "sha256": "a54e67e1d900ca26f5b10c90992f576a8ec2826d78ddda4e96db86a27b9ac722"
+    },
+    {
+      "path": "levels/warfare/pwr/canopy/v2/pwr_insertion.blend",
+      "role": "Original authored canopy and pack with retail Spartan fit reference",
+      "bytes": 1023756,
+      "sha256": "5f48ff4bfc890f247e08964b6403d6eefa9025f9789f4027822db77ff03c9caf"
+    },
+    {
+      "path": "out/pwr/river-riparian/planting/T_PWR_RiparianWillow.png",
+      "role": "Local willow atlas derived from game textures",
+      "bytes": 1254510,
+      "sha256": "77c9dbf4a40d04de31adc37891a69f95f354a76c453765f4ac8f4a2f624cec9a"
+    },
+    {
+      "path": "out/pwr/river-riparian/native/physics/pwr.sbsp",
+      "role": "Compiled .43 native collision",
+      "bytes": 216903277,
+      "sha256": "b03b92e641c2ca1f6d6ec4254f0b69a197eafc9d90ab07ac6b4e9ed7c23a1dfe"
+    },
+    {
+      "path": "out/pwr/river-basin/saturday.39/pelican-warfare-0.1.0-playtest.39.mjolnir",
+      "role": "Sealed .39 parent for the riparian packager",
+      "bytes": 563981911,
+      "sha256": "dc06be35b9549104baaba411eb86395651630b1011db4009918f08d1c76d8f0e"
+    }
+  ],
+  "working_directories": [
+    "out/pwr/river-riparian/editor/Meteorite",
+    "out/pwr/river-basin",
+    "out/pwr/river-apron",
+    "out/pwr/headwater-lake",
+    "out/pwr/playtest-20261121",
+    "out/pwr/alpine-target/bench",
+    "out/pwr/river-riparian/saturday.43"
+  ]
+}

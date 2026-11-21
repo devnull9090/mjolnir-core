@@ -1,0 +1,31 @@
+    // The west face is the original rock scan; a metric debris strip occupies
+    // the last 240 columns of the same material resource. Eight wrapped texels
+    // bound the widest allowed footprint; small contributors fade to their
+    // area average at distance rather than sampling the neighbouring panel.
+    float4 scan=float4(0,0,.50,.50);
+    [branch] if (finishScope>.001)
+    {
+        float2x2 debrisRot=float2x2(.9239,.3827,-.3827,.9239);
+        float2 debrisScale=float2(1./1.12,1./5.04);
+        float2 probe=mul(debrisRot,m)*debrisScale;
+        float2 gx=mul(debrisRot,dx)*debrisScale, gy=mul(debrisRot,dy)*debrisScale;
+        float2 panel=float2(224./2048.,1008./1024.);
+        float footprint=max(length(gx*float2(224,1008)),length(gy*float2(224,1008)));
+        float gutterScale=min(1.,6.0/max(footprint,.001));
+        scan=Texture2DSampleGrad(SweepFloorDetail,SiteEarthSampler,
+              frac(probe)*panel+float2(1816./2048.,8./1024.),
+              gx*panel*gutterScale,gy*panel*gutterScale);
+        scan=lerp(scan,float4(.11682,.10119,.49550,.53143),smoothstep(14.,49.,footprint));
+    }
+    // Dark red-brown earth opens the densest remaining small-chip patches.
+    // Face masks below retain occasional large stones in these same hollows.
+    float holeWave=.56*sin(.47*washUV.y-.29*washUV.x+.66*sin(.36*washUV.x))
+                  +.39*sin(.57*washUV.x-.21*washUV.y);
+    float washGap=smoothstep(.048,.51,holeWave)*deposit*(1-bareLens)*finishScope;
+    trafficBed=lerp(trafficBed,exposed*float3(1.08,.965,.90),washGap);
+    bearing*=1-.92*washGap;
+    // Low-relief real pressed grit changes the compacted strip's local value
+    // without introducing another band of pale scree in the two wheel paths.
+    float subtle=smoothstep(.025,.12,pixelMetres);
+    float pressedGrain=lerp(.56+.88*scan.b,1.,subtle);
+    trafficBed*=lerp(1.,pressedGrain,compact*finishScope);

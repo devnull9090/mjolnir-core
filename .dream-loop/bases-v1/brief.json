@@ -1,0 +1,246 @@
+{
+  "schema": "pwr-blender-base-art-brief-v2",
+  "scope": "Blender-only three-base art redesign; no further in-game checks",
+  "concepts": {
+    "primary": "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/.dream-loop/bases-v1/concept-team-base.png",
+    "primary_method": "Built-in imagegen edit of the existing visual7 red-base screenshot",
+    "refined": "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/.dream-loop/bases-v1/concept-team-refined.png",
+    "refined_method": "Imagegen refinement using an actual Blender model render as reference",
+    "output_distinction": "Concepts guide modelling. Delivery renders are actual Blender scene renders, not imagegen substitutes.",
+    "prompt_files": [
+      "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/.dream-loop/bases-v1/prompt-team-base.txt",
+      "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/.dream-loop/bases-v1/prompt-team-refined.txt",
+      "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/.dream-loop/bases-v1/prompt-alloy-atlas.txt"
+    ]
+  },
+  "architecture": {
+    "units": "metres, Z up, front minusY",
+    "base_authoring_scale": 0.65,
+    "floor_datum_z_m": 0.2,
+    "main_hall_nominal_floor_width_m": 16.9,
+    "rear_opening_nominal_width_m": 5.85,
+    "minimum_measured_covered_height_m": 6.880249786376953,
+    "minimum_measured_soffit_z_m": 7.080249786376953,
+    "covered_length_m": 32.5,
+    "connected_cover_galleries": true,
+    "roof_deck_z_m": 10.5675,
+    "roof_reserved_width_depth_m": [
+      19.5,
+      19.5
+    ],
+    "roof_reserved_sky_bottom_z_m": 11.0875,
+    "roof_socket_nominal_diameter_m": 13,
+    "roof_socket_fit_status": "Nominal octagonal reservation only, not a verified cannon fit",
+    "team_bases": "Red master and exact blue X reflection; shared mesh datablocks, team material slots overridden per object",
+    "third_base": "Green master-family citadel with added rear arcade, gallery, piers and parapet",
+    "presentation_centers_m": {
+      "red": [
+        0,
+        0,
+        0
+      ],
+      "blue": [
+        135,
+        0,
+        0
+      ],
+      "green": [
+        0,
+        150,
+        0
+      ]
+    },
+    "target_world_centers_m": {
+      "red": [
+        -590,
+        -80,
+        107.5998
+      ],
+      "blue": [
+        600,
+        -80,
+        111.5954
+      ],
+      "green": [
+        0,
+        690,
+        129.2274
+      ]
+    },
+    "target_world_status": "Metadata only; no game installation or terrain changes in this art pass",
+    "red_blue_evaluated_bounds_size_m": [
+      76.43999481201172,
+      52.63531494140625,
+      22.140622854232788
+    ],
+    "roof_ramp_measured_average_grade": 0.3339582960836445,
+    "gallery_terminals": "Two project-authored recessed bulkheads with polygonal armor, engraved fields and integrated lights",
+    "native_modules_per_base": {
+      "corridor_wall_panels": 8,
+      "pillar_trims": 4,
+      "large_rear_gallery_sheets": 0
+    }
+  },
+  "vehicle_clearance": {
+    "proxy_length_width_height_m": [
+      7,
+      3.5,
+      4.5
+    ],
+    "proxy_remains_unscaled": true,
+    "main_center_path": "x0, y[-22.75,22.75], floor.2",
+    "cross_gallery_center_path": "x[-18.2,18.2], y5.85, floor.2, vehicle length alongX",
+    "floor_contact_allowance_m": 0.08,
+    "method": "Evaluated mesh BVH boundary/containment checks and ray grids of at most1m spacing",
+    "limitation": "Architectural geometry check, not game physics, turning, suspension, turret, rider or runtime testing",
+    "side_front_gallery_center_paths": {
+      "left": "x-21.45, y[-23.4,-6.5], floor.2; vehicle length alongY",
+      "right": "x21.45, y[-23.4,-6.5], floor.2; vehicle length alongY"
+    },
+    "side_front_gallery_air_clearance_passed": {
+      "left": true,
+      "right": true
+    },
+    "side_front_gallery_scope": "Full unscaled vehicle air clearance only; side-route floor support and vehicle dynamics not asserted",
+    "main_floor_samples_each": 235,
+    "main_floor_height_range_m": [
+      0.13499993085861206,
+      0.20000004768371582
+    ],
+    "unsupported_main_floor_samples": 0,
+    "roof_landing_measured_z_m": [
+      10.625999450683594,
+      10.625999450683594
+    ],
+    "roof_landing_gap_to_datum_m": [
+      0.058499450683594745,
+      0.058499450683594745
+    ],
+    "roof_connection_tolerance_m": 0.12
+  },
+  "light_cannon": {
+    "identity": "Unconfirmed exact Danger Canyon light cannon/emitter reference",
+    "built": false,
+    "next_requirement": "Identify the intended asset or visual reference before fitting the adjustable roof socket"
+  },
+  "toolchain": {
+    "blender": "5.3.0",
+    "mcp_package": "mcp-for-blender==2.2.7",
+    "addon_protocol": 15,
+    "session_status": "Updated and verified this session",
+    "receipt": "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/out/pwr/base-art/toolchain/installation-receipt.json"
+  },
+  "review": {
+    "scope": "Blender geometry and render quality only; runtime FPS and integration deferred at user request",
+    "validation_report": "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/out/pwr/base-art/geometry-validation.json",
+    "reviewed_validation_snapshot": "v16 completed build, matched to validation-receipt-v16.json; all geometry checks passed",
+    "geometry_passed": true,
+    "red_blue_paired_mesh_objects": 773,
+    "red_blue_team_material_slots": 19,
+    "red_blue_maximum_coordinate_error_m": 1.4307101429631708e-05,
+    "green_mesh_objects": 815,
+    "red_blue_evaluated_triangles_each": 1327262,
+    "green_evaluated_triangles": 1419798,
+    "performance_status": "Authoring counts only; runtime export, collision and performance budgets not validated",
+    "latest_completed_red_render": "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/out/pwr/base-art/renders/red-hero-v16.png",
+    "latest_completed_multiview_version": "v16",
+    "final_render_version": "v16",
+    "final_render_status": "All ten v16 views complete; R9 numeric visual threshold met",
+    "final_render_directory": "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/out/pwr/base-art/renders",
+    "final_render_filenames": [
+      "red-hero-v16.png",
+      "blue-v16.png",
+      "blue-oblique-v16.png",
+      "green-v16.png",
+      "green-rear-v16.png",
+      "roof-v16.png",
+      "interior-v16.png",
+      "gallery-v16.png",
+      "passage-left-v16.png",
+      "passage-right-v16.png"
+    ],
+    "final_visual_judge_status": "R9 complete:8.1/10,Tier3; numeric exit threshold met; Tier4 fine-detail refinements remain",
+    "red_blue_evaluated_vertices_each": 925167,
+    "green_evaluated_vertices": 972415,
+    "completed_final_render_filenames": [
+      "red-hero-v16.png",
+      "blue-v16.png",
+      "blue-oblique-v16.png",
+      "green-v16.png",
+      "green-rear-v16.png",
+      "roof-v16.png",
+      "interior-v16.png",
+      "gallery-v16.png",
+      "passage-left-v16.png",
+      "passage-right-v16.png"
+    ],
+    "pending_final_render_filenames": [],
+    "validation_receipt": "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/out/pwr/base-art/validation-receipt-v16.json",
+    "validation_report_sha256": "46318614226cb0974bd036edb08621ff099cd3c31fe38e82cc51aa792961bd32",
+    "failed_geometry_checks": [],
+    "geometry_check_results": {
+      "main_through_tunnel_air": true,
+      "main_route_floor_and_cover": true,
+      "cross_gallery_vehicle_air": true,
+      "side_front_gallery_vehicle_air": {
+        "left": true,
+        "right": true
+      },
+      "red_blue_mirror": true,
+      "rooftop_reserved_sky": true,
+      "roof_ramps": [
+        {
+          "object": "ramp/driveable roof access",
+          "endpoint_datum_passed": true,
+          "landing_to_roof_passed": true,
+          "overhead_obstructions": 0
+        },
+        {
+          "object": "ramp/driveable roof access.001",
+          "endpoint_datum_passed": true,
+          "landing_to_roof_passed": true,
+          "overhead_obstructions": 0
+        }
+      ],
+      "green_main_through_tunnel_air": true,
+      "green_main_route_floor_and_cover": true,
+      "green_cross_gallery_vehicle_air": true,
+      "green_rooftop_reserved_sky": true,
+      "floating_detail_heuristic": {
+        "warning_objects": 0
+      }
+    },
+    "prior_visual_review": {
+      "round": "R8",
+      "reviewed_render_version": "v14",
+      "score": 7.8,
+      "tier": 3,
+      "tier_passed": true,
+      "source": "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/.dream-loop/bases-v1/judge-r8.txt"
+    },
+    "final_visual_review": {
+      "round": "R9",
+      "reviewed_render_version": "v16",
+      "score": 8.1,
+      "tier": 3,
+      "numeric_exit_threshold": 8,
+      "numeric_exit_threshold_met": true,
+      "tier4_fully_passed": false,
+      "remaining_refinements": [
+        "Crown overlap articulation and short return faces",
+        "Two clearly separated fixture stations within each short passage"
+      ],
+      "scope": "Architecture only; terrain, presentation, game/runtime and FPS excluded",
+      "source": "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/.dream-loop/bases-v1/judge-r9.txt"
+    }
+  },
+  "authoring_file": "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/levels/warfare/pwr/bases_v1/forerunner_bases.blend",
+  "readme": "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/levels/warfare/pwr/bases_v1/README.md",
+  "materials": {
+    "early_iterations": "Generated silver/dark/trim atlas",
+    "final_armor": "Verified native2048x2048 BC5 normal RG and ORHG roughness maps plus authored material nodes; not native albedo reproduction",
+    "provenance": "C:/Users/will/.codex/worktrees/pelican-warfare/haloce/levels/warfare/pwr/bases_v1/textures/native-finish-provenance.json",
+    "stock_mesh_normal_repair": "Authored split-normal smoothing retained; global sign and remaining minority hemisphere outliers corrected without changing vertices or face winding; linked instances share repaired data",
+    "native_rear_gallery_sheet_status": "No longer placed after residual view-dependent artifacts despite normal repair; project-authored recessed bulkheads used in both galleries. Native pillars and corridor panels remain."
+  }
+}

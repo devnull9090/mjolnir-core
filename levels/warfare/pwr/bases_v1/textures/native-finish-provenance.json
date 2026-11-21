@@ -1,0 +1,35 @@
+{
+  "schema": "forerunner-base-native-finish-v1",
+  "origin": "Previously exported mip0 textures from user-installed Halo Campaign Evolved; no new downloads, extraction, or game changes",
+  "source_receipt": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v7\\paving\\receipt.json",
+  "files": [
+    {
+      "asset": "T_FR_Diagonal_01_N",
+      "source_file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v7\\paving\\textures\\diagonal-normal.png",
+      "local_file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\levels\\warfare\\pwr\\bases_v1\\textures\\native-fr-diagonal-rg.png",
+      "sha256": "beeb9b53cea062c79e7086cad8fe122729b0243b40e6a4e341407b9514f12e07",
+      "size": [
+        2048,
+        2048
+      ],
+      "encoding": "Linear BC5 RG; B=0. Shader reconstructs positive normal Z, flips DirectX G, then remaps XYZ to [0,1]."
+    },
+    {
+      "asset": "T_FR_Diagonal_01_ORHG",
+      "source_file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\visual-v7\\paving\\textures\\diagonal-orhg.png",
+      "local_file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\levels\\warfare\\pwr\\bases_v1\\textures\\native-fr-diagonal-orhg.png",
+      "sha256": "a54e67e1d900ca26f5b10c90992f576a8ec2826d78ddda4e96db86a27b9ac722",
+      "size": [
+        2048,
+        2048
+      ],
+      "encoding": "Linear masks; G roughness verified by existing paving shader/receipt. R occlusion nearly constant; B/A not used."
+    }
+  ],
+  "working_color_space": "Non-Color for both maps",
+  "native_tile_metres": 5,
+  "normal_decode_max_unit_error": 1.1920928955078125e-07,
+  "material_changes": "Broad slab-scale value and roughness regions, sparse directional weathering, subtle native machining; old atlas and fine-noise bump removed",
+  "geometry_policy": "Metric planar UV per unique shared mesh after finalscale; material-slot overrides only; no transform bake or mesh duplication",
+  "authentic_albedo": false
+}
