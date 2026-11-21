@@ -2885,7 +2885,7 @@ def build_label():
     label.set_editor_property("rules", rules)
     # Chunk 958 independently ships the PWR overview in the same UI namespace.
     # Keep the existing shared widgets, art and subdirectories exclusive to 984.
-    excluded = {full, f"{ROOT}/WBP_MJOLNIRTacticalMap"}
+    excluded = {full, f"{ROOT}/WBP_MJOLNIRTacticalMap", f"{ROOT}/WBP_MJOLNIRWarfareZones"}
     owned = [eal.load_asset(path) for path in eal.list_assets(ROOT, recursive=True, include_folder=False)
              if path.split(".")[0] not in excluded]
     label.set_editor_property("label_assets_in_my_directory", False)

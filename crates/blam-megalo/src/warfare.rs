@@ -29,6 +29,34 @@ pub const RED_SCORE: u8 = 7;
 pub const BLUE_SCORE: u8 = 8;
 pub const FIRST_OWNER: u8 = 9;
 pub const HILL_LABEL: &str = "koth_hill";
+/// Capture progress is published in this many steps toward either team.
+pub const PROGRESS_STEPS: i16 = 16;
+
+/// A site's public slot (FIRST_OWNER + site) packs its whole state for the HUD:
+/// `owner + 4 * (red_present + 2 * blue_present) + 16 * (progress + PROGRESS_STEPS + 1)`,
+/// owner 0 neutral / 1 red / 2 blue, progress in steps of PROGRESS_STEPS toward red
+/// (positive) or blue (negative). Coarse steps keep the replicated value from changing
+/// every tick. A value below 16 carries no progress (an older variant, or before combat):
+/// the owner is still its low two bits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SiteState {
+    pub owner: i32,
+    pub red_present: bool,
+    pub blue_present: bool,
+    pub progress: Option<i32>,
+}
+
+impl SiteState {
+    pub fn decode(value: i32) -> Self {
+        let k = value >> 4;
+        Self {
+            owner: value & 3,
+            red_present: value & 4 != 0,
+            blue_present: value & 8 != 0,
+            progress: (k > 0).then(|| k - i32::from(PROGRESS_STEPS) - 1),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Warfare {
@@ -63,6 +91,10 @@ fn modify(a: Var, amount: i16, op: Op) -> Item {
         b: constant(amount),
         op,
     })
+}
+
+fn add_var(a: Var, b: Var) -> Item {
+    Item::Do(Action::ModifyVariable { a, b, op: Op::Add })
 }
 
 fn hill_number(index: u8) -> Var {
@@ -108,7 +140,7 @@ impl Variant {
                 global_numbers: 12,
                 global_number_priorities: [2, 2, 2, 2, 1, 0, 0, 2, 2, 2, 2, 2],
                 global_objects: 2,
-                object_numbers: 4,
+                object_numbers: 5,
                 player_numbers: 1,
                 ..Variables::default()
             },
@@ -310,6 +342,39 @@ impl Variant {
             );
             update.extend([call(advance), call(neutralize), call(captured), call(pay)]);
         }
+        // Pack the site's state into object number 4 (see SiteState). Progress is
+        // counted in steps against thresholds fixed when the variant is built, so the
+        // HUD needs no capture duration and the VM needs no division.
+        update.push(set(hill_number(4), constant(0)));
+        for step in 1..=PROGRESS_STEPS {
+            let threshold = ((i32::from(step) * i32::from(capture) + i32::from(PROGRESS_STEPS) - 1)
+                / i32::from(PROGRESS_STEPS)).max(1) as i16;
+            for (bound, comparison, op) in [
+                (threshold, Compare::GreaterOrEqual, Op::Add),
+                (-threshold, Compare::LessOrEqual, Op::Subtract),
+            ] {
+                let count = b.sub(
+                    TriggerKind::Do,
+                    vec![compare(hill_number(1), constant(bound), comparison), modify(hill_number(4), 1, op)],
+                );
+                update.push(call(count));
+            }
+        }
+        update.push(modify(hill_number(4), PROGRESS_STEPS + 1, Op::Add));
+        for _ in 0..4 {
+            update.push(add_var(hill_number(4), hill_number(4)));
+        }
+        for side in 0..2u8 {
+            let present = b.sub(
+                TriggerKind::Do,
+                vec![
+                    eq(hill_number(2 + side), constant(1)),
+                    modify(hill_number(4), 4 << side, Op::Add),
+                ],
+            );
+            update.push(call(present));
+        }
+        update.push(add_var(hill_number(4), hill_number(0)));
         for site in 0..3u8 {
             let publish = b.sub(
                 TriggerKind::Do,
@@ -318,7 +383,7 @@ impl Variant {
                         Var::Number(Number::SpawnSequence(object::CURRENT)),
                         constant(i16::from(site)),
                     ),
-                    set(number(FIRST_OWNER + site), hill_number(0)),
+                    set(number(FIRST_OWNER + site), hill_number(4)),
                 ],
             );
             update.push(call(publish));
@@ -438,6 +503,15 @@ mod tests {
                 .any(|c| matches!(c.kind, ConditionKind::KillerTypeIs { .. })),
             "kills, suicides and betrayals must not score"
         );
+    }
+
+    #[test]
+    fn site_state_decodes_packed_and_plain_owner_values() {
+        assert_eq!(SiteState::decode(2), SiteState { owner: 2, red_present: false, blue_present: false, progress: None });
+        let packed = 1 + 4 * 3 + 16 * (5 + PROGRESS_STEPS as i32 + 1);
+        assert_eq!(SiteState::decode(packed), SiteState { owner: 1, red_present: true, blue_present: true, progress: Some(5) });
+        let blue = 16 * (-(PROGRESS_STEPS as i32) + PROGRESS_STEPS as i32 + 1) + 2;
+        assert_eq!(SiteState::decode(blue).progress, Some(-(PROGRESS_STEPS as i32)));
     }
 
     #[test]

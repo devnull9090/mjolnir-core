@@ -6,6 +6,17 @@ local EVERY, FLIGHT_EVERY, STALE = 0.5, 0.1, 2
 local OWNER = { [0] = "NEUTRAL", [1] = "RED", [2] = "BLUE" }
 local COLOUR = { [0] = "empty", [1] = "Red", [2] = "Blue" }
 
+-- Megalo publishes each site as one packed number (blam-megalo warfare.rs
+-- SiteState): owner in the low two bits, who stands in it in the next two,
+-- and its capture progress in steps of PROGRESS_STEPS toward Red (+) or Blue
+-- (-) above. Below 16 there is no progress (an older variant): owner only.
+Warfare.PROGRESS_STEPS = 16
+function Warfare.site(value)
+    local k = math.floor(value / 16)
+    return { owner = value % 4, red = math.floor(value / 4) % 2 == 1, blue = math.floor(value / 8) % 2 == 1,
+        progress = k > 0 and (k - Warfare.PROGRESS_STEPS - 1) or nil }
+end
+
 local function integer(s, low, high)
     if type(s) ~= "string" or not s:match("^%-?%d+$") then return nil end
     local n = tonumber(s)
@@ -100,7 +111,13 @@ function Warfare.parse(text)
             or g[1] ~= s.phase or g[2] ~= s.elapsed_ticks or g[3] ~= 20569
             or (s.phase < 2 and g[4] ~= s.insertion_seconds)
             or g[5] ~= s.connected or g[8] ~= s.score[1] or g[9] ~= s.score[2]
-            or g[10] ~= s.owner[1] or g[11] ~= s.owner[2] or g[12] ~= s.owner[3] then return nil end
+            or g[10] % 4 ~= s.owner[1] or g[11] % 4 ~= s.owner[2] or g[12] % 4 ~= s.owner[3] then return nil end
+    end
+    s.sites = {}
+    for i = 1, 3 do
+        local site = Warfare.site(math.max(0, s.globals[9 + i]))
+        if site.owner ~= s.owner[i] or (site.progress and math.abs(site.progress) > Warfare.PROGRESS_STEPS) then return nil end
+        s.sites[i] = site
     end
     return s
 end
@@ -118,8 +135,8 @@ function Warfare.describe(s, me)
     if stage == 4 then return "PARACHUTE DEPLOYED  /  STEER TOWARD A CAPTURE SITE" end
     if stage == 6 then return "DEPLOYMENT UNAVAILABLE  /  RESPAWN AT YOUR HOME BASE" end
     if s.phase == 1 then return "INSERTION IN PROGRESS  /  PREPARE TO CAPTURE A, B AND C" end
-    return "A: " .. OWNER[s.owner[1]] .. "   /   B: " .. OWNER[s.owner[2]] .. "   /   C: " .. OWNER[s.owner[3]]
-        .. "   /   CAPTURE ON FOOT"
+    -- In combat the zone tiles under the score say it (warfare_zones.lua): no line.
+    return nil
 end
 
 -- deps.readSnapshot(), readLevel(code), Hill; bipedAt and canopy are optional
@@ -236,6 +253,17 @@ function Warfare.new(deps)
                         end
                     end
                 end
+                -- Site changes between two accepted samples of one instance in combat
+                -- go to the feed (onSite); the first sample (a join) only sets the baseline.
+                if deps.onSite then
+                    local seen = self.seenOwners
+                    if snap.phase == 2 and seen and seen.instance == snap.instance then
+                        for i = 1, 3 do
+                            if snap.owner[i] ~= seen[i] then pcall(deps.onSite, i, snap.owner[i], seen[i], snap.sites[i]) end
+                        end
+                    end
+                    self.seenOwners = snap.phase == 2 and { instance = snap.instance, snap.owner[1], snap.owner[2], snap.owner[3] } or nil
+                end
                 local score = self.snapshot.score
                 changed = match.teams[0] ~= score[1] or match.teams[1] ~= score[2]
                 match.teams[0], match.teams[1] = score[1], score[2]
@@ -271,7 +299,7 @@ function Warfare.new(deps)
                 if player and player.stage == 2 and self.input and self.input.labels then
                     text = "INSERTION  /  " .. self.input.labels(player.localUser) .. " TO JUMP"
                 end
-                line.say(text .. "   /   M: MAP")
+                if text then line.say(text .. "   /   M: MAP") else line.hideLine() end
             end
             for i, field in ipairs(self.fields) do
                 local spot = self.hills[i]

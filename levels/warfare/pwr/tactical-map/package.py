@@ -18,6 +18,8 @@ STAGE = REPO / "unreal/MJOLNIRMaterials/Saved/StagedBuilds/Windows/Meteorite/Con
 OUTPUT = REPO / "out/pwr/tactical-map-ui-v2"
 STEM = "pakchunk958-MJOLNIRTACTICALMAP_P"
 WIDGET = "/Game/MJOLNIR/UI/WBP_MJOLNIRTacticalMap"
+# The warfare zone tiles under the score (build_pwr_warfare_zones.py) share the chunk.
+ZONES = "/Game/MJOLNIR/UI/WBP_MJOLNIRWarfareZones"
 sys.path.insert(0, str(REPO / "tools/iostore"))
 from iostore import load_container
 
@@ -44,10 +46,11 @@ def main():
         parser.error("Build blam-cli or provide --cli with its path")
     images = json.loads((ART / "manifest.json").read_text())["files"]
     widget = WIDGET.removeprefix("/Game/") + ".uasset"
-    expected = {widget, *("MJOLNIR/TacticalMap/T_PWR_" + Path(row["path"]).stem + ".uasset" for row in images)}
+    expected = {widget, ZONES.removeprefix("/Game/") + ".uasset",
+                *("MJOLNIR/TacticalMap/T_PWR_" + Path(row["path"]).stem + ".uasset" for row in images)}
     source = STAGE / "pakchunk958-Windows.utoc"
     if packages(source) != expected:
-        raise ValueError("Expected the private overview widget and its eight textures in chunk 958")
+        raise ValueError("Expected the private overview widget, the zone tiles and eight textures in chunk 958")
     for toc in STAGE.glob("pakchunk*-Windows.utoc"):
         if toc != source and packages(toc).intersection(expected):
             raise ValueError(f"Another staged chunk also owns tactical content: {toc.name}")
@@ -74,6 +77,12 @@ def main():
         if not layout.startswith(WIDGET) or any(pattern not in layout for pattern in required):
             raise ValueError("Cooked overview class, map canvas or 64 marker and label pairs did not read back")
         (OUTPUT / "widget-readback.txt").write_text(layout)
+        zones = inspect(args.cli, ["ue", "get", "--paks", audit, "--package", ZONES])
+        needed = [f"Zone{i}{part}" for i in range(3) for part in ("Rim", "Tint", "Letter", "State", "Fill", "Ink",
+                                                                  "RedPipSize", "BluePipSize")]
+        if not zones.startswith(ZONES) or any(name not in zones for name in needed):
+            raise ValueError("Cooked zone tiles did not read back")
+        (OUTPUT / "zones-readback.txt").write_text(zones)
         for row in images:
             png = REPO / row["path"]
             data = png.read_bytes()
@@ -87,7 +96,7 @@ def main():
             target = Path(row["path"])
             (audit / target.name).replace(target)
         receipt = {"schema": "pwr-tactical-map-cook-v3", "widget_class": f"{WIDGET}.{class_name}",
-                   "pooled_markers": 64, "owned_packages": sorted(expected), "installed": False, "files": files}
+                   "pooled_markers": 64, "zone_widget": f"{ZONES}.{ZONES.split('/')[-1]}_C", "owned_packages": sorted(expected), "installed": False, "files": files}
         proof = audit / "receipt.json"
         proof.write_text(json.dumps(receipt, indent=2) + "\n")
         proof.replace(dest / proof.name)

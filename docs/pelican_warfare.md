@@ -190,8 +190,13 @@ respawns use the home bases rather than repeating insertion.
 
 Global number slots are phase 0, phase age in ticks 1, protocol magic 20568
 at 2, deployment duration / combat elapsed seconds 3, connected count 4, scratch 5–6, Red/Blue
-score 7–8 and A/B/C owners 9–11. Phases are warmup 0, insertion 1, combat 2
-and complete 3; owners are neutral 0, Red 1 and Blue 2. Slot 3 publishes the
+score 7–8 and A/B/C site states 9–11. Phases are warmup 0, insertion 1, combat 2
+and complete 3. A site state packs `owner + 4 × (red present + 2 × blue present)
++ 16 × (progress + 17)`: owner neutral 0, Red 1, Blue 2 in the low two bits, and
+capture progress in sixteenths toward Red (+16) or Blue (−16), counted against
+thresholds fixed when the variant is built (`SiteState` in `warfare.rs`). Steps,
+not ticks, keep the replicated value from changing every tick. A value under 16
+is an owner alone (older variants, or before combat). Slot 3 publishes the
 configured insertion duration in phases 0–1, then resets to zero and counts
 combat seconds in phase 2. Phase, age, magic, duration/clock,
 scores and owners have high replication priority, connected count low priority,
@@ -226,9 +231,15 @@ Individual control cells show a dash; kills and deaths remain visible.
 Final standings allow 1.5 seconds for the final publication to arrive.
 
 The status line gives warmup, boarding, Space-to-jump, exiting, Space-to-deploy,
-canopy, landing/active and failed-deployment information. During combat three
-fixed holographic fields and A/B/C waypoints show the native owner. The HUD
-does not infer contested status or capture progress from rendered positions.
+canopy, landing/active and failed-deployment information. During combat it
+gives way to three zone tiles under the score (`WBP_MJOLNIRWarfareZones`, chunk 958
+beside the tactical map, filled by `warfare_zones.lua`): owner colour, NEUTRAL /
+RED / BLUE / CAPTURING / NEUTRALIZING / CONTESTED, the capture bar, a pip for each
+team standing in the zone and a gold rim on the zone the local player stands in.
+A site changing hands puts "Red team captured zone B" (or "… neutralized zone B")
+in the kill feed on every client from its own snapshot. Three fixed holographic
+fields and A/B/C waypoints still mark the sites in the world. Contest and progress
+come from Megalo's published site state, never from rendered positions.
 
 `warfare_canopy.lua` uses the original
 `/Game/MJOLNIR/Maps/PWR/SM_PWR_Parachute.SM_PWR_Parachute` mesh, a 274.4 cm

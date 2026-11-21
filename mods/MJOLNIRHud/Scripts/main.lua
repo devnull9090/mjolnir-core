@@ -64,6 +64,7 @@ local function Log(msg)
 end
 local retainUIClass = dofile(MOD_DIR .. "\\Scripts\\class_lifetime.lua").new({
     "WBP_MJOLNIRKillFeed", "WBP_MJOLNIRScoreboard", "WBP_MJOLNIRChat", "WBP_MJOLNIRTacticalMap",
+    "WBP_MJOLNIRWarfareZones",
 }, Log)
 -- Every biped actor from here on, before any map makes its pools: the bots and
 -- findBipeds read them without walking the object array (Scripts/bipeds.lua).
@@ -160,6 +161,9 @@ end
 local warfareDll = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native\\mjolnir_lobby.dll"
 -- Pelican Warfare jumps (filled in after the match helpers, below).
 local WarfareJump = {}
+-- Pelican Warfare zones: the tiles under the score and the capture lines in
+-- the feed (filled in with the tactical map, below).
+local WarfareSites = {}
 local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua"),
     Waypoint = dofile(MOD_DIR .. "\\Scripts\\waypoint.lua"),
@@ -175,6 +179,7 @@ local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     pumpFlight = package.loadlib(warfareDll, "mjolnir_warfare_pump"),
     warfareJump = function(index) if WarfareJump.request then WarfareJump.request(index) end end,
     warfareJumped = function(index, team) if WarfareJump.jumped then WarfareJump.jumped(index, team) end end,
+    warfareSite = function(i, owner, previous, site) if WarfareSites.changed then WarfareSites.changed(i, owner, previous, site) end end,
     flightBlocked = function() return Chat.inputActive() or (Tactical and Tactical.open) end,
     readWarfare = function()
         return readFile((MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR)
@@ -1686,6 +1691,7 @@ local function ensureFrameHook()
         end
         -- Before the gate below, which may pass only a client's controller on a host.
         if Match then pcall(function() Markers.frame(Match, ctx:get(), t) end) end
+        if WarfareSites.frame then pcall(WarfareSites.frame, t) end
         if t - FrameHook.last < 0.004 or FrameHook.errors >= 10 then return end
         FrameHook.last = t
         local okA, err = pcall(animate, t)
@@ -1938,6 +1944,10 @@ local function tick()
     if Tactical then
         local okMap, errMap = pcall(Tactical.tick)
         if not okMap then Tactical.close(); Log("tactical map: " .. tostring(errMap)) end
+    end
+    if WarfareSites.tick then
+        local okZones, errZones = pcall(WarfareSites.tick, pc)
+        if not okZones then Log("warfare zones: " .. tostring(errZones)) end
     end
     drain()
     if Match.warfareEnd and not Match.over then
@@ -2217,6 +2227,40 @@ do
         read=function() return readFile(nativeDir .. "\\warfare_map.txt") end,
     })
     Tactical.bind()
+
+    -- Pelican Warfare's zone tiles (Scripts/warfare_zones.lua) and a feed line
+    -- whenever a site changes hands. Every client reads its own snapshot, so
+    -- nothing is relayed.
+    local Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua")
+    local tiles = dofile(MOD_DIR .. "\\Scripts\\warfare_zones.lua").new({ createWidget = createWidget, inside = Hill.on })
+    function WarfareSites.tick(pc)
+        local w = Match and Match.warfare
+        local at
+        if w and w.snapshot and pc then
+            local pawn = pc.Pawn
+            if pawn and pawn:IsValid() then at = pawn:K2_GetActorLocation() end
+        end
+        tiles.tick(w and not Match.over and w.snapshot or nil, w and w.hills, at, HudHidden, now())
+    end
+    WarfareSites.frame = tiles.frame
+    function WarfareSites.changed(i, owner, previous, site)
+        local letter = string.char(64 + i)
+        local function side(team) return team == 1 and "Red" or team == 2 and "Blue" or nil end
+        local taker, loser = side(owner), side(previous)
+        if taker then
+            local color = TEAM_COLORS[taker]
+            feedPush({ glyph = "Flag", glyphColor = color, lead = taker .. " team", leadColor = color,
+                tail = "captured zone " .. letter, tailColor = FEED.words, accent = color })
+        elseif loser then
+            -- Back to neutral: the team standing in it took the other's hold away.
+            local by = site and (site.red and not site.blue and "Red" or site.blue and not site.red and "Blue") or nil
+            local color = TEAM_COLORS[by or loser]
+            feedPush({ glyph = "Flag", glyphColor = TEAM_COLORS[loser], lead = by and (by .. " team") or ("Zone " .. letter),
+                leadColor = color, tail = by and ("neutralized zone " .. letter) or "is neutral again",
+                tailColor = FEED.words, accent = color })
+        end
+        Log("warfare: zone " .. letter .. " " .. tostring(loser or "neutral") .. " -> " .. tostring(taker or "neutral"))
+    end
 end
 
 Log("Module loaded.")

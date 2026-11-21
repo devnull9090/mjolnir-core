@@ -63,7 +63,7 @@ static void warfare_tactical_collect(unsigned char *tls,const warfare_snapshot *
     wmap_input input;memset(&input,0,sizeof input);
     input.instance=s->instance;input.sampled_ms=s->sampled_ms;input.tick=s->tick;input.phase=s->globals[0];
     input.score[0]=s->globals[7];input.score[1]=s->globals[8];
-    for (int i=0;i<3;i++) input.owners[i]=s->globals[9+i];
+    for (int i=0;i<3;i++) input.owners[i]=s->globals[9+i]&3; /* low bits: owner (SiteState) */
     input.known_carriers[0]=s->host ? warfare.carrier[0] : WMAP_NONE;
     input.known_carriers[1]=s->host ? warfare.carrier[1] : WMAP_NONE;
     unsigned char *players=*(unsigned char **)(tls+0x30),*users=*(unsigned char **)(tls+0x118);

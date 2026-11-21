@@ -47,6 +47,7 @@ fakeHill.field = function(name)
     field.worldOf = function() return {} end
     field.ensureLine = function() end
     field.say = function(text) field.line = text end
+    field.hideLine = function() field.line = nil; field.lineHidden = true end
     field.draw = function(_, _, _, spot) field.draws = field.draws + 1; field.spot = spot; field.hidden = false end
     field.paint = function(colour) field.colour = colour end
     field.mark = function(_, _, _, _, text) field.label = text end
@@ -54,7 +55,9 @@ fakeHill.field = function(name)
     fields[#fields + 1] = field
     return field
 end
+local sites = {}
 local hud = Warfare.new({ Hill = fakeHill,
+    onSite = function(i, owner, previous, site) sites[#sites + 1] = { i, owner, previous, site } end,
     readSnapshot = function() reads = reads + 1; return raw end,
     readLevel = function() return '{"koth_hills":[[-9000,-3000,40,1000],[0,0,40,1000],[9000,3000,40,1000]]}' end,
 })
@@ -78,7 +81,9 @@ eq(Board.winner(match), "RED TEAM WINS")
 eq(fields[1].colour, "Red"); eq(fields[2].colour, "empty"); eq(fields[3].colour, "Blue")
 eq(fields[1].spot.x, -9000, "authored coordinates used unchanged")
 eq(fields[3].label, "C  /  BLUE")
-assert(fields[4].line:find("CAPTURE ON FOOT", 1, true))
+eq(fields[4].line, nil, "combat zone status is the zone tiles, not a text line")
+eq(fields[4].lineHidden, true)
+eq(#sites, 0, "the first accepted combat sample is a baseline, never a capture")
 tick(3.5); eq(hud.snapshot, nil, "stopped live tick expires")
 eq(fields[1].hidden, true, "expired objective fields hidden")
 eq(match.teams[0], 17, "stale data never rewinds accepted scores")
@@ -106,6 +111,45 @@ tick(12); eq(hud.snapshot, nil, "native close immediately invalidates presentati
 for stage, hint in pairs({ [1] = "BOARDING", [2] = "SPACE TO JUMP", [3] = "SPACE TO DEPLOY",
     [4] = "PARACHUTE DEPLOYED", [6] = "DEPLOYMENT UNAVAILABLE", [7] = "EXITING" }) do
     assert(Warfare.describe(assert(Warfare.parse(sample(300, 1, 0, 0, "456", stage))), 0):find(hint, 1, true))
+end
+-- Packed site state (blam-megalo SiteState): owner, presence and stepped progress.
+do
+    local function packed(owner, red, blue, progress)
+        return owner + 4 * ((red and 1 or 0) + 2 * (blue and 1 or 0)) + 16 * (progress + Warfare.PROGRESS_STEPS + 1)
+    end
+    local site = Warfare.site(packed(1, true, true, 5))
+    eq(site.owner, 1); eq(site.red, true); eq(site.blue, true); eq(site.progress, 5)
+    eq(Warfare.site(2).progress, nil, "a plain owner value carries no progress")
+    eq(Warfare.site(packed(0, false, true, -16)).progress, -16)
+    local function withSites(tick, a, b, c, owners)
+        return sample(tick, 2, 30, 12, "777"):gsub("owner 1 0 2", "owner " .. owners)
+            :gsub("1 0 2\nplayer", a .. " " .. b .. " " .. c .. "\nplayer")
+    end
+    local text = withSites(400, packed(1, false, false, 16), packed(0, true, false, 8), packed(2, false, false, -16), "1 0 2")
+    local s = assert(Warfare.parse(text))
+    eq(s.sites[2].progress, 8); eq(s.sites[2].red, true); eq(s.sites[1].owner, 1)
+    eq(Warfare.parse(withSites(400, packed(2, false, false, 16), 0, 2, "1 0 2")), nil, "packed owner must mirror owner line")
+    eq(Warfare.parse(withSites(400, 1 + 16 * 40, 0, 2, "1 0 2")), nil, "progress beyond the steps")
+    -- A site changing hands between two accepted samples is one feed event.
+    sites = {}
+    raw = withSites(430, packed(1, false, false, 16), packed(0, true, false, 8), packed(2, false, false, -16), "1 0 2"); tick(20)
+    raw = withSites(460, packed(1, false, false, 16), packed(0, true, false, 12), packed(2, false, false, -16), "1 0 2"); tick(20.5)
+    eq(#sites, 0, "progress alone is not a capture")
+    raw = withSites(490, packed(1, false, false, 16), packed(1, true, false, 16), packed(2, false, false, -16), "1 1 2"); tick(21)
+    eq(#sites, 1); eq(sites[1][1], 2); eq(sites[1][2], 1); eq(sites[1][3], 0)
+    raw = withSites(520, packed(1, false, false, 16), packed(0, false, true, 0), packed(2, false, false, -16), "1 0 2"); tick(21.5)
+    eq(#sites, 2); eq(sites[2][2], 0); eq(sites[2][3], 1); eq(sites[2][4].blue, true, "neutralized with blue standing in it")
+    -- The tiles' wording.
+    local Zones = dofile("mods/MJOLNIRHud/Scripts/warfare_zones.lua")
+    eq(Zones.look(Warfare.site(packed(0, false, false, 0))).state, "NEUTRAL")
+    eq(Zones.look(Warfare.site(packed(0, true, false, 6))).state, "CAPTURING")
+    eq(Zones.look(Warfare.site(packed(2, true, false, -10))).state, "NEUTRALIZING")
+    eq(Zones.look(Warfare.site(packed(1, true, true, 16))).state, "CONTESTED")
+    eq(Zones.look(Warfare.site(packed(1, true, false, 16))).state, "RED")
+    eq(Zones.look(Warfare.site(packed(2, false, false, -16))).fill, 1)
+    eq(Zones.look(Warfare.site(packed(0, true, false, 4))).fill, 0.25)
+    eq(Zones.look(Warfare.site(packed(0, false, false, 0)), true).rim.R, 1, "gold rim where the local player stands")
+    hud.snapshot, hud.next, hud.seenOwners = nil, 0, nil   -- the poll test below starts its own clock
 end
 print("Warfare HUD: strict parser, freshness/instance/map guards, authoritative totals, capture fields and insertion hints passed")
 

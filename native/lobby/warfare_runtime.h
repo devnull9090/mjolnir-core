@@ -645,7 +645,10 @@ __declspec(dllexport) int mjolnir_warfare_pump(void *L) {
     fprintf(file, "warfare-state 2\nready %d\nstatus %d\nhost %d\ninstance %llu\ntick %d\nsampled_ms %llu\nlayout %d\ninsertion_seconds %d\nphase %d\nelapsed_ticks %d\nrate %d\nconnected %d\nscore %d %d\nowner %d %d %d\nglobals",
             s.ready, s.status, s.host, (unsigned long long)s.instance, s.tick, (unsigned long long)s.sampled_ms, s.layout,
             s.insertion_seconds, s.globals[0], s.globals[1], s.rate,
-            s.globals[4], s.globals[7], s.globals[8], s.globals[9], s.globals[10], s.globals[11]);
+            s.globals[4], s.globals[7], s.globals[8], s.globals[9] & 3, s.globals[10] & 3, s.globals[11] & 3);
+    /* Slots 9-11 pack each site's owner (low two bits), who is present and its
+       stepped capture progress (blam-megalo warfare.rs SiteState); `owner` above is
+       just the owner, the raw packed values stay in `globals` for the HUD. */
     for (int n = 0; n < 12; n++) fprintf(file, " %d", s.globals[n]);
     fputc('\n', file);
     for (int i = 0; i < WARFARE_PLAYERS; i++) {

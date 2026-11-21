@@ -6,7 +6,7 @@ use blam_megalo::warfare::*;
 
 struct World {
     globals: [i32; 12],
-    points: [[i32; 4]; 3],
+    points: [[i32; 5]; 3],
     score: [i32; 2],
     connected: [bool; 2],
     alive: [bool; 2],
@@ -23,7 +23,7 @@ impl World {
     fn new() -> Self {
         Self {
             globals: [0; 12],
-            points: [[0; 4]; 3],
+            points: [[0; 5]; 3],
             score: [0; 2],
             connected: [true; 2],
             alive: [true; 2],
@@ -246,7 +246,7 @@ fn deployment_waits_for_players_then_enables_control_and_respawns() {
     assert_eq!(w.globals[ACTIVE_SECONDS as usize], 0, "combat clock must not inherit deployment duration");
     w.ticks(9, &v);
     assert_eq!(w.points[0][0], 1);
-    assert_eq!(w.globals[FIRST_OWNER as usize], 1);
+    assert_eq!(SiteState::decode(w.globals[FIRST_OWNER as usize]).owner, 1);
     assert_eq!(
         (v.base.lives, v.base.team_lives, v.base.respawn_seconds),
         (0, 0, 5)
@@ -324,4 +324,46 @@ fn dead_players_cannot_capture_and_score_or_clock_ends_the_round() {
     w.ticks(600, &v);
     assert!(w.ended);
     assert_eq!(w.globals[ACTIVE_SECONDS as usize], 60);
+}
+
+#[test]
+fn published_site_state_carries_owner_presence_and_stepped_progress() {
+    let v = Variant::warfare(Warfare {
+        tick_rate: 10,
+        capture_seconds: 4,
+        ..Warfare::default()
+    })
+    .unwrap();
+    let mut w = World::new();
+    w.globals[PHASE as usize] = 2;
+    w.ticks(1, &v);
+    let empty = SiteState::decode(w.globals[FIRST_OWNER as usize]);
+    assert_eq!(empty, SiteState { owner: 0, red_present: false, blue_present: false, progress: Some(0) });
+    // Red alone: progress climbs in steps toward red; full at capture.
+    w.at[0] = Some(0);
+    w.ticks(20, &v);
+    let half = SiteState::decode(w.globals[FIRST_OWNER as usize]);
+    assert!(half.red_present && !half.blue_present);
+    assert_eq!(half.owner, 0);
+    assert_eq!(half.progress, Some(PROGRESS_STEPS as i32 / 2), "20 of 40 ticks is half way");
+    w.ticks(20, &v);
+    let held = SiteState::decode(w.globals[FIRST_OWNER as usize]);
+    assert_eq!((held.owner, held.progress), (1, Some(PROGRESS_STEPS as i32)));
+    // Blue joins: contested, both present, progress holds.
+    w.at[1] = Some(0);
+    w.ticks(5, &v);
+    let contested = SiteState::decode(w.globals[FIRST_OWNER as usize]);
+    assert!(contested.red_present && contested.blue_present);
+    assert_eq!(contested.progress, Some(PROGRESS_STEPS as i32));
+    // Blue alone pushes it back through neutral toward blue.
+    w.at[0] = None;
+    w.ticks(60, &v);
+    let blue = SiteState::decode(w.globals[FIRST_OWNER as usize]);
+    assert!(blue.blue_present && !blue.red_present);
+    assert!(blue.progress.unwrap() < 0 && blue.owner == 0, "{blue:?}");
+    w.ticks(30, &v);
+    let taken = SiteState::decode(w.globals[FIRST_OWNER as usize]);
+    assert_eq!((taken.owner, taken.progress), (2, Some(-(PROGRESS_STEPS as i32))));
+    // Other sites stay neutral and empty.
+    assert_eq!(SiteState::decode(w.globals[FIRST_OWNER as usize + 1]).progress, Some(0));
 }
