@@ -20,6 +20,8 @@ export interface HubBindings {
   /** When "1"/"true", the `unsigned` finding becomes an error — the rollout
    *  switch for requiring author signatures on new uploads. */
   REQUIRE_SIGNED_UPLOADS?: string;
+  /** The public host of MODS_BUCKET; set, archive downloads redirect to it. */
+  MODS_PUBLIC_URL?: string;
   /** Discord snowflake of the account the OAuth callback seats as admin. */
   SUPER_ADMIN_DISCORD_ID?: string;
 }
