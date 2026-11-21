@@ -1,0 +1,57 @@
+{
+  "version": "0.1.0-playtest.43",
+  "archive": "pelican-warfare-runtime-0.1.0-playtest.43.zip",
+  "sha256": "a81695c2ee6cbc9f4b2bc3e7c02de782142bf44d33f922db91b17da9635725bb",
+  "bytes": 4542292,
+  "paired_map": {
+    "name": "pelican-warfare-0.1.0-playtest.43.mjolnir",
+    "sha256": "c150968c5c0a689d0582f2c6279ad4951000fc5cfbc8d3c8763320d92687492f",
+    "content_runtime": "=1.24.0"
+  },
+  "match_profile": {
+    "name": "Solo flight rehearsal",
+    "minimum_players": 1,
+    "warmup_seconds": 5,
+    "insertion_seconds": 60
+  },
+  "verified_files": 26,
+  "file_list": [
+    "content/paks/pakchunk958-MJOLNIRTACTICALMAP_P.pak",
+    "content/paks/pakchunk958-MJOLNIRTACTICALMAP_P.ucas",
+    "content/paks/pakchunk958-MJOLNIRTACTICALMAP_P.utoc",
+    "mods/MJOLNIRHud/Scripts/chat.lua",
+    "mods/MJOLNIRHud/Scripts/main.lua",
+    "mods/MJOLNIRHud/Scripts/markers.lua",
+    "mods/MJOLNIRHud/Scripts/scoreboard.lua",
+    "mods/MJOLNIRHud/Scripts/tactical_map.lua",
+    "mods/MJOLNIRHud/Scripts/warfare.lua",
+    "mods/MJOLNIRHud/Scripts/warfare_canopy.lua",
+    "mods/MJOLNIRHud/Scripts/warfare_grips.lua",
+    "mods/MJOLNIRHud/Scripts/warfare_input.lua",
+    "mods/MJOLNIRHud/Scripts/warfare_instruments.lua",
+    "mods/MJOLNIRLevelLoader/Scripts/flux_runtime.lua",
+    "mods/MJOLNIRLevelLoader/Scripts/main.lua",
+    "mods/MJOLNIRLevelLoader/Scripts/mode_descriptors.lua",
+    "mods/MJOLNIRLevelLoader/Scripts/variant_settings.lua",
+    "mods/MJOLNIRLevelLoader/Scripts/warfare.lua",
+    "mods/MJOLNIRLevelLoader/variants/warfare.layout.json",
+    "mods/MJOLNIRLevelLoader/variants/warfare.mglo",
+    "mods/MJOLNIRLobby/Scripts/gametype.lua",
+    "mods/MJOLNIRLobby/Scripts/main.lua",
+    "mods/MJOLNIRLobby/Scripts/modes.lua",
+    "mods/MJOLNIRLobby/Scripts/presence.lua",
+    "mods/MJOLNIRLobby/Scripts/settings.lua",
+    "mods/MJOLNIRLobby/native/mjolnir_lobby.dll"
+  ],
+  "native_sha256": "056cde5e1d58aa021ec4b15fadb49ba87c950ef6358a942d8b8ca8dfa1f19e5f",
+  "baseline_files": 77,
+  "tests": {
+    "portable_native_suites": 8,
+    "staged_lua_suites": 12,
+    "native_export_counts": [
+      45,
+      51
+    ]
+  },
+  "installed": false
+}

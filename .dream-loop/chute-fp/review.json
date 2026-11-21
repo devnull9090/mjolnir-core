@@ -1,0 +1,102 @@
+{
+  "task": "Pelican Warfare first-person steering toggle and branding",
+  "approved_board": "../chute-v2/target.png",
+  "original_game_frame": "before-steam.jpg",
+  "surface_study": "surface-target.png",
+  "construction_references": [
+    {
+      "file": "refs/jyro-brake.jpg",
+      "url": "https://www.jyro.com/blog/5-examples-of-gear-hook-up-mistakes/"
+    },
+    {
+      "file": "refs/upt-type17.jpg",
+      "url": "https://store.uptvector.com/risers/"
+    }
+  ],
+  "review_views": {
+    "before": "rounds/round-0/pilot.png",
+    "after": "rounds/final/pilot.png",
+    "comparison": "handle-comparison.jpg",
+    "underside": "rounds/final/canopy-underside.png",
+    "pack": "rounds/final/pack.png",
+    "label": "rounds/final/pack-maker-close.png"
+  },
+  "reference_camera": {
+    "resolution": [
+      1920,
+      1080
+    ],
+    "horizontal_fov_degrees": 85,
+    "location_blender_m": [
+      0,
+      0.0006,
+      1.89
+    ],
+    "direction": [
+      0,
+      -1,
+      0
+    ]
+  },
+  "scope": "Matched Blender product views with original gameplay frame as reference; final Steam rehearsal owned separately.",
+  "cook_sha256": "0d2e077a7054970fbd5697cd0066d6ed00d3f1a045baabab5a5c7b827b40a07d",
+  "cooked_readback": {
+    "cook_receipt_sha256": "0d2e077a7054970fbd5697cd0066d6ed00d3f1a045baabab5a5c7b827b40a07d",
+    "printed_pixels": {
+      "pack-label": {
+        "mean_rgb_error_8bit": [
+          1.3897171020507812,
+          0.7142562866210938,
+          1.3947067260742188
+        ]
+      },
+      "canopy-mark": {
+        "mean_rgb_error_8bit": [
+          4.013427029740243,
+          3.521803237545489,
+          3.0301167022211066
+        ],
+        "mean_ink_mask_error_8bit": 0.07355499267578125
+      }
+    },
+    "canopy": {
+      "print_vertices": 285,
+      "max_uv_error": 5.2082465982274524e-08,
+      "cooked_grips": {
+        "grip_l": {
+          "bar_ue_cm": [
+            45.99999971687794,
+            -28.00000011920929,
+            172.99999669194221
+          ],
+          "error_cm": 3.322290663828514e-06
+        },
+        "grip_r": {
+          "bar_ue_cm": [
+            45.99999971687794,
+            28.00000011920929,
+            172.99999669194221
+          ],
+          "error_cm": 3.322290663828514e-06
+        }
+      }
+    },
+    "pack": {
+      "print_vertices": 9,
+      "max_uv_error": 1.0837466188064921e-07
+    }
+  },
+  "runtime_cost": {
+    "canopy_lod_triangles": [
+      42774,
+      21387,
+      10692,
+      5347
+    ],
+    "canopy_sections": 8,
+    "pack_sections": 8,
+    "sampled_textures_in_rig_material": 2,
+    "additional_player_runtime_updates": 0,
+    "frame_time_profiled": false
+  }
+}

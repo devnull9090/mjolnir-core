@@ -1,0 +1,5 @@
+# Optional --surface-detail / Alpine authoring path, verified on CPython3.12.
+# No Python packages are required at game runtime.
+numpy==2.5.4
+scipy==1.18.1
+Pillow==13.0.0

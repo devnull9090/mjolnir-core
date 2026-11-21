@@ -227,7 +227,9 @@ pub fn convert(
     // it under the donor's own BSP index.
     let (file, kd_roots) = add_to_kd_roots(&file, opts.host.instance, opts.bsp_index)?;
     // What Havok movement actually stands on: the BSP's one static body.
-    let (file, structure) = rebuild_structure_mopp(&file, &[opts.host.instance], &parked, &[])?;
+    let (file, structure) = rebuild_structure_mopp_impl(
+        &file, &[opts.host.instance], &parked, &[], opts.shell.is_some(),
+    )?;
     check_walks(&file)?;
     Ok((
         file,
@@ -1452,6 +1454,20 @@ pub fn rebuild_structure_mopp(
     parked: &[usize],
     whole: &[usize],
 ) -> Result<(Vec<u8>, StructureMopp), Error> {
+    rebuild_structure_mopp_impl(file, hosts, parked, whole, false)
+}
+
+fn keep_existing_structure_key(key: u32, hosts: &[usize], parked: &[usize], shell_replaced: bool) -> bool {
+    let ty = key >> 29;
+    let instance = (key & 0xffff) as usize;
+    !(ty == KEY_SHELL && shell_replaced
+        || matches!(ty, KEY_INSTANCE | KEY_SURFACE)
+            && (hosts.contains(&instance) || parked.contains(&instance)))
+}
+
+fn rebuild_structure_mopp_impl(
+    file: &[u8], hosts: &[usize], parked: &[usize], whole: &[usize], shell_replaced: bool,
+) -> Result<(Vec<u8>, StructureMopp), Error> {
     const BLOCK: &str = "structure_physics.mopp code block";
     let mut report = StructureMopp::default();
     let prims = with_tag(file, |layout, root| {
@@ -1477,6 +1493,14 @@ pub fn rebuild_structure_mopp(
         for key in keys {
             let ty = key >> 29;
             let instance = (key & 0xffff) as usize;
+            // A transplanted shell has a different surface table. Donor shell
+            // terminals can name nonexistent or unrelated new polygons. Every
+            // new shell surface is already supplied by the host definition
+            // below; retaining stale keys is both redundant and incorrect.
+            if !keep_existing_structure_key(key, hosts, parked, shell_replaced) {
+                report.dropped += 1;
+                continue;
+            }
             let b = match ty {
                 KEY_SHELL => {
                     report.shell += 1;
@@ -1486,12 +1510,6 @@ pub fn rebuild_structure_mopp(
                         lo[2] -= 0.25;
                         (lo, hi)
                     })
-                }
-                KEY_INSTANCE | KEY_SURFACE
-                    if hosts.contains(&instance) || parked.contains(&instance) =>
-                {
-                    report.dropped += 1;
-                    continue;
                 }
                 KEY_INSTANCE => inst.block.element(instance).map(|e| {
                     let b = instance_box(e);
@@ -1967,6 +1985,17 @@ pub fn shell_structure_mopp(file: &[u8]) -> Result<(Vec<u8>, StructureMopp), Err
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacing_shell_discards_donor_keys_without_discarding_unrelated_instances() {
+        let stale_shell = shell_key(5, 26); // PWR's replacement has only nine polygons.
+        assert!(keep_existing_structure_key(stale_shell, &[0], &[], false));
+        assert!(!keep_existing_structure_key(stale_shell, &[0], &[], true));
+        assert!(!keep_existing_structure_key(shell_key(5, 0), &[0], &[], true));
+        assert!(!keep_existing_structure_key(surface_key(3, 0), &[0], &[], true));
+        assert!(!keep_existing_structure_key(instance_key(7), &[0], &[7], true));
+        assert!(keep_existing_structure_key(surface_key(3, 9), &[0], &[7], true));
+    }
 
     /// The keys B40's start BSP ships decode as the simulation reads them:
     /// its lowest key is shell surface 0 with sink index 5, and its highest

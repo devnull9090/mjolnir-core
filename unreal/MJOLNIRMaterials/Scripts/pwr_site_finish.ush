@@ -1,0 +1,43 @@
+// Grade weights use three local tiles. The fourth is blank. Mip three still
+// has >2 guard texels; the material does not blend unrelated sites at distance.
+float2 worldMetres = WorldCM.xy * float2(.01,-.01);
+float2 siteCentre = worldMetres.y>350 ? float2(0,690) :
+                    (worldMetres.x<0 ? float2(-590,-80) : float2(600,-80));
+float2 offset = worldMetres-siteCentre;
+float2 metreDx = ddx(WorldCM.xy)*.01, metreDy = ddy(WorldCM.xy)*.01;
+[branch] if (max(abs(offset.x),abs(offset.y))<151)
+{
+    float2 tile = siteCentre.y>350 ? float2(0,1) : float2(siteCentre.x>0 ? 1 : 0,0);
+    float2 localUV = (offset*float2(1,-1)/304+.5+tile)*.5;
+    float lod = clamp(log2(max(pixelMetres,.01)*(256./304.)),0,3);
+    // The local and world atlases both use linear-clamp. The texture object
+    // remains distinct while the PS reuses the .9 road sampler slot.
+    float4 site = Texture2DSampleLevel(SiteGrade,RoadAtlasSampler,localUV,lod);
+    [branch] if (site.r>.001)
+    {
+        float3 mixWeights = saturate(site.gba/max(site.r,.001));
+        float2 uv = WorldCM.xy/308 + float2(.137,.829);
+        float2 dx = metreDx/3.08, dy = metreDy/3.08;
+        // The campaign's trampled forest path and exposed stone are the exact
+        // existing gameplay texture parameters, sampled only on maintained ground.
+        float3 dirt = Texture2DSampleGrad(SiteEarth,SiteEarthSampler,uv,dx,dy).rgb;
+        float3 rock = Texture2DSampleGrad(SiteRock,SiteEarthSampler,uv*.68+3.71,dx*.68,dy*.68).rgb;
+        float2 earthNormal = Texture2DSampleGrad(SiteNormal,SiteEarthSampler,uv,dx,dy).rg*2-1;
+        float3 luma = float3(.2126,.7152,.0722);
+        float dirtValue = clamp(.64+1.28*sqrt(max(dot(dirt,luma),0)),.65,1.5);
+        float rockValue = clamp(.54+1.43*sqrt(max(dot(rock,luma),0)),.60,1.6);
+        float3 exposedEarth = lerp(float3(.114,.089,.062),float3(.192,.153,.100),mixWeights.y)*dirtValue;
+        float3 crushedRock = float3(.235,.216,.175)*rockValue;
+        float3 graded = lerp(exposedEarth,crushedRock,mixWeights.x);
+        // A flared service throat loses its paired tire ruts as it enters the bay.
+        graded = lerp(graded,lerp(exposedEarth,crushedRock,.56),mixWeights.z*.68);
+        originalGround = lerp(originalGround,graded,site.r);
+        float2 xy = earthNormal*lerp(.36,.58,mixWeights.x);
+        float3 n = float3(xy,sqrt(saturate(1-dot(xy,xy))));
+        WetNormal=normalize(lerp(WetNormal,n,site.r));
+        WetRough=lerp(WetRough,.84+.065*mixWeights.x,site.r);
+        WetSpec=lerp(WetSpec,.23,site.r);
+        RoadMetal*=1-site.r;
+    }
+}
+return originalGround;

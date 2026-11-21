@@ -1,0 +1,3 @@
+# Optional offline Fluid Flux capture/state audit dependencies.
+numpy>=1.26
+OpenEXR>=3.3

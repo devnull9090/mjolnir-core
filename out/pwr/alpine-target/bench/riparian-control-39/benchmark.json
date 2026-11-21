@@ -1,0 +1,294 @@
+{
+  "completed": true,
+  "release": {
+    "archive": "pelican-warfare-0.1.0-playtest.39.mjolnir",
+    "map_sha256": "dc06be35b9549104baaba411eb86395651630b1011db4009918f08d1c76d8f0e",
+    "solo_runtime_sha256": "46b97443ba8fb805ddbe143e0f9d9795f7b63a8714d5c59e1bae15eefbf43970"
+  },
+  "settings": {
+    "viewport_w": "3840.0",
+    "viewport_h": "2160.0",
+    "world": "World /Game/Levels/Halo1/Solo/PWR/PWR.PWR",
+    "hud": "true",
+    "display_mode": "1",
+    "saved_vsync": "false",
+    "saved_fps_limit": "0.0",
+    "dynamic_resolution_setting": "false",
+    "saved_frame_generation": "false",
+    "sg.ViewDistanceQuality": "3",
+    "sg.AntiAliasingQuality": "3",
+    "sg.ShadowQuality": "3",
+    "sg.GlobalIlluminationQuality": "3",
+    "sg.ReflectionQuality": "3",
+    "sg.PostProcessQuality": "3",
+    "sg.TextureQuality": "3",
+    "sg.EffectsQuality": "3",
+    "sg.FoliageQuality": "3",
+    "sg.ShadingQuality": "3",
+    "r.ScreenPercentage": "66.666999816895",
+    "sg.ResolutionQuality": "0.0",
+    "t.MaxFPS": "59.997001647949",
+    "r.VSync": "1.0",
+    "t.IdleWhenNotForeground": "0.0",
+    "r.DynamicRes.OperationMode": "0.0",
+    "r.DynamicRes.MinScreenPercentage": "50.0",
+    "r.DynamicRes.MaxScreenPercentage": "100.0",
+    "r.AntiAliasingMethod": "4.0",
+    "r.TemporalAA.Upsampling": "1.0",
+    "r.NGX.DLSS.Enable": "1.0",
+    "r.Streamline.DLSSG.Enable": "0.0",
+    "r.FidelityFX.FSR3.Enabled": "0.0",
+    "r.FidelityFX.FI.Enabled": "0.0",
+    "r.ViewDistanceScale": "1.0",
+    "r.Nanite": "1.0",
+    "r.Shadow.Virtual.Enable": "1.0",
+    "foliage.DensityScale": "1.0",
+    "grass.DensityScale": "1.0",
+    "r.Streaming.PoolSize": "1800.0"
+  },
+  "frames": {
+    "outlet": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\riparian-control-39\\water\\outlet.png",
+      "sha256": "d26d6ba9226b3ae4da3f85fc436d6ecb7a4b2b3d1c9b91480059a2b16be867a9",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        -27300.0,
+        -78500.0,
+        15200.0,
+        -4.5376,
+        -122.9694,
+        73.0,
+        3840.0,
+        2160.0,
+        50.59535,
+        0.01684
+      ],
+      "camera_after": [
+        -27300.0,
+        -78500.0,
+        15200.0,
+        -4.5376,
+        -122.9694,
+        73.0,
+        3840.0,
+        2160.0,
+        52.53608,
+        0.01541
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    },
+    "riffle": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\riparian-control-39\\water\\riffle.png",
+      "sha256": "a60490f49e22df585cfe5d8e4c81f361936001097194ffb07d09de31049c2ec4",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        -28000.0,
+        -79000.0,
+        14243.0,
+        1.0361,
+        -115.2777,
+        69.0,
+        3840.0,
+        2160.0,
+        61.25851,
+        0.01645
+      ],
+      "camera_after": [
+        -28000.0,
+        -79000.0,
+        14243.0,
+        1.0361,
+        -115.2777,
+        69.0,
+        3840.0,
+        2160.0,
+        62.87692,
+        0.01684
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    },
+    "waterline": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\riparian-control-39\\water\\waterline.png",
+      "sha256": "da188eedfd0454ad0f802d9e1946ec85b97f2d831ac7b2cea51be04d9a844706",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        -27508.0,
+        -81247.0,
+        14436.3,
+        -2.9642,
+        -161.7842,
+        66.0,
+        3840.0,
+        2160.0,
+        71.63268,
+        0.01686
+      ],
+      "camera_after": [
+        -27508.0,
+        -81247.0,
+        14436.3,
+        -2.9642,
+        -161.7842,
+        66.0,
+        3840.0,
+        2160.0,
+        73.06729,
+        0.01729
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    },
+    "basin": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\riparian-control-39\\water\\basin.png",
+      "sha256": "17f9c65bdfc6765c5f1db0cf44348bf0421cb8611240edaf51393503f6c75578",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        -21100.0,
+        -76300.0,
+        25200.0,
+        -29.1843,
+        -139.1748,
+        58.0,
+        3840.0,
+        2160.0,
+        81.75568,
+        0.01658
+      ],
+      "camera_after": [
+        -21100.0,
+        -76300.0,
+        25200.0,
+        -29.1843,
+        -139.1748,
+        58.0,
+        3840.0,
+        2160.0,
+        83.30684,
+        0.01586
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    },
+    "spring-bank": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\riparian-control-39\\water\\spring-bank.png",
+      "sha256": "3941eb300d1fe6214eb9c2543938d40e2dda49b176a320d224d2cebe3d22f964",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        -35200.0,
+        -95600.0,
+        14435.0,
+        1.6526,
+        -161.1468,
+        65.0,
+        3840.0,
+        2160.0,
+        92.07911,
+        0.0161
+      ],
+      "camera_after": [
+        -35200.0,
+        -95600.0,
+        14435.0,
+        1.6526,
+        -161.1468,
+        65.0,
+        3840.0,
+        2160.0,
+        93.59748,
+        0.01745
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    },
+    "cutbank": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\riparian-control-39\\water\\cutbank.png",
+      "sha256": "f695b13814db4d013a534331769264adabb8fcde3f20e4ca0a67107db2062cb1",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        -29650.0,
+        -81560.0,
+        14460.0,
+        -5.0387,
+        158.3068,
+        71.0,
+        3840.0,
+        2160.0,
+        102.36994,
+        0.01696
+      ],
+      "camera_after": [
+        -29650.0,
+        -81560.0,
+        14460.0,
+        -5.0387,
+        158.3068,
+        71.0,
+        3840.0,
+        2160.0,
+        103.90414,
+        0.01518
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    },
+    "inlet": {
+      "file": "C:\\Users\\will\\.codex\\worktrees\\pelican-warfare\\haloce\\out\\pwr\\alpine-target\\bench\\riparian-control-39\\water\\inlet.png",
+      "sha256": "3b64c4117133158b4ba8b911a1b9486baca151a461cc303365d1971168adb45d",
+      "metadata": "PrintWindow, 3840 x 2160 -> 1600x900",
+      "camera_before": [
+        -37500.0,
+        -95100.0,
+        14490.0,
+        1.044,
+        -135.5907,
+        65.0,
+        3840.0,
+        2160.0,
+        112.59641,
+        0.01727
+      ],
+      "camera_after": [
+        -37500.0,
+        -95100.0,
+        14490.0,
+        1.044,
+        -135.5907,
+        65.0,
+        3840.0,
+        2160.0,
+        114.21398,
+        0.01678
+      ],
+      "native_viewport": [
+        3840.0,
+        2160.0
+      ],
+      "native_viewport_matches_reference": false
+    }
+  },
+  "restoration": {
+    "mod_files_byte_verified": 792,
+    "paks_verified": 31,
+    "restored": true
+  }
+}

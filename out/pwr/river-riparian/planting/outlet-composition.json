@@ -1,0 +1,156 @@
+[
+  {
+    "seed": 0,
+    "root_uv": [
+      55.2,
+      525.9
+    ],
+    "crown_uv": [
+      49.9,
+      429.9
+    ],
+    "height_cm": 465.0,
+    "silhouette_px": 96.1,
+    "gap_m": 14.88
+  },
+  {
+    "seed": 1,
+    "root_uv": [
+      91.7,
+      507.4
+    ],
+    "crown_uv": [
+      87.1,
+      419.3
+    ],
+    "height_cm": 465.0,
+    "silhouette_px": 88.1,
+    "gap_m": 14.89
+  },
+  {
+    "seed": 2,
+    "root_uv": [
+      156.4,
+      519.3
+    ],
+    "crown_uv": [
+      152.0,
+      426.9
+    ],
+    "height_cm": 465.0,
+    "silhouette_px": 92.3,
+    "gap_m": 10.72
+  },
+  {
+    "seed": 3,
+    "root_uv": [
+      232.8,
+      526.0
+    ],
+    "crown_uv": [
+      229.1,
+      436.6
+    ],
+    "height_cm": 426.2,
+    "silhouette_px": 89.4,
+    "gap_m": 8.32
+  },
+  {
+    "seed": 4,
+    "root_uv": [
+      303.7,
+      533.4
+    ],
+    "crown_uv": [
+      301.0,
+      458.7
+    ],
+    "height_cm": 346.4,
+    "silhouette_px": 74.7,
+    "gap_m": 5.69
+  },
+  {
+    "seed": 5,
+    "root_uv": [
+      350.4,
+      541.6
+    ],
+    "crown_uv": [
+      348.5,
+      483.8
+    ],
+    "height_cm": 262.2,
+    "silhouette_px": 57.8,
+    "gap_m": 4.11
+  },
+  {
+    "seed": 6,
+    "root_uv": [
+      1292.0,
+      541.7
+    ],
+    "crown_uv": [
+      1294.1,
+      483.8
+    ],
+    "height_cm": 308.9,
+    "silhouette_px": 57.8,
+    "gap_m": 3.69
+  },
+  {
+    "seed": 7,
+    "root_uv": [
+      1359.6,
+      529.3
+    ],
+    "crown_uv": [
+      1362.6,
+      456.7
+    ],
+    "height_cm": 397.8,
+    "silhouette_px": 72.6,
+    "gap_m": 6.74
+  },
+  {
+    "seed": 8,
+    "root_uv": [
+      1429.4,
+      521.3
+    ],
+    "crown_uv": [
+      1433.5,
+      433.0
+    ],
+    "height_cm": 465.0,
+    "silhouette_px": 88.4,
+    "gap_m": 9.91
+  },
+  {
+    "seed": 9,
+    "root_uv": [
+      1512.8,
+      513.1
+    ],
+    "crown_uv": [
+      1516.9,
+      435.4
+    ],
+    "height_cm": 465.0,
+    "silhouette_px": 77.6,
+    "gap_m": 13.56
+  },
+  {
+    "seed": 10,
+    "root_uv": [
+      1542.6,
+      524.4
+    ],
+    "crown_uv": [
+      1547.1,
+      442.9
+    ],
+    "height_cm": 465.0,
+    "silhouette_px": 81.5,
+    "gap_m": 14.97
+  }
+]

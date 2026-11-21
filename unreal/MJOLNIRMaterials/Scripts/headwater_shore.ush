@@ -1,0 +1,33 @@
+// Northern lake. Dry uplands, roads and the downstream river use the parent shader.
+float2 hwXY = WorldCM.xy * float2(.01,-.01);
+float2 hwDx = ddx(hwXY), hwDy = ddy(hwXY);
+[branch] if (hwXY.x > -456 && hwXY.x < -252 && hwXY.y > 806 && hwXY.y < 984)
+{
+    const float2 shore[48] = {SHORE_SPANS};
+    const float stepY = (SHORE_Y_MAX-SHORE_Y_MIN)/47.;
+    float t = clamp((hwXY.y-SHORE_Y_MIN)/stepY,0.,46.9999);
+    int i = (int)t;
+    float2 sides = lerp(shore[i],shore[i+1],frac(t));
+    float2 bankSlope = (shore[i+1]-shore[i])/stepY;
+    float2 outward = float2(sides.x-hwXY.x,hwXY.x-sides.y)*rsqrt(1.+bankSlope*bankSlope);
+    float ends = max(SHORE_Y_MIN-hwXY.y,hwXY.y-SHORE_Y_MAX);
+    float bank = max(max(outward.x,outward.y),ends);
+    float level = WorldCM.z*.01-LAKE_HEIGHT;
+    float fringe = .55*sin(dot(hwXY,float2(.53,.34)))+.42*sin(dot(hwXY,float2(.21,-.71)));
+    float cover = (1.-smoothstep(2.0,7.0,bank+fringe))*(1.-smoothstep(1.8,4.4,level));
+    [branch] if (cover>.001)
+    {
+        float2 uv = hwXY/2.85 + float2(.343,.718);
+        float3 stone = Texture2DSampleGrad(PathGravel,SiteEarthSampler,uv,hwDx/2.85,hwDy/2.85).rgb;
+        float2 grain = Texture2DSampleGrad(PathGravelNormal,SiteEarthSampler,uv,hwDx/2.85,hwDy/2.85).rg*2.-1.;
+        float3 earth = Texture2DSampleGrad(SiteEarth,SiteEarthSampler,hwXY/5.7,hwDx/5.7,hwDy/5.7).rgb;
+        float wet = 1.-smoothstep(-.35,.95,level+.13*fringe);
+        float gravel = saturate(.50+.19*sin(dot(hwXY,float2(.15,.09)))+.24*dot(stone,float3(.25,.55,.20)));
+        float3 beach = lerp(earth*float3(.66,.55,.42),stone*float3(.81,.77,.70),gravel)*lerp(1.,.49,wet);
+        originalGround = lerp(originalGround,beach,cover);
+        WetNormal = normalize(lerp(WetNormal,normalize(float3(grain*.52,1.)),cover));
+        WetRough = lerp(WetRough,lerp(.89,.53,wet),cover);
+        WetSpec = lerp(WetSpec,lerp(.23,.34,wet),cover);
+        RoadMetal = lerp(RoadMetal,0.,cover);
+    }
+}

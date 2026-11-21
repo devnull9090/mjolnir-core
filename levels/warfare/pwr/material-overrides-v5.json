@@ -1,0 +1,66 @@
+{
+  "schema": "mjolnir-authored-material-overrides-v1",
+  "verified_source": "Explicit PWR Default Lit shader from shipped Diagonal N/ORHG exports; no vertex/COH/frost inputs. Only generated floor/wall slots change; native detailed buttresses retain stock materials.",
+  "overrides": [
+    {
+      "decor_id": "pwr_terrain",
+      "source_base": "/Game/MJOLNIR/Maps/PWR/Textures/T_levels_b30_bitmaps_metal_plate_floor_ext.T_levels_b30_bitmaps_metal_plate_floor_ext",
+      "material": "/Game/MJOLNIR/CETrial/M_CE_PWRPaving.M_CE_PWRPaving",
+      "vectors": {
+        "PavingTint": [
+          0.28,
+          0.31,
+          0.3,
+          1
+        ],
+        "PavingParams": [
+          400,
+          0.76,
+          0.22,
+          0.28
+        ]
+      }
+    },
+    {
+      "decor_id": "pwr_terrain",
+      "source_base": "/Game/MJOLNIR/Maps/PWR/Textures/T_levels_b30_bitmaps_metal_panels_generic_ext.T_levels_b30_bitmaps_metal_panels_generic_ext",
+      "material": "/Game/MJOLNIR/CETrial/M_CE_PWRPaving.M_CE_PWRPaving",
+      "vectors": {
+        "PavingTint": [
+          0.3,
+          0.32,
+          0.32,
+          1
+        ],
+        "PavingParams": [
+          600,
+          0.74,
+          0.25,
+          0.3
+        ]
+      }
+    },
+    {
+      "decor_id": "pwr_terrain",
+      "source_base": "/Game/MJOLNIR/Maps/PWR/Textures/T_levels_test_dangercanyon_bitmaps_dangercanyon_decor_strip_blue.T_levels_test_dangercanyon_bitmaps_dangercanyon_decor_strip_blue",
+      "material": "/Game/Lighting/Lighting_Mats/EmissiveMaterials/B40/MI_FREmissive_Solid_B40_Blue.MI_FREmissive_Solid_B40_Blue",
+      "scalars": {
+        "Base Emissive Strength": 32
+      },
+      "vectors": {
+        "Color Tint 1": [
+          0.015,
+          0.5,
+          1,
+          700
+        ],
+        "Color Tint 2": [
+          0.005,
+          0.2,
+          0.8,
+          200
+        ]
+      }
+    }
+  ]
+}

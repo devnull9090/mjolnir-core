@@ -1,0 +1,123 @@
+{
+  "schema": "pwr-runtime-heightfield-derivation-v1",
+  "source_manifest_sha256": "dbf21bef91497c28405c5f7c0826d0f0ac1a06c64472176ae693e9a9b2f93d1e",
+  "source_height_sha256": "57901a25a6df231e9e729b4c25f0ad34bf7bfe169069ba508cc4b29d1002f508",
+  "runtime_manifest_sha256": "814c7a8b3796394f2a8027c10b9577424acff5c23972d65265f9d86f3b7fd3ec",
+  "runtime_height_sha256": "aae13c42fffcbbd2f248e057a8792fc966aaf48971c407b7a2bc2a0173ce1ad7",
+  "geometry_sha256": "2bad0fc72f4204932d8f66e2fc096e8d47f4a0c901d4a246a5ac0bb0b425f7c4",
+  "source_dimensions": [
+    1024,
+    1024
+  ],
+  "runtime_dimensions": [
+    1009,
+    1009
+  ],
+  "bounds_m": [
+    [
+      -1000.0,
+      -1000.0
+    ],
+    [
+      1000.0,
+      1000.0
+    ]
+  ],
+  "source_preserved": true,
+  "landscape_r16_bit_identical": true,
+  "landscape_transform_identical": true,
+  "height_quantization": {
+    "height_range_m": [
+      47.99999999999998,
+      399.51442428186635
+    ],
+    "height_step_cm": 0.78125,
+    "max_vertex_quantization_error_cm": 0.39062483780980983,
+    "clipped_samples": 0
+  },
+  "float32_storage_max_error_m": 0.0,
+  "encoded_r16_file": "runtime-master.r16",
+  "encoded_r16_sha256": "d363768a570d4dbdf565baccd1f90253d6a357bca867857b1352ae0f2e70d40c",
+  "triangle_vs_bilinear_cell_center_max_m": 4.1796875,
+  "source_to_runtime_at_original_vertices": {
+    "samples": 1048576,
+    "max_m": 7.906047026783654,
+    "p95_m": 0.8835512759747957,
+    "rms_m": 0.4039619562400907
+  },
+  "source_mask_regions": {
+    "road": {
+      "samples": 76130,
+      "max_m": 0.03646723056468204,
+      "p95_m": 0.0029805751140500572,
+      "rms_m": 0.0017963035899969313
+    },
+    "water": {
+      "samples": 79988,
+      "max_m": 3.216565901233551,
+      "p95_m": 0.12371116257835194,
+      "rms_m": 0.07193855354720659
+    },
+    "shore": {
+      "samples": 52626,
+      "max_m": 3.216565901233551,
+      "p95_m": 0.26485185818938817,
+      "rms_m": 0.1315558713784843
+    },
+    "bases": {
+      "samples": 76282,
+      "max_m": 0.001800537109375,
+      "p95_m": 0.001800537109375,
+      "rms_m": 0.0013394959009291408
+    },
+    "flat": {
+      "samples": 76282,
+      "max_m": 0.001800537109375,
+      "p95_m": 0.001800537109375,
+      "rms_m": 0.0013394959009291408
+    },
+    "forest": {
+      "samples": 259477,
+      "max_m": 5.071178984432493,
+      "p95_m": 0.09967808877268564,
+      "rms_m": 0.09452812521827965
+    },
+    "walkable": {
+      "samples": 524064,
+      "max_m": 5.071178984432493,
+      "p95_m": 0.03612938710322203,
+      "rms_m": 0.05508724494164687
+    }
+  },
+  "surface_interpolation": "triangle_nw_se",
+  "triangulation_evidence": {
+    "source": "UE5.5 installed source, Landscape/Private/LandscapeRender.cpp:3276-3290",
+    "unreal_indices": [
+      [
+        "i00",
+        "i11",
+        "i10"
+      ],
+      [
+        "i00",
+        "i01",
+        "i11"
+      ]
+    ],
+    "authoring_diagonal": "NW(x0,y1) to SE(x1,y0), because UE import reverses authoring Y",
+    "authoring_triangles": [
+      [
+        "SW",
+        "SE",
+        "NW"
+      ],
+      [
+        "SE",
+        "NE",
+        "NW"
+      ]
+    ],
+    "scope": "Landscape LOD0 grid; lower visual LODs and material displacement require separate verification"
+  },
+  "scope": "Exact original Landscape LOD0 encoded vertices/transform and analytic triangle sampling. Native coarse-mesh fidelity and cooked/runtime LOD appearance are separate acceptance gates."
+}

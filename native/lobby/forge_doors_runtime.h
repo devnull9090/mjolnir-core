@@ -52,8 +52,11 @@ static unsigned char *fd_object(unsigned char *tls, uint32_t handle) {
     unsigned char *table = *(unsigned char **)(tls + 0x20);
     unsigned index = handle & 0xffff;
     unsigned char *slot = fd_slot(table, index, 0x18, 4096);
-    if (!slot || *(uint16_t *)slot != (uint16_t)(handle >> 16) || *(uint16_t *)(slot + 6) < 0xe0
-        || *(uint16_t *)(slot + 0x0c) != index) return NULL;
+    /* The salt alone identifies the object. Entry +0x0c is the object's index
+     * on the host: equal to this table's index only there (a client's object
+     * 84 read 139), so requiring it made every client lookup fail, and a
+     * Pelican Warfare joiner never saw its own biped (2026-11-19). */
+    if (!slot || *(uint16_t *)slot != (uint16_t)(handle >> 16) || *(uint16_t *)(slot + 6) < 0xe0) return NULL;
     return *(unsigned char **)(slot + 0x10);
 }
 

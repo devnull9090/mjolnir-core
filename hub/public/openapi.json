@@ -6561,7 +6561,7 @@
           "publish"
         ],
         "summary": "Start uploading the archive in parts",
-        "description": "For an archive over 90 MiB, up to 400 MiB. Upload every part but the last at the same size, 5 to 64 MiB, then complete the upload, then call /complete on the release as for a single upload.",
+        "description": "For an archive over 90 MiB, up to 1024 MiB. Upload every part but the last at the same size, 5 to 64 MiB, then complete the upload, then call /complete on the release as for a single upload.",
         "parameters": [
           {
             "schema": {

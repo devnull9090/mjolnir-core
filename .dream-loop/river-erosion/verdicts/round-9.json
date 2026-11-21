@@ -1,0 +1,108 @@
+{
+  "score": 4.3,
+  "first_failed_gate": "light_colour",
+  "previous_score": 3.9,
+  "regressions": [
+    {
+      "where": "A3–B4 left shore",
+      "what": "The formerly overbuilt cobble ridge has nearly disappeared, leaving a flatter sand strip with fewer stones and visible roots than the target."
+    },
+    {
+      "where": "C2–D3 inlet reflection",
+      "what": "The brighter cascade now produces a more conspicuous inverted white silhouette beneath the inlet."
+    },
+    {
+      "where": "B2–E2 lake perimeter",
+      "what": "The far shoreline has darkened and lost some of the sunlit olive vegetation visible along the target waterline."
+    }
+  ],
+  "previous_directives": [
+    {
+      "id": "r8-b1",
+      "status": "landed"
+    },
+    {
+      "id": "r8-b2",
+      "status": "not_done"
+    },
+    {
+      "id": "r8-b3",
+      "status": "not_done"
+    },
+    {
+      "id": "r8-b4",
+      "status": "partial"
+    },
+    {
+      "id": "r8-n1",
+      "status": "not_done"
+    },
+    {
+      "id": "r8-n2",
+      "status": "not_done"
+    },
+    {
+      "id": "r8-n3",
+      "status": "not_done"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "r9-b1",
+      "where": "B3–E4 outlet surface",
+      "target": "Short blue-grey reflections run around the boulders and across the visible gravel to the bottom edge.",
+      "current": "The foreground reads as brown gravel beneath an almost reflectionless sheet.",
+      "change": "Carry broken cool sky reflections into both foreground corners and turn the streaks around each boulder while retaining visible gravel between them."
+    },
+    {
+      "id": "r9-b2",
+      "where": "A3–B4 left bank and C3–D3 outlet boulders",
+      "target": "The grass lip shades a dark earth face while the downstream rock faces retain grey fracture detail.",
+      "current": "Direct light floods the sandy bank strip while the boulder faces fall almost to black.",
+      "change": "Place the left earth face in the turf lip’s shadow and lift indirect light on the downstream rock faces until their cracks remain legible."
+    },
+    {
+      "id": "r9-b3",
+      "where": "B2–E3 lake surface",
+      "target": "Soft vertical olive reflections join the far shore to the lake and break into small ripples toward the outlet.",
+      "current": "A blue stippled patch and broad tan patch dominate the pool while the shoreline reads as a thin dark strip.",
+      "change": "Extend soft olive shoreline reflections toward the lake center and break up the broad tan highlight with low-contrast ripples."
+    },
+    {
+      "id": "r9-b4",
+      "where": "C2–D3 inlet",
+      "target": "White spilling water surrounds narrow teal gaps and leaves a vertically blurred pale reflection.",
+      "current": "Hard-edged white and dark teal wedges repeat almost intact below the waterline.",
+      "change": "Join the white centers across each falling lip and blur the reflected silhouette into horizontal bands below the inlet."
+    }
+  ],
+  "next": [
+    {
+      "id": "r9-n1",
+      "where": "A3–B4 eroded bank",
+      "target": "An irregular overhang exposes hanging roots above separated grey cobbles embedded at its foot.",
+      "current": "A smooth sandy ramp meets dense grass along a mostly flush edge.",
+      "change": "Cut a recessed face below the turf, bend exposed roots downward at varied lengths and embed separated cobbles along the slope foot."
+    },
+    {
+      "id": "r9-n2",
+      "where": "E3–F4 right bank",
+      "target": "Uneven stands of tall upright reeds project into a broad ridge of individual grey pebbles.",
+      "current": "Low rounded grass clumps cover most of the bank and end against a narrow sandy strip.",
+      "change": "Pull the grass back in irregular pockets, fill them with overlapping grey pebbles and place taller reed groups at the waterside points."
+    },
+    {
+      "id": "r9-n3",
+      "where": "B3–D4 outlet boulders",
+      "target": "Sloping fractured shoulders split the current and carry broken white foam around their flanks.",
+      "current": "Steep angular shoulders rise above dark water with little visible upstream foam contact.",
+      "change": "Bevel the tallest shoulders and wrap broken foam from each upstream contact around both flanks into narrow downstream trails."
+    }
+  ],
+  "excluded": [
+    "Distant mountains and sky are outside this pass."
+  ],
+  "unverifiable": [
+    "The still captures cannot establish water, foam or vegetation motion."
+  ]
+}

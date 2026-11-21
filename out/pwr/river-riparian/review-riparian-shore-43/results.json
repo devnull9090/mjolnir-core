@@ -1,0 +1,125 @@
+{
+  "before": {
+    "archive": "pelican-warfare-0.1.0-playtest.39.mjolnir",
+    "map_sha256": "dc06be35b9549104baaba411eb86395651630b1011db4009918f08d1c76d8f0e",
+    "solo_runtime_sha256": "46b97443ba8fb805ddbe143e0f9d9795f7b63a8714d5c59e1bae15eefbf43970"
+  },
+  "after": {
+    "archive": "pelican-warfare-0.1.0-playtest.43.mjolnir",
+    "map_sha256": "c150968c5c0a689d0582f2c6279ad4951000fc5cfbc8d3c8763320d92687492f",
+    "solo_runtime_sha256": "a81695c2ee6cbc9f4b2bc3e7c02de782142bf44d33f922db91b17da9635725bb"
+  },
+  "camera": [
+    -27300,
+    -78500,
+    15200,
+    -4.5376,
+    -122.9694,
+    73
+  ],
+  "graphics": {
+    "viewport_w": "3840.0",
+    "viewport_h": "2160.0",
+    "world": "World /Game/Levels/Halo1/Solo/PWR/PWR.PWR",
+    "hud": "true",
+    "display_mode": "1",
+    "saved_vsync": "false",
+    "saved_fps_limit": "0.0",
+    "dynamic_resolution_setting": "false",
+    "saved_frame_generation": "false",
+    "sg.ViewDistanceQuality": "3",
+    "sg.AntiAliasingQuality": "3",
+    "sg.ShadowQuality": "3",
+    "sg.GlobalIlluminationQuality": "3",
+    "sg.ReflectionQuality": "3",
+    "sg.PostProcessQuality": "3",
+    "sg.TextureQuality": "3",
+    "sg.EffectsQuality": "3",
+    "sg.FoliageQuality": "3",
+    "sg.ShadingQuality": "3",
+    "r.ScreenPercentage": "66.666999816895",
+    "sg.ResolutionQuality": "0.0",
+    "t.MaxFPS": "59.997001647949",
+    "r.VSync": "1.0",
+    "t.IdleWhenNotForeground": "0.0",
+    "r.DynamicRes.OperationMode": "0.0",
+    "r.DynamicRes.MinScreenPercentage": "50.0",
+    "r.DynamicRes.MaxScreenPercentage": "100.0",
+    "r.AntiAliasingMethod": "4.0",
+    "r.TemporalAA.Upsampling": "1.0",
+    "r.NGX.DLSS.Enable": "1.0",
+    "r.Streamline.DLSSG.Enable": "0.0",
+    "r.FidelityFX.FSR3.Enabled": "0.0",
+    "r.FidelityFX.FI.Enabled": "0.0",
+    "r.ViewDistanceScale": "1.0",
+    "r.Nanite": "1.0",
+    "r.Shadow.Virtual.Enable": "1.0",
+    "foliage.DensityScale": "1.0",
+    "grass.DensityScale": "1.0",
+    "r.Streaming.PoolSize": "1800.0"
+  },
+  "performance": [
+    {
+      "frames": 2700,
+      "measured_seconds": 45.03,
+      "fps": 59.96002664890073,
+      "mean_frame_ms": 16.677777777777777,
+      "p50_frame_ms": 17.0,
+      "p95_frame_ms": 18.0,
+      "p99_frame_ms": 18.0,
+      "worst_frame_ms": 21.0,
+      "native_mean": {
+        "game_ms": 16.601666666666667,
+        "game_critical_ms": 16.673333333333332,
+        "draw_ms": 3.6806666666666663,
+        "draw_critical_ms": 14.934333333333333,
+        "rhit_ms": 3.437,
+        "gpu_ms": 7.175
+      },
+      "pass_means_ms": [
+        16.676666666666666,
+        16.68,
+        16.676666666666666
+      ],
+      "hitches_over_33ms": 0,
+      "hitches_over_50ms": 0
+    },
+    {
+      "frames": 2700,
+      "measured_seconds": 45.018,
+      "fps": 59.97600959616153,
+      "mean_frame_ms": 16.673333333333332,
+      "p50_frame_ms": 17.0,
+      "p95_frame_ms": 18.0,
+      "p99_frame_ms": 18.0,
+      "worst_frame_ms": 19.0,
+      "native_mean": {
+        "game_ms": 16.602,
+        "game_critical_ms": 16.672,
+        "draw_ms": 3.1593333333333335,
+        "draw_critical_ms": 15.136333333333333,
+        "rhit_ms": 3.1610000000000005,
+        "gpu_ms": 7.520666666666666
+      },
+      "pass_means_ms": [
+        16.673333333333332,
+        16.674444444444443,
+        16.67222222222222
+      ],
+      "hitches_over_33ms": 0,
+      "hitches_over_50ms": 0
+    }
+  ],
+  "restoration": [
+    {
+      "mod_files_byte_verified": 792,
+      "paks_verified": 31,
+      "restored": true
+    },
+    {
+      "mod_files_byte_verified": 792,
+      "paks_verified": 31,
+      "restored": true
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+// The four input channels are footprint, premultiplied road hierarchy, signed
+// cross-track metres and a phase along the actual spline station. Each output
+// preserves the earlier .8 wet-terrain result wherever the road footprint is zero.
+float4 network = Texture2DSample(RoadAtlas,RoadAtlasSampler,rect);
+float pixelMetres = max(length(ddx(WorldCM.xy)), length(ddy(WorldCM.xy))) * .01;
+float cover = saturate(network.r);
+RoadMetal = 0;
+[branch] if (cover > .001)
+{
+    float hierarchy = saturate(network.g/max(cover,1e-4));
+    float paving = smoothstep(.315,.685,hierarchy);
+    float junction = saturate((abs(hierarchy*2-1)-.38)/.62);
+    float markingLOD = 1 - smoothstep(.28,1.9,pixelMetres);
+    float fine = junction * markingLOD;
+    float signedSide = (network.b-.5)*32.0;
+    float side = abs(signedSide);
+    float phase = network.a*2-1;
+    float alongJoint = abs(phase)*(24.0/6.283185);
+    // The finite footprint of a screen pixel softens flush joints without
+    // turning their mip-averaged phase into dark bands across the distant valley.
+    float aa = clamp(.50*pixelMetres,.035,.35);
+    float panelJoint = (1-smoothstep(.045,.058+aa,alongJoint)) * fine;
+    float deckJoint = (1-smoothstep(.027,.055+aa,abs(side-3.60))) * fine;
+    float metal = smoothstep(7.94-aa,8.07+aa,side) * junction;
+    float edgeStripe = (1-smoothstep(.074,.115+aa,abs(side-7.76))) * fine;
+    float centerStripe = (1-smoothstep(.075,.143+aa,side))
+                         * smoothstep(.12,.36,phase) * fine;
+    float lum = max(.004,dot(Ground,float3(.2126,.7152,.0722)));
+    float aggregate = clamp(.84 + .63*sqrt(lum),.79,1.29);
+    float2 metres = WorldCM.xy*.01;
+    float stratum = sin(dot(metres,float2(.197,.067))+1.3*sin(metres.y*.16))
+                  + .46*sin(dot(metres,float2(-.53,.26)));
+    float scuff = saturate(abs(GroundNormal.x)*.48 + abs(GroundNormal.y)*.33 + (aggregate-.9)*.75);
+    float wheelL = exp2(-pow((side-2.7)/.51,2)) + exp2(-pow((side-5.30)/.54,2));
+    float wear = saturate(wheelL)*fine;
+    float3 deck = float3(.266,.287,.266)*aggregate*(1+.034*stratum-.115*wear);
+    // The longitudinal joint is quiet and the transverse joint is the primary cut.
+    deck *= 1 - .40*max(panelJoint,.60*deckJoint);
+    float3 edgeMetal = float3(.075,.096,.097)*aggregate*(.92+.13*scuff);
+    deck = lerp(deck,edgeMetal,metal);
+    float paint = saturate(max(edgeStripe,centerStripe))*(.36+.34*(1-scuff));
+    deck = lerp(deck,float3(.55,.29,.063)*aggregate,paint);
+
+    // A graded service track has two paired wheel ruts and a broken vegetated
+    // median. Aggregate runs out irregularly across the existing vehicle shoulder.
+    float wander = .31*sin(dot(metres,float2(.061,.083)))+.19*phase;
+    float rut = exp2(-pow((abs(signedSide+wander)-2.05)/.73,2));
+    rut *= junction * (1-smoothstep(.75,3.6,pixelMetres));
+    float roadside = smoothstep(5.1,11.5,side+.36*stratum);
+    float median = (1-smoothstep(.55,1.55,side)) * saturate(.27+.19*stratum) * junction;
+    float3 soil = lerp(originalGround,lum*float3(1.11,.86,.65),.67);
+    float damp = smoothstep(.055,.43,wet);
+    soil *= 1 - rut*(.22+.14*damp);
+    float3 grassEarth = max(.044,lum*.79)*float3(.83,1.00,.59);
+    soil=lerp(soil,grassEarth,saturate(roadside*.73+median));
+    float rutsGloss = saturate(rut * (.47+.51*damp));
+    float roughDirt = lerp(WetRough, min(WetRough,.51-.11*damp),rutsGloss);
+    float pavedRough = lerp(.77-.085*wear,.46+.22*scuff,metal);
+    pavedRough += panelJoint*.06;
+    WetRough = lerp(WetRough,lerp(roughDirt,pavedRough,paving),cover);
+    WetSpec = lerp(WetSpec,lerp(WetSpec,lerp(.23,.41,metal),paving),cover);
+    WetNormal = lerp(WetNormal,float3(0,0,1),cover*paving*lerp(.69,.83,metal));
+    RoadMetal = cover*paving*(metal*.54+paint*.06);
+    originalGround=lerp(originalGround,lerp(soil,deck,paving),cover);
+}
+return originalGround;

@@ -789,6 +789,12 @@ function Chat.finish()
     dirty = true
 end
 
+-- Shared read-only input gate for noninteractive HUD overlays. M must remain
+-- ordinary text while chat/rules have focus, and must not open over pause UI.
+function Chat.inputActive()
+    return open ~= nil or rules.open == true or gameUI == true
+end
+
 --------------------------------------------------------------------------------
 -- Keys
 --------------------------------------------------------------------------------

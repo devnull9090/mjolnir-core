@@ -1,0 +1,612 @@
+{
+  "sky": "sky\\clear afternoon\\clear afternoon",
+  "scenery": [],
+  "vehicles": [
+    {
+      "tag": "vehicles\\warthog\\mp_warthog",
+      "team": 0,
+      "position_m": [
+        -712.0,
+        -55.0,
+        36.8
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "vehicles\\warthog\\mp_warthog",
+      "team": 0,
+      "position_m": [
+        -695.0,
+        -55.0,
+        36.8
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "vehicles\\warthog\\mp_warthog",
+      "team": 0,
+      "position_m": [
+        -808.0,
+        -55.0,
+        36.8
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "vehicles\\warthog\\mp_warthog",
+      "team": 0,
+      "position_m": [
+        -825.0,
+        -55.0,
+        36.8
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "vehicles\\scorpion\\scorpion_mp",
+      "team": 0,
+      "position_m": [
+        -825.0,
+        55.0,
+        36.8
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "vehicles\\scorpion\\scorpion_mp",
+      "team": 0,
+      "position_m": [
+        -695.0,
+        55.0,
+        36.8
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "vehicles\\banshee\\banshee_mp",
+      "team": 0,
+      "position_m": [
+        -825.0,
+        85.0,
+        36.8
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "vehicles\\banshee\\banshee_mp",
+      "team": 0,
+      "position_m": [
+        -695.0,
+        85.0,
+        36.8
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "vehicles\\warthog\\mp_warthog",
+      "team": 1,
+      "position_m": [
+        712.0,
+        -55.0,
+        36.8
+      ],
+      "yaw_degrees": 180
+    },
+    {
+      "tag": "vehicles\\warthog\\mp_warthog",
+      "team": 1,
+      "position_m": [
+        695.0,
+        -55.0,
+        36.8
+      ],
+      "yaw_degrees": 180
+    },
+    {
+      "tag": "vehicles\\warthog\\mp_warthog",
+      "team": 1,
+      "position_m": [
+        808.0,
+        -55.0,
+        36.8
+      ],
+      "yaw_degrees": 180
+    },
+    {
+      "tag": "vehicles\\warthog\\mp_warthog",
+      "team": 1,
+      "position_m": [
+        825.0,
+        -55.0,
+        36.8
+      ],
+      "yaw_degrees": 180
+    },
+    {
+      "tag": "vehicles\\scorpion\\scorpion_mp",
+      "team": 1,
+      "position_m": [
+        825.0,
+        55.0,
+        36.8
+      ],
+      "yaw_degrees": 180
+    },
+    {
+      "tag": "vehicles\\scorpion\\scorpion_mp",
+      "team": 1,
+      "position_m": [
+        695.0,
+        55.0,
+        36.8
+      ],
+      "yaw_degrees": 180
+    },
+    {
+      "tag": "vehicles\\banshee\\banshee_mp",
+      "team": 1,
+      "position_m": [
+        825.0,
+        85.0,
+        36.8
+      ],
+      "yaw_degrees": 180
+    },
+    {
+      "tag": "vehicles\\banshee\\banshee_mp",
+      "team": 1,
+      "position_m": [
+        695.0,
+        85.0,
+        36.8
+      ],
+      "yaw_degrees": 180
+    }
+  ],
+  "spawns": [
+    {
+      "team": 0,
+      "position_m": [
+        -778.0,
+        -8.0,
+        36.8
+      ],
+      "yaw_degrees": 0,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 0,
+      "position_m": [
+        -778.0,
+        8.0,
+        36.8
+      ],
+      "yaw_degrees": 0,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 0,
+      "position_m": [
+        -742.0,
+        -8.0,
+        36.8
+      ],
+      "yaw_degrees": 0,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 0,
+      "position_m": [
+        -742.0,
+        8.0,
+        36.8
+      ],
+      "yaw_degrees": 0,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 0,
+      "position_m": [
+        -825.0,
+        -30.0,
+        36.8
+      ],
+      "yaw_degrees": 0,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 0,
+      "position_m": [
+        -695.0,
+        -30.0,
+        36.8
+      ],
+      "yaw_degrees": 0,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 0,
+      "position_m": [
+        -825.0,
+        30.0,
+        36.8
+      ],
+      "yaw_degrees": 0,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 0,
+      "position_m": [
+        -695.0,
+        30.0,
+        36.8
+      ],
+      "yaw_degrees": 0,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 1,
+      "position_m": [
+        778.0,
+        -8.0,
+        36.8
+      ],
+      "yaw_degrees": 180,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 1,
+      "position_m": [
+        778.0,
+        8.0,
+        36.8
+      ],
+      "yaw_degrees": 180,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 1,
+      "position_m": [
+        742.0,
+        -8.0,
+        36.8
+      ],
+      "yaw_degrees": 180,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 1,
+      "position_m": [
+        742.0,
+        8.0,
+        36.8
+      ],
+      "yaw_degrees": 180,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 1,
+      "position_m": [
+        825.0,
+        -30.0,
+        36.8
+      ],
+      "yaw_degrees": 180,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 1,
+      "position_m": [
+        695.0,
+        -30.0,
+        36.8
+      ],
+      "yaw_degrees": 180,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 1,
+      "position_m": [
+        825.0,
+        30.0,
+        36.8
+      ],
+      "yaw_degrees": 180,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    },
+    {
+      "team": 1,
+      "position_m": [
+        695.0,
+        30.0,
+        36.8
+      ],
+      "yaw_degrees": 180,
+      "modes": [
+        "ctf",
+        "slayer"
+      ]
+    }
+  ],
+  "flags": [
+    {
+      "team": 0,
+      "position_m": [
+        -760.0,
+        0.0,
+        36.65
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "team": 1,
+      "position_m": [
+        760.0,
+        0.0,
+        36.65
+      ],
+      "yaw_degrees": 180
+    }
+  ],
+  "pickups": [
+    {
+      "tag": "item collections\\single weapons\\assault rifle",
+      "position_m": [
+        -772.0,
+        -8.0,
+        36.6
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "item collections\\single weapons\\pistol",
+      "position_m": [
+        -748.0,
+        8.0,
+        36.6
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "item collections\\powerups\\powerup health pack",
+      "position_m": [
+        -825.0,
+        0.0,
+        36.6
+      ],
+      "yaw_degrees": 0
+    },
+    {
+      "tag": "item collections\\single weapons\\assault rifle",
+      "position_m": [
+        748.0,
+        -8.0,
+        36.6
+      ],
+      "yaw_degrees": 180
+    },
+    {
+      "tag": "item collections\\single weapons\\pistol",
+      "position_m": [
+        772.0,
+        8.0,
+        36.6
+      ],
+      "yaw_degrees": 180
+    },
+    {
+      "tag": "item collections\\powerups\\powerup health pack",
+      "position_m": [
+        695.0,
+        0.0,
+        36.6
+      ],
+      "yaw_degrees": 180
+    }
+  ],
+  "lights": [],
+  "teleporters": [],
+  "warfare": {
+    "schema": "pwr-layout-v2",
+    "code": "PWR",
+    "title": "Pelican Warfare",
+    "seed": 20568,
+    "protocol": 20568,
+    "layout_revision": 2,
+    "coordinates": {
+      "authoring": "metres, Z up",
+      "unreal": "[100*x, -100*y, 100*z] centimetres",
+      "blam": "metres / 3.048",
+      "origin_m": [
+        0,
+        0,
+        0
+      ]
+    },
+    "play_area_m": {
+      "min": [
+        -950,
+        -950,
+        -20
+      ],
+      "max": [
+        950,
+        950,
+        350.0
+      ]
+    },
+    "scenario_bounds_m": {
+      "min": [
+        -1000,
+        -1000,
+        -20
+      ],
+      "max": [
+        1000,
+        1000,
+        350.0
+      ]
+    },
+    "homes_m": {
+      "red": [
+        -760.0,
+        0.0,
+        36.0
+      ],
+      "blue": [
+        760.0,
+        0.0,
+        36.0
+      ]
+    },
+    "captures_m": [
+      [
+        -450.0,
+        240.0,
+        36.4
+      ],
+      [
+        0.0,
+        0.0,
+        36.4
+      ],
+      [
+        450.0,
+        -240.0,
+        36.4
+      ]
+    ],
+    "capture_radius_m": 20.0,
+    "warmup_m": [
+      -500.0,
+      780.0,
+      37.0
+    ],
+    "satellites_m": [
+      [
+        -620.0,
+        -590.0,
+        36.0
+      ],
+      [
+        620.0,
+        590.0,
+        36.0
+      ]
+    ],
+    "flights_m": {
+      "red": {
+        "start": [
+          -850.0,
+          -180.0,
+          240.0
+        ],
+        "end": [
+          850.0,
+          -180.0,
+          240.0
+        ],
+        "yaw": 0.0
+      },
+      "blue": {
+        "start": [
+          850.0,
+          180.0,
+          240.0
+        ],
+        "end": [
+          -850.0,
+          180.0,
+          240.0
+        ],
+        "yaw": 180.0
+      }
+    },
+    "insertion_seconds": 60,
+    "forced_exit_seconds": 54,
+    "descent_timeout_seconds": 90,
+    "flight_envelope_status": "authored 2 km candidate; requires new native physics validation",
+    "terrain": {
+      "grid_m": 25,
+      "water_level_m": 12.0,
+      "lakes_m": [
+        [
+          80.0,
+          650.0,
+          155.0,
+          135.0
+        ],
+        [
+          -80.0,
+          -520.0,
+          150.0,
+          115.0
+        ]
+      ],
+      "bridge_y_m": [
+        -350.0,
+        0.0,
+        350.0
+      ],
+      "ford_y_m": [
+        -800,
+        800
+      ]
+    },
+    "vehicle_roads": {
+      "width_m": 24,
+      "shoulder_m": 4,
+      "maximum_ford_depth_m": 0.35
+    },
+    "forest": {
+      "seed": 20568,
+      "candidate_spacing_m": 32,
+      "target_count": 800
+    }
+  }
+}

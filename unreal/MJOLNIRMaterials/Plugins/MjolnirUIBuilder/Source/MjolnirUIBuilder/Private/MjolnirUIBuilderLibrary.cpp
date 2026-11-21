@@ -26,6 +26,7 @@
 #include "GameFramework/Actor.h"
 #include "MeshDescription.h"
 #include "StaticMeshAttributes.h"
+#include "StaticMeshOperations.h"
 #include "Modules/ModuleManager.h"
 #include "WidgetBlueprint.h"
 #include "Landscape.h"
@@ -637,6 +638,165 @@ bool UMjolnirUIBuilderLibrary::BuildStaticMesh(UStaticMesh* Mesh, const TArray<F
 	return true;
 }
 
+bool UMjolnirUIBuilderLibrary::BuildAttributedStaticMesh(UStaticMesh* Mesh, const TArray<FVector>& Positions,
+	const TArray<FVector>& Normals, const TArray<int32>& Indices, const TArray<FVector2D>& CornerUVs,
+	const int32 NumUVChannels, const TArray<int32>& Sections, const TArray<FName>& SlotNames,
+	const TArray<FColor>& Colors)
+{
+	const int32 Tris = Indices.Num() / 3;
+	if (!Mesh || Normals.Num() != Positions.Num() || Indices.Num() % 3 != 0
+		|| NumUVChannels < 1 || NumUVChannels > 8 || CornerUVs.Num() != Indices.Num() * NumUVChannels
+		|| Sections.Num() != Tris || SlotNames.Num() == 0 || Colors.Num() != Positions.Num())
+	{
+		UE_LOG(LogMjolnirUI, Error, TEXT("BuildAttributedStaticMesh: inconsistent arrays"));
+		return false;
+	}
+	FMeshDescription Desc;
+	FStaticMeshAttributes Attr(Desc);
+	Attr.Register();
+	Attr.GetVertexInstanceUVs().SetNumChannels(NumUVChannels);
+	TVertexAttributesRef<FVector3f> Pos = Attr.GetVertexPositions();
+	TVertexInstanceAttributesRef<FVector3f> Nrm = Attr.GetVertexInstanceNormals();
+	TVertexInstanceAttributesRef<FVector2f> UVs = Attr.GetVertexInstanceUVs();
+	TPolygonGroupAttributesRef<FName> Slots = Attr.GetPolygonGroupMaterialSlotNames();
+	TVertexInstanceAttributesRef<FVector4f> Col = Attr.GetVertexInstanceColors();
+
+	Desc.ReserveNewVertices(Positions.Num());
+	TArray<FVertexID> Vertices;
+	for (const FVector& P : Positions)
+	{
+		const FVertexID V = Desc.CreateVertex();
+		Pos[V] = FVector3f(P);
+		Vertices.Add(V);
+	}
+	TArray<FPolygonGroupID> Groups;
+	Mesh->GetStaticMaterials().Reset();
+	for (const FName& Name : SlotNames)
+	{
+		const FPolygonGroupID G = Desc.CreatePolygonGroup();
+		Slots[G] = Name;
+		Groups.Add(G);
+		Mesh->GetStaticMaterials().Add(FStaticMaterial(nullptr, Name, Name));
+	}
+	Desc.ReserveNewVertexInstances(Indices.Num());
+	Desc.ReserveNewTriangles(Tris);
+	for (int32 T = 0; T < Tris; ++T)
+	{
+		if (!Groups.IsValidIndex(Sections[T]))
+		{
+			UE_LOG(LogMjolnirUI, Error, TEXT("BuildAttributedStaticMesh: triangle %d names slot %d"), T, Sections[T]);
+			return false;
+		}
+		FVertexInstanceID Corner[3];
+		for (int32 K = 0; K < 3; ++K)
+		{
+			const int32 I = Indices[3 * T + K];
+			if (!Vertices.IsValidIndex(I))
+			{
+				UE_LOG(LogMjolnirUI, Error, TEXT("BuildAttributedStaticMesh: index %d out of range"), I);
+				return false;
+			}
+			Corner[K] = Desc.CreateVertexInstance(Vertices[I]);
+			Nrm[Corner[K]] = FVector3f(Normals[I].GetSafeNormal());
+			for (int32 Channel = 0; Channel < NumUVChannels; ++Channel)
+			{
+				UVs.Set(Corner[K], Channel, FVector2f(CornerUVs[(3 * T + K) * NumUVChannels + Channel]));
+			}
+			// MeshBuilder writes ToFColor(true). Counterconvert so authored
+			// data bytes, including alpha, survive exactly (same as GLTF importer).
+			Col[Corner[K]] = FVector4f(FLinearColor::FromSRGBColor(Colors[I]));
+		}
+		Desc.CreateTriangle(Groups[Sections[T]], MakeArrayView(Corner, 3));
+	}
+
+	Mesh->SetNumSourceModels(1);
+	FStaticMeshSourceModel& Source = Mesh->GetSourceModel(0);
+	Source.BuildSettings.bRecomputeNormals = false;
+	Source.BuildSettings.bRecomputeTangents = true;
+	Source.BuildSettings.bGenerateLightmapUVs = false;
+	Source.BuildSettings.bRemoveDegenerates = false;
+	Source.BuildSettings.bUseFullPrecisionUVs = true;
+	Source.BuildSettings.bUseHighPrecisionTangentBasis = true;
+	Source.BuildSettings.bUseMikkTSpace = true;
+	Mesh->CreateMeshDescription(0, MoveTemp(Desc));
+	Mesh->CommitMeshDescription(0);
+	Mesh->SetLightMapCoordinateIndex(1);
+	Mesh->Build();
+	Mesh->PostEditChange();
+	Mesh->MarkPackageDirty();
+	UE_LOG(LogMjolnirUI, Display, TEXT("BuildAttributedStaticMesh: %s, %d vertices, %d triangles, %d slot(s)"),
+		*Mesh->GetPathName(), Positions.Num(), Tris, SlotNames.Num());
+	return true;
+}
+
+
+int32 UMjolnirUIBuilderLibrary::RepairStaticMeshTangentFrames(UStaticMesh* Mesh)
+{
+	if (!Mesh || !Mesh->IsMeshDescriptionValid(0))
+	{
+		return -1;
+	}
+	FMeshDescription* Desc = Mesh->GetMeshDescription(0);
+	FStaticMeshOperations::ComputeTriangleTangentsAndNormals(*Desc, 0.0f, *Mesh->GetName());
+	FStaticMeshOperations::ComputeTangentsAndNormals(*Desc, EComputeNTBsFlags::Tangents | EComputeNTBsFlags::UseMikkTSpace | EComputeNTBsFlags::BlendOverlappingNormals);
+	FStaticMeshAttributes Attr(*Desc);
+	auto Positions = Attr.GetVertexPositions();
+	auto Normals = Attr.GetVertexInstanceNormals();
+	auto Tangents = Attr.GetVertexInstanceTangents();
+	auto Signs = Attr.GetVertexInstanceBinormalSigns();
+	auto UVs = Attr.GetVertexInstanceUVs();
+	int32 Repaired = 0;
+	for (const FTriangleID Triangle : Desc->Triangles().GetElementIDs())
+	{
+		const auto Corners = Desc->GetTriangleVertexInstances(Triangle);
+		const auto Vertices = Desc->GetTriangleVertices(Triangle);
+		const FVector3d E1 = FVector3d(Positions[Vertices[1]]) - FVector3d(Positions[Vertices[0]]);
+		const FVector3d E2 = FVector3d(Positions[Vertices[2]]) - FVector3d(Positions[Vertices[0]]);
+		const FVector3d FaceNormal = FVector3d::CrossProduct(E2, E1).GetSafeNormal(1.e-28);
+		const FVector2d A = FVector2d(UVs.Get(Corners[1],0)) - FVector2d(UVs.Get(Corners[0],0));
+		const FVector2d B = FVector2d(UVs.Get(Corners[2],0)) - FVector2d(UVs.Get(Corners[0],0));
+		const double Det = A.X*B.Y - A.Y*B.X;
+		for (const auto Corner : Corners)
+		{
+			FVector3d N(Normals[Corner]), T(Tangents[Corner]);
+			if (N.IsNormalized() && T.IsNormalized() && FMath::Abs(N.Dot(T)) < .001 && FMath::Abs(Signs[Corner])>.99f)
+			{
+				continue;
+			}
+			if (!N.Normalize(1.e-24))
+			{
+				N = FaceNormal.IsNearlyZero() ? FVector3d::UnitZ() : FaceNormal;
+			}
+			FVector3d V;
+			if (FMath::Abs(Det)>1.e-22)
+			{
+				T = (E1*B.Y - E2*A.Y)/Det;
+				V = (E2*A.X - E1*B.X)/Det;
+			}
+			else
+			{
+				T = E1.SquaredLength()>=E2.SquaredLength() ? E1 : E2;
+				V = N.Cross(T);
+			}
+			T -= N*T.Dot(N);
+			if (!T.Normalize(1.e-24))
+			{
+				N.FindBestAxisVectors(T,V);
+			}
+			Normals[Corner] = FVector3f(N);
+			Tangents[Corner] = FVector3f(T);
+			Signs[Corner] = N.Cross(T).Dot(V)<0 ? -1.f : 1.f;
+			++Repaired;
+		}
+	}
+	Mesh->GetSourceModel(0).BuildSettings.bRecomputeTangents = false;
+	Mesh->GetSourceModel(0).BuildSettings.bRecomputeNormals = false;
+	Mesh->CommitMeshDescription(0);
+	Mesh->Build();
+	Mesh->PostEditChange();
+	Mesh->MarkPackageDirty();
+	return Repaired;
+}
 // A cooked GUID's 16 bytes (four little-endian words) from 32 hex digits.
 static bool GuidFromCookedHex(const FString& Hex, FGuid& Out)
 {

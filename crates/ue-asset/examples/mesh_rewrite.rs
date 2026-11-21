@@ -39,6 +39,7 @@
 //!
 //! The geometry is normalised into the donor's bounding box, because the
 //! bounds the engine culls against live in the tail this rewrite preserves.
+//! Pass `--donor-sphere cm` with the donor's verified radius to fit its sphere too.
 //! The scale it prints is what the spawned component has to use to put the
 //! mesh back at its intended size.
 use ue_asset::mesh_write::{rewrite_static_mesh, Geometry};
@@ -439,7 +440,30 @@ fn main() {
         .map(|k| (hi[k] - lo[k]) * 0.5)
         .fold(0.0f32, f32::max)
         .max(1e-6);
-    let fit = DONOR_HALF / half;
+    let mut fit = DONOR_HALF / half;
+    if let Some(i) = a.iter().position(|s| s == "--donor-sphere") {
+        let limit: f32 = a
+            .get(i + 1)
+            .expect("missing donor sphere radius")
+            .parse()
+            .expect("invalid donor sphere radius");
+        assert!(
+            limit.is_finite() && limit > 0.0,
+            "invalid donor sphere radius"
+        );
+        let radius = geo
+            .positions
+            .chunks_exact(3)
+            .map(|p| {
+                let v = to_cm(p);
+                (0..3)
+                    .map(|k| (v[k] - centre[k]).powi(2))
+                    .sum::<f32>()
+                    .sqrt()
+            })
+            .fold(0.0f32, f32::max);
+        fit = fit.min(limit / radius.max(1e-6));
+    }
     let mut normalised = Vec::with_capacity(geo.positions.len());
     for p in geo.positions.chunks_exact(3) {
         let v = to_cm(p);

@@ -1,0 +1,17 @@
+{
+  "compiled_bsp_sha256": "b03b92e641c2ca1f6d6ec4254f0b69a197eafc9d90ab07ac6b4e9ed7c23a1dfe",
+  "verified_changed_faces": 72,
+  "largest_vertex_error_m": 0.00010464477539062501,
+  "root_and_definition_havok_queries": true,
+  "instances": [
+    {
+      "instance": 122,
+      "verified_faces": 72,
+      "read_range": [
+        7724,
+        7830
+      ],
+      "max_error_m": 0.00010464477539062501
+    }
+  ]
+}

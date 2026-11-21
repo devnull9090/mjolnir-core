@@ -1304,7 +1304,13 @@ fn install_one_as(
     // and works without it — this is what lets the hub attribute the install
     // to the account, which is what a profile's "mods downloaded" counts.
     // Unpaired, the download is still counted, just not to anybody.
-    let mut request = client.get(format!("{api}/releases/{}/download", release.id));
+    //
+    // The client's 180 s limit covers a whole request, body included, which a
+    // large map cannot meet on an ordinary connection (685 MB needs 30 Mbit/s
+    // for three minutes). An archive gets an hour; a stalled one still ends.
+    let mut request = client
+        .get(format!("{api}/releases/{}/download", release.id))
+        .timeout(std::time::Duration::from_secs(3600));
     if let Some(auth) = load_auth() {
         request = request.bearer_auth(auth.key);
     }

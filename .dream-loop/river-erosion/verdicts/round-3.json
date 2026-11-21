@@ -1,0 +1,82 @@
+{
+  "score": 2.8,
+  "first_failed_gate": "layout",
+  "previous_score": 1.9,
+  "regressions": [
+    {
+      "where": "D3 main boulder",
+      "what": "A larger front-facing facet now falls into nearly black shadow where the target shows mottled grey stone down to the water."
+    },
+    {
+      "where": "C3–D4 water around the rocks",
+      "what": "Foam now has less contrast against the riverbed, especially along the front and right edges of the main boulder."
+    }
+  ],
+  "previous_directives": [
+    {
+      "id": "r2-b1",
+      "status": "landed"
+    },
+    {
+      "id": "r2-b2",
+      "status": "partial"
+    },
+    {
+      "id": "r2-b3",
+      "status": "landed"
+    },
+    {
+      "id": "r2-n1",
+      "status": "not_done"
+    },
+    {
+      "id": "r2-n2",
+      "status": "partial"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "r3-b1",
+      "where": "A2–F3 lake and side shores",
+      "target": "Near half frame height the lake spans roughly three quarters of the image, with the water meeting tall vegetation on both sides.",
+      "current": "Water spans about half the image at that height, pinched by bare shelves extending inward from both sides.",
+      "change": "Widen the lake at half frame height from roughly 20–70% to 12–87% of image width while retaining the new foreground outlet and boulder positions."
+    },
+    {
+      "id": "r3-b2",
+      "where": "E3–F4 right shoulder and A2–B3 left bank",
+      "target": "A continuous mass of tall grasses crowns the right gravel fan and the left bank rises into vegetation behind the cut face.",
+      "current": "Open brown ground dominates the right shoulder, while the left grass ends abruptly in an isolated strip with exposed ground behind it.",
+      "change": "Fill the landward side of the right gravel fan and the ground behind the left sod lip with overlapping grass and shrubs, burying the large exposed right-bank rocks to leave one low stone."
+    }
+  ],
+  "next": [
+    {
+      "id": "r3-n1",
+      "where": "B2–E4 lake and outlet",
+      "target": "The lake carries broad olive vertical reflections, and blue-grey transparent shallows reveal rounded stones through narrow white wakes.",
+      "current": "Small blue glints cover the entire lake, and the outlet appears brown with diffuse grey streaks.",
+      "change": "Reduce lake normal strength and short-wave contrast, reflect the olive shore, expose a multiscale pebble bed through the outlet, and concentrate brighter foam along rock contacts."
+    },
+    {
+      "id": "r3-n2",
+      "where": "A3–B4 cut face",
+      "target": "Irregular roots overhang a visible brown soil face that slopes into loose stones.",
+      "current": "A continuous pale rim borders a nearly black vertical wall with little visible surface relief.",
+      "change": "Break the rim with exposed roots, lighten and roughen the cut earth, and build a sloping toe of soil and mixed stones down to the water."
+    },
+    {
+      "id": "r3-n3",
+      "where": "E3–F4 gravel fan",
+      "target": "Mixed rounded grey stones form a raised fan with shadows between pebbles and scattered stones under the grass.",
+      "current": "Bright pale pebbles read as similarly sized spots on a thin tan strip.",
+      "change": "Increase the spread of pebble sizes, add cobbles with visible side faces and contact shadows, and taper their density gradually inland among the grass."
+    }
+  ],
+  "excluded": [
+    "Distant mountain landscape and sky."
+  ],
+  "unverifiable": [
+    "Water flow and wake motion cannot be judged from still captures."
+  ]
+}

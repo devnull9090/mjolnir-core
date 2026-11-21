@@ -1,0 +1,32 @@
+{
+  "source_tool": "Gaea 2.3.1.0 Community",
+  "source_build_report": "build-report.json",
+  "normalization": "Gaea float32 R32, row0 north; 70m datum + 400m * normalized elevation; flipped to +Y rows",
+  "source_graph": "../pwr_world_native_v5.terrain",
+  "source_graph_sha256": "31d80a16477736aa944d34ddfe82385f7ebb9b4196bb6e38c357bae79828c371",
+  "source_r32_sha256": "60182628350e90ac6169b838cc27c44bf50fe2afe18155c08e8679db870841ec",
+  "status": "native Gaea mountains and two hydraulic erosion passes; constrained gameplay earthworks pending",
+  "schema": "pwr-heightfield-v1",
+  "coordinates": "authoring_metres_z_up",
+  "origin_m": [
+    -1000,
+    -1000
+  ],
+  "spacing_m": [
+    1.9550342130987293,
+    1.9550342130987293
+  ],
+  "dimensions": [
+    1024,
+    1024
+  ],
+  "row_order": "+y",
+  "height": {
+    "path": "source.heights.npy",
+    "encoding": "float32_npy",
+    "offset_m": 0,
+    "scale_m": 1,
+    "sha256": "ad939bac4d1625123ae5a6e57d0b8b9718b6b1cf5b4b40c1a2e77ef96bf9af05"
+  },
+  "masks": {}
+}

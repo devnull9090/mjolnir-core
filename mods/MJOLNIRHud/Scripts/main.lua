@@ -46,18 +46,25 @@ local Relay = dofile(MOD_DIR .. "\\Scripts\\relay.lua")
 local Hitches = dofile(MOD_DIR .. "\\Scripts\\hitches.lua")
 local Bench = dofile(MOD_DIR .. "\\Scripts\\bench.lua")
 local Chat = dofile(MOD_DIR .. "\\Scripts\\chat.lua")
+local TacticalMap = dofile(MOD_DIR .. "\\Scripts\\tactical_map.lua")
+local Tactical
 local Bots = dofile(MOD_DIR .. "\\Scripts\\bots.lua")
 local Bipeds = dofile(MOD_DIR .. "\\Scripts\\bipeds.lua")
 local Roster = dofile(MOD_DIR .. "\\Scripts\\roster.lua")
 local Medals = dofile(MOD_DIR .. "\\Scripts\\medals.lua")
 HubNames.init({ modsDir = MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR })
 local LOADER_DIR = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLevelLoader"
+do
+    local ok, modes = pcall(dofile, LOADER_DIR .. "\\Scripts\\mode_descriptors.lua")
+    if ok and type(modes) == "table" then Scoreboard.registerModes(modes) end
+end
 
 local function Log(msg)
     print("[MJOLNIR Hud] " .. tostring(msg) .. "\n")
 end
 local retainUIClass = dofile(MOD_DIR .. "\\Scripts\\class_lifetime.lua").new({
-    "WBP_MJOLNIRKillFeed", "WBP_MJOLNIRScoreboard", "WBP_MJOLNIRChat",
+    "WBP_MJOLNIRKillFeed", "WBP_MJOLNIRScoreboard", "WBP_MJOLNIRChat", "WBP_MJOLNIRTacticalMap",
+    "WBP_MJOLNIRWarfareZones",
 }, Log)
 -- Every biped actor from here on, before any map makes its pools: the bots and
 -- findBipeds read them without walking the object array (Scripts/bipeds.lua).
@@ -151,12 +158,33 @@ local function readFile(path)
 end
 
 --- What the match marks in the world: the hill, the next flag, the Juggernaut, the flags.
+local warfareDll = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native\\mjolnir_lobby.dll"
+-- Pelican Warfare jumps (filled in after the match helpers, below).
+local WarfareJump = {}
+-- Pelican Warfare zones: the tiles under the score and the capture lines in
+-- the feed (filled in with the tactical map, below).
+local WarfareSites = {}
 local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua"),
     Waypoint = dofile(MOD_DIR .. "\\Scripts\\waypoint.lua"),
     Race = dofile(MOD_DIR .. "\\Scripts\\race.lua"),
     Juggernaut = dofile(MOD_DIR .. "\\Scripts\\juggernaut.lua"),
     FlagMark = dofile(MOD_DIR .. "\\Scripts\\flagmark.lua"),
+    Warfare = dofile(MOD_DIR .. "\\Scripts\\warfare.lua"),
+    Canopy = dofile(MOD_DIR .. "\\Scripts\\warfare_canopy.lua"),
+    Grips = dofile(MOD_DIR .. "\\Scripts\\warfare_grips.lua"),
+    WarfareInput = dofile(MOD_DIR .. "\\Scripts\\warfare_input.lua"),
+    Instruments = dofile(MOD_DIR .. "\\Scripts\\warfare_instruments.lua"),
+    flightControls = package.loadlib(warfareDll, "mjolnir_warfare_controls"),
+    pumpFlight = package.loadlib(warfareDll, "mjolnir_warfare_pump"),
+    warfareJump = function(index) if WarfareJump.request then WarfareJump.request(index) end end,
+    warfareJumped = function(index, team) if WarfareJump.jumped then WarfareJump.jumped(index, team) end end,
+    warfareSite = function(i, owner, previous, site) if WarfareSites.changed then WarfareSites.changed(i, owner, previous, site) end end,
+    flightBlocked = function() return Chat.inputActive() or (Tactical and Tactical.open) end,
+    readWarfare = function()
+        return readFile((MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR)
+            .. "\\MJOLNIRLobby\\native\\warfare_state.txt")
+    end,
     Board = Scoreboard,
     log = Log,
     Roster = PlayerRoster,
@@ -733,6 +761,12 @@ HANDLERS.player_rejoined = HANDLERS.player_joined
 --- the fireteam back to the lobby with a seamless travel.
 local function finishMatch(how)
     if Match.over then return end
+    -- The incident can beat the next 500 ms native publication. Give the
+    -- final authoritative score a short presentation-only grace period.
+    if Match.mode.family == "warfare" and not Match.warfareEnd then
+        Match.warfareEnd = { how = how, at = now() + 1.5 }
+        return
+    end
     refreshNames()
     local parts = {}
     for index, p in pairs(Match.players) do
@@ -1017,6 +1051,7 @@ local function applyBotNames()
 end
 
 local function relayed(text)
+    if WarfareJump.heard and WarfareJump.heard(text) then return end
     local teams = Relay.decodeTeams(text)
     if teams then
         -- The host's own hook sees what it sends: never take it there.
@@ -1225,7 +1260,7 @@ local function drawBoard()
         setText(Board.Subtitle, string.upper(Match.title or Match.code) .. "   /   " ..
             string.format("FIRST TO %d %s", mode.toWin, string.upper(mode.unit)))
     end
-    setText(Board.ScoreH, mode.stat == "captures" and "CAPTURES" or mode.family == "race" and string.upper(mode.unit) or "SCORE")
+    setText(Board.ScoreH, mode.scoreHeading or (mode.stat == "captures" and "CAPTURES" or mode.family == "race" and string.upper(mode.unit) or "SCORE"))
     refreshNames()
     local totals = Scoreboard.totals(Match)
     local rows = Scoreboard.rows(Match.players, mode, totals)
@@ -1258,7 +1293,7 @@ local function drawBoard()
             -- yet (joined mid-match) counts as alive.
             local dead = p and p.dead
             setText(Board["Marker" .. i], dead and "DEAD" or (you and "YOU" or ""))
-            setText(Board["Score" .. i], p and tostring(score(p)) or (entry.total and tostring(entry.total) or ""))
+            setText(Board["Score" .. i], p and (mode.teamOnlyScore and "-" or tostring(score(p))) or (entry.total and tostring(entry.total) or ""))
             setText(Board["Kills" .. i], p and tostring(p.kills) or "")
             setText(Board["Deaths" .. i], p and tostring(p.deaths) or "")
             local color = you and ROW_YOU or ((i % 2 == 0) and ROW_EVEN or ROW_ODD)
@@ -1305,6 +1340,7 @@ local function hookMatchLog()
         RegisterHook("/Script/Engine.PlayerController:ServerExecRPC", function(self, msg)
             local okM, text = pcall(function() return msg:get():ToString() end)
             if okM and Chat.heardSay(self:get(), text) then return end
+            if okM and WarfareJump.take and WarfareJump.take(text) then return end
             -- A fireteam player asking for the bots' names (Relay.BOTS_ASK).
             if okM and text == Relay.BOTS_ASK then
                 local asker = self:get()
@@ -1655,6 +1691,7 @@ local function ensureFrameHook()
         end
         -- Before the gate below, which may pass only a client's controller on a host.
         if Match then pcall(function() Markers.frame(Match, ctx:get(), t) end) end
+        if WarfareSites.frame then pcall(WarfareSites.frame, t) end
         if t - FrameHook.last < 0.004 or FrameHook.errors >= 10 then return end
         FrameHook.last = t
         local okA, err = pcall(animate, t)
@@ -1671,6 +1708,7 @@ local function ensureFrameHook()
 end
 
 local function endMatch()
+    if Tactical then Tactical.close(true) end
     local okChat, errChat = pcall(Chat.finish)
     if not okChat then Log("chat: " .. tostring(errChat)) end
     if Match and MatchLog.recording() then
@@ -1865,7 +1903,7 @@ local function tick()
     refreshLocalPlayer()
     Match.host = isHostWorld(pc)
     pcall(findBipeds)
-    Markers.tick(Match, now(), pc, HudHidden, LOCAL_PLAYER)
+    if Markers.tick(Match, now(), pc, HudHidden, LOCAL_PLAYER, code) then boardDirty = true end
     -- The host finds its fireteam's controllers once, then as they come; a
     -- few seconds in, off the tick that makes the widgets. Its bots start on a
     -- later poll than that search (a FindAllOf, about 25 ms in a match): the
@@ -1903,7 +1941,21 @@ local function tick()
     logSafely("tick", matchLogTick, pc)
     local okChat, errChat = pcall(Chat.tick, Match)
     if not okChat then Log("chat: " .. tostring(errChat)) end
+    if Tactical then
+        local okMap, errMap = pcall(Tactical.tick)
+        if not okMap then Tactical.close(); Log("tactical map: " .. tostring(errMap)) end
+    end
+    if WarfareSites.tick then
+        local okZones, errZones = pcall(WarfareSites.tick, pc)
+        if not okZones then Log("warfare zones: " .. tostring(errZones)) end
+    end
     drain()
+    if Match.warfareEnd and not Match.over then
+        local snapshot = Match.warfare and Match.warfare.snapshot
+        if (snapshot and snapshot.phase == 3) or now() >= Match.warfareEnd.at then
+            finishMatch(Match.warfareEnd.how)
+        end
+    end
     -- The match over time, for the post-game charts (Scoreboard.sample).
     if not Match.over then Scoreboard.sample(Match, now()) end
     publishPresence(presencePlayerKnown and Match or nil, LOCAL_PLAYER)
@@ -2030,6 +2082,69 @@ Bench.init({
     end,
 })
 Hitches.listen(Bench.frame)
+--- Pelican Warfare jumps. A fireteam client's rider asks its host to leave
+--- the cabin (MJOLNIR|wjump|<seat>, ServerExecRPC): the host owns
+--- vehicle seats, so only its native code can detach a rider. When any rider
+--- leaves a Pelican the host tells that rider's team, and only that team, in
+--- the feed (MJOLNIR|wjumped|<Red|Blue>|<name>, ClientMessage), the way a
+--- team chat line goes.
+do
+    local JUMP_ASK, JUMP_LINE = "MJOLNIR|wjump|", "MJOLNIR|wjumped|"
+    local remoteJump = package.loadlib(warfareDll, "mjolnir_warfare_remote_jump")
+    local function jumperTeam(name)
+        if not (Match and name) then return nil end
+        for _, p in pairs(Match.players) do
+            if p.name == name then return Scoreboard.team(p.team) end
+        end
+        return nil
+    end
+    local function line(side, name)
+        feedPush({ lead = short(name), leadColor = TEAM_COLORS[side] or FEED.name,
+            tail = "jumped from the Pelican", tailColor = FEED.words })
+    end
+    function WarfareJump.request(index)
+        local pc = playerController()
+        if pc then pcall(function() pc:ServerExecRPC(JUMP_ASK .. tostring(index)) end) end
+    end
+    --- On the host, from the RPC hook: true when `text` was a jump request.
+    function WarfareJump.take(text)
+        if type(text) ~= "string" or text:sub(1, #JUMP_ASK) ~= JUMP_ASK then return false end
+        local index = text:match("^MJOLNIR|wjump|(%d+)$")
+        if index and remoteJump then
+            ExecuteInGameThread(function()
+                if not (Match and Match.host) then return end
+                local ok, queued = pcall(remoteJump, tonumber(index))
+                Log("warfare: player " .. index .. " jump " .. ((ok and queued) and "relayed" or "ignored (not a seated remote rider)"))
+            end)
+        end
+        return true
+    end
+    function WarfareJump.jumped(index, team)
+        if not (Match and Match.host) then return end
+        local side = TEAM_NAMES[team]
+        if not side then return end
+        local name = nameOf(index)
+        local msg = JUMP_LINE .. side .. "|" .. (tostring(name):gsub("[|%c]", ""))
+        local kind = FName("MJOLNIR")
+        local sent = 0
+        for _, pc in ipairs(Relay.controllers()) do
+            local okN, pname = pcall(function() return pc.PlayerState:GetPlayerName():ToString() end)
+            if okN and jumperTeam(pname) == side then
+                if pcall(function() pc:ClientMessage(msg, kind, 0) end) then sent = sent + 1 end
+            end
+        end
+        if Scoreboard.team(stats(LOCAL_PLAYER).team) == side then line(side, name) end
+        Log("warfare: " .. tostring(name) .. " (" .. side .. ") jumped; told " .. sent .. " teammate(s)")
+    end
+    --- On a client, from the relay: true when `text` was a jump line.
+    function WarfareJump.heard(text)
+        if type(text) ~= "string" or text:sub(1, #JUMP_LINE) ~= JUMP_LINE then return false end
+        local side, name = text:match("^MJOLNIR|wjumped|(%a+)|(.*)$")
+        if side and Match and not Match.host then line(side, name) end
+        return true
+    end
+end
+
 -- Match chat (Scripts/chat.lua): what it needs of the match, read as used.
 Chat.init({
     dir = MOD_DIR,
@@ -2098,6 +2213,55 @@ logSafely("init", MatchLog.init, {
     log = Log,
     version = (readFile(MOD_DIR .. "\\mod.json") or ""):match('"version"%s*:%s*"([^"]+)"'),
 })
+
+do
+    local nativeDir = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native"
+    local pump = package.loadlib(nativeDir .. "\\mjolnir_lobby.dll", "mjolnir_warfare_map_pump")
+    Tactical = TacticalMap.new({
+        now=now, log=Log, createWidget=createWidget,
+        match=function() return Match end,
+        hidden=function() return HudHidden end,
+        blocked=Chat.inputActive,
+        localIndex=function() return LOCAL_PLAYER end,
+        pump=pump,
+        read=function() return readFile(nativeDir .. "\\warfare_map.txt") end,
+    })
+    Tactical.bind()
+
+    -- Pelican Warfare's zone tiles (Scripts/warfare_zones.lua) and a feed line
+    -- whenever a site changes hands. Every client reads its own snapshot, so
+    -- nothing is relayed.
+    local Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua")
+    local tiles = dofile(MOD_DIR .. "\\Scripts\\warfare_zones.lua").new({ createWidget = createWidget, inside = Hill.on })
+    function WarfareSites.tick(pc)
+        local w = Match and Match.warfare
+        local at
+        if w and w.snapshot and pc then
+            local pawn = pc.Pawn
+            if pawn and pawn:IsValid() then at = pawn:K2_GetActorLocation() end
+        end
+        tiles.tick(w and not Match.over and w.snapshot or nil, w and w.hills, at, HudHidden, now())
+    end
+    WarfareSites.frame = tiles.frame
+    function WarfareSites.changed(i, owner, previous, site)
+        local letter = string.char(64 + i)
+        local function side(team) return team == 1 and "Red" or team == 2 and "Blue" or nil end
+        local taker, loser = side(owner), side(previous)
+        if taker then
+            local color = TEAM_COLORS[taker]
+            feedPush({ glyph = "Flag", glyphColor = color, lead = taker .. " team", leadColor = color,
+                tail = "captured zone " .. letter, tailColor = FEED.words, accent = color })
+        elseif loser then
+            -- Back to neutral: the team standing in it took the other's hold away.
+            local by = site and (site.red and not site.blue and "Red" or site.blue and not site.red and "Blue") or nil
+            local color = TEAM_COLORS[by or loser]
+            feedPush({ glyph = "Flag", glyphColor = TEAM_COLORS[loser], lead = by and (by .. " team") or ("Zone " .. letter),
+                leadColor = color, tail = by and ("neutralized zone " .. letter) or "is neutral again",
+                tailColor = FEED.words, accent = color })
+        end
+        Log("warfare: zone " .. letter .. " " .. tostring(loser or "neutral") .. " -> " .. tostring(taker or "neutral"))
+    end
+end
 
 Log("Module loaded.")
 ExecuteInGameThreadWithDelay(5000, poll)

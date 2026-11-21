@@ -1,0 +1,19 @@
+// Distance read of the surveyed range (apply_pwr_ridge_material.py).
+// Snow: the baked field (8 m a texel) says where snow collects; this pixel's own slope and a
+// ragged world-space edge decide whether it holds, so it settles on ledges, cirques and gully
+// floors with a hard edge instead of smearing down faces as one soft streak.
+float fieldBound = (FieldInfo.x > .5 ? 1.0 : 0.0) * (1.0 - seamWeight);
+float holdSlope = smoothstep(.30, .72, nw.z);
+float ragged = AP::noise(W.xy / 900.0 + 5.3) * .6 + AP::noise(W.xy / 230.0 + 1.7) * .4;
+float snowCrisp = smoothstep(.20, .50, saturate(fieldGeology.g) + (ragged - .5) * .40);
+snow = lerp(snow, snowCrisp * lerp(.22, 1.0, holdSlope), fieldBound);
+// Rock: the field's exposure (A) deepens gullies and lights ribs, so faces read as sculpted
+// buttresses from kilometres away rather than one even grey grain.
+float exposureRead = lerp(.58, 1.20, smoothstep(.12, .88, fieldGeology.a));
+albedo = lerp(albedo, albedo * exposureRead, stone * fieldBound);
+// Above the treeline the meadow green gives way to tundra and scree: grass desaturates and
+// browns out with altitude, never as a contour line (ragged by the same noise).
+float alpineZone = smoothstep(42000., 64000., W.z + (ragged - .5) * 9000.) * fieldBound;
+float alpineLum = dot(albedo, float3(.2126, .7152, .0722));
+float3 tundra = alpineLum * float3(1.06, .99, .86);
+albedo = lerp(albedo, tundra, alpineZone * (1.0 - stone) * .8);

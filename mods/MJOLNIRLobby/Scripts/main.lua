@@ -69,6 +69,14 @@ local DIFFICULTY_NORMAL = 1
 
 -- The game types: a list of variants with the tile helpers on it (modes.lua).
 local MODES = dofile(MOD_DIR .. "\\Scripts\\modes.lua")
+do
+    local ok, descriptors = pcall(dofile, LOADER_DIR .. "\\Scripts\\mode_descriptors.lua")
+    if ok and type(descriptors) == "table" then
+        for _, descriptor in pairs(descriptors) do MODES.register(descriptor) end
+        Presence.registerModes(descriptors)
+        Settings.registerModes(descriptors)
+    end
+end
 
 local function readFile(path)
     local f = io.open(path, "rb")
@@ -203,7 +211,8 @@ modesFor = function(map)
         if mode.forge then
             installed = fileExists(MODS_DIR .. "\\MJOLNIRForge\\native\\mjolnir_forge.dll")
         else
-            installed = listed[mode.id] and variantInstalled(mode.id)
+            installed = (not mode.maps or mode.maps[map.code])
+                and (listed[mode.id] or (mode.maps and mode.maps[map.code])) and variantInstalled(mode.id)
         end
         if installed and offered(mode) then
             out[#out + 1] = mode
@@ -3293,6 +3302,20 @@ local function voteOptions(results)
     end
     local last = results and mapByCode(results.code)
     add(last, last and modeById(last, results.variant), true)
+    local played = results and results.variant
+    local descriptor = MODES.byId(played)
+    -- Custom experiences can opt into a persistent mode rotation. The usual
+    -- mixed-mode vote remains unchanged; Warfare stays on supported maps
+    -- until the host explicitly returns to the lobby to choose another mode.
+    if descriptor and descriptor.postgameSameMode then
+        for _, map in ipairs(installedMaps()) do
+            if (not last or map.code ~= last.code) and Live.everyoneCanPlay(map.code)
+                and (not descriptor.maps or descriptor.maps[map.code]) then
+                add(map, modeById(map, played))
+            end
+        end
+        return options
+    end
     local others = {}
     for _, map in ipairs(installedMaps()) do
         if (not last or map.code ~= last.code) and Live.everyoneCanPlay(map.code) then others[#others + 1] = map end
@@ -3301,7 +3324,6 @@ local function voteOptions(results)
         local j = math.random(i)
         others[i], others[j] = others[j], others[i]
     end
-    local played = results and results.variant
     local mixed = false
     for _, map in ipairs(others) do
         local modes, other = {}, {}

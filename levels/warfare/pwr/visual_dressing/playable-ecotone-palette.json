@@ -1,0 +1,73 @@
+{
+  "kinds": {
+    "pine": {
+      "meshes": [
+        "/Game/Env/Bio/Tree/Pine/Tree_Pine_Sapling_A/Meshes/SM_Tree_Pine_Sapling_A.SM_Tree_Pine_Sapling_A"
+      ],
+      "cull": [
+        70000,
+        150000
+      ],
+      "rule": "pine",
+      "bands": 1,
+      "shadow": false,
+      "static": true
+    },
+    "scrub": {
+      "meshes": [
+        "/Game/Megascans/3D_Plants/Dwarf_Birch_xblnaabqx/S_Dwarf_Birch_xblnaabqx_Var10_lod0.S_Dwarf_Birch_xblnaabqx_Var10_lod0",
+        "/Game/Megascans/3D_Plants/Dwarf_Birch_xblnaabqx/S_Dwarf_Birch_xblnaabqx_Var4_lod0.S_Dwarf_Birch_xblnaabqx_Var4_lod0"
+      ],
+      "cull": [
+        52000,
+        110000
+      ],
+      "rule": "scrub",
+      "bands": 1,
+      "shadow": false,
+      "static": true
+    },
+    "dry": {
+      "meshes": [
+        "/Game/Megascans/3D_Plants/Yellow_Rabbitbrush_vdtlcbjia/S_Yellow_Rabbitbrush_vdtlcbjia_0_Var10_lod0.S_Yellow_Rabbitbrush_vdtlcbjia_0_Var10_lod0",
+        "/Game/Megascans/3D_Plants/Yellow_Rabbitbrush_vdtlcbjia/S_Yellow_Rabbitbrush_vdtlcbjia_0_Var1_lod0.S_Yellow_Rabbitbrush_vdtlcbjia_0_Var1_lod0"
+      ],
+      "cull": [
+        43000,
+        90000
+      ],
+      "rule": "dry",
+      "bands": 1,
+      "shadow": false,
+      "static": true
+    },
+    "willow": {
+      "meshes": [
+        "/Game/Megascans/3D_Plants/Downy_Willow_wknlfiuqx/S_Downy_Willow_wknlfiuqx_0_Var10_lod0.S_Downy_Willow_wknlfiuqx_0_Var10_lod0",
+        "/Game/Megascans/3D_Plants/Downy_Willow_wknlfiuqx/S_Downy_Willow_wknlfiuqx_0_Var17_lod0.S_Downy_Willow_wknlfiuqx_0_Var17_lod0"
+      ],
+      "cull": [
+        44000,
+        97000
+      ],
+      "rule": "willow",
+      "bands": 1,
+      "shadow": false,
+      "static": true
+    },
+    "rush": {
+      "meshes": [
+        "/Game/Env/Bio/Grass/Rushes/Grass_Rushes_A/SM_Grass_Rushes_A.SM_Grass_Rushes_A",
+        "/Game/Env/Bio/Grass/Rushes/Grass_Rushes_B/SM_Grass_Rushes_B.SM_Grass_Rushes_B"
+      ],
+      "cull": [
+        25000,
+        65000
+      ],
+      "rule": "rush",
+      "bands": 1,
+      "shadow": false,
+      "static": true
+    }
+  }
+}

@@ -1,0 +1,26 @@
+    // Submerged fines gather between exposed stones on just the near puddle's
+    // silty shore. All of the analytic water and its reflection stay intact.
+    float2 marginXY=m-PUDDLE_ORIGIN;
+    [branch] if (abs(marginXY.x)<2.1 && abs(marginXY.y)<2.5 && pool<=0.
+                 && outsideWheel< -1.13 && survey.x<.505)
+    {
+        float along=dot(marginXY,WASH_FRAME_AXIS);
+        float across=dot(marginXY,float2(WASH_FRAME_AXIS.y,-WASH_FRAME_AXIS.x));
+        float footprint=smoothstep(-1.38,-.87,along)*(1-smoothstep(1.66,2.14,along))
+                       *smoothstep(-1.34,-.92,across)*(1-smoothstep(1.12,1.53,across));
+        float clearance=(1-smoothstep(-1.45,-1.13,outsideWheel))*(1-smoothstep(.43,.505,survey.x));
+        // Decimetre-scale deposition gaps break whole groups of bright chips.
+        // The mineral scan is still present in the fines and retained crowns.
+        float flow=.56*sin(along*7.40+across*2.18+.77*sin(across*7.16))
+                  +.34*sin(across*8.47-along*4.21+.60*sin(along*3.94))
+                  +.10*sin(across*13.21+along*5.37)+.12*(scan.b-.5)+.19*smoothstep(.37,.92,along);
+        float holes=smoothstep(-.30,.14,flow);
+        float excess=dot(max(color-exposed*float3(.85,.86,.89),0.),luma);
+        float paleFace=max(smoothstep(.012,.096,excess),scan.r*.94);
+        float settle=footprint*clearance*holes*(.62+.38*paleFace);
+        float3 fineSoil=exposed*float3(1.045,.956,.902)*(.77+.47*scan.b);
+        float3 grit=lerp(fineSoil,nativeGravel*float3(.26,.27,.29),.085+.17*highFace);
+        grit*=lerp(1.0.xxx,float3(.60,.66,.70),damp*.79);
+        color=lerp(color,grit,settle);
+        n=lerp(n,soilNormal*.60+gravelN*.14+rutSlope,settle*.83);
+    }

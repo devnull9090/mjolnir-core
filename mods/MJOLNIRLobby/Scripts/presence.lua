@@ -8,6 +8,10 @@ local MODES = { slayer = "Slayer", team_slayer = "Team Slayer", ctf = "Capture t
     race = "Race", team_race = "Team Race", rally = "Rally", team_rally = "Team Rally", forge = "Forge" }
 local context, nativeDir, hudFile, session, Json, log, nativeUpdate
 
+function Presence.registerModes(descriptors)
+    for id, descriptor in pairs(descriptors or {}) do MODES[id] = descriptor.title or descriptor.name end
+end
+
 local function text(value, limit)
     local s = tostring(value or ""):gsub("[%c]", " ")
     local parts, size, i = {}, 0, 1

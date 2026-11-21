@@ -273,3 +273,100 @@ test("a Flux-labelled archive still rejects traversal and executable payloads", 
     if (path.includes("..")) rejects(members, "path_traversal");
   }
 });
+
+function namedFluxFixture() {
+  const members = fixture(false);
+  const provenance = {
+    schema: "mjolnir-flux-provenance-v1", terrain_manifest_sha256: "1".repeat(64),
+    terrain_samples_sha256: "2".repeat(64), water_geometry_sha256: "3".repeat(64),
+    capture_bed_sha256: "4".repeat(64), settings_sha256: "5".repeat(64),
+  };
+  const domains = ["upper_river", "lower_lake"].map((id) => {
+    const domain = { centre: [0, 0, 29500], res: [1024, 512], cell: 97.65625, height: 28200 };
+    const digest = createHash("sha256").update(texture).digest("hex");
+    const namedState = {
+      schema: "mjolnir-flux-state-v2", centre: domain.centre, res: domain.res,
+      cell: domain.cell, height_cm: domain.height, capture: 8350, origin: [0, 0, 0], provenance,
+      height: `flux_state/${id}/height.exr`, velocity: `flux_state/${id}/velocity.exr`,
+      ground: `flux_state/${id}/ground.exr`,
+      height_sha256: digest, velocity_sha256: digest, ground_sha256: digest,
+    };
+    members[`map/flux_state/${id}/state.json`] = json(namedState);
+    for (const key of ["height", "velocity", "ground"] as const) members[`map/${namedState[key]}`] = texture;
+    return { id, playback: "baked", domain, provenance, state: namedState };
+  });
+  const level = { flux: { schema: "mjolnir-flux-v2", domains } };
+  members["map/level.json"] = json(level);
+  return { members, level };
+}
+
+test("multiple baked Flux domains retain all six streamed textures", async () => {
+  const { members } = namedFluxFixture(), bytes = zipSync(members);
+  const whole = scanArchive(bytes);
+  assert.equal(whole.verdict, "pass", JSON.stringify(whole.findings));
+  const streamed = await scanArchiveStream(new ReadableStream({ start(c) { c.enqueue(bytes); c.close(); } }), bytes.length);
+  assert.deepEqual(streamed.scan, whole);
+  for (const id of ["upper_river", "lower_lake"]) {
+    for (const key of ["height", "velocity", "ground"]) {
+      const name = `map/flux_state/${id}/${key}.exr`;
+      assert.equal(whole.files[name], undefined);
+      assert.equal(whole.sizes[name], texture.length);
+      assert.equal(whole.hashes[name], createHash("sha256").update(texture).digest("hex"));
+    }
+  }
+});
+
+test("named Flux cannot omit or empty any of its three state textures", () => {
+  for (const key of ["height", "velocity", "ground"]) {
+    for (const empty of [false, true]) {
+      const { members } = namedFluxFixture(), name = `map/flux_state/upper_river/${key}.exr`;
+      if (empty) members[name] = new Uint8Array(0); else delete members[name];
+      rejects(members, "flux_file_missing");
+    }
+  }
+});
+
+test("named Flux sidecars and optional texture seals must match", () => {
+  for (const mutation of ["missing", "different", "texture"]) {
+    const { members, level } = namedFluxFixture();
+    if (mutation === "missing") delete members["map/flux_state/upper_river/state.json"];
+    if (mutation === "different") members["map/flux_state/upper_river/state.json"] = json({ ...level.flux.domains[0].state, capture: 1 });
+    if (mutation === "texture") members["map/flux_state/upper_river/ground.exr"] = new Uint8Array([1, 2]);
+    rejects(members, "bad_flux_state");
+  }
+});
+
+test("named Flux rejects authoring playback, duplicate ids and unsafe paths", () => {
+  for (const mutate of [
+    (level: ReturnType<typeof namedFluxFixture>["level"]) => { level.flux.domains[0].playback = "simulate"; },
+    (level: ReturnType<typeof namedFluxFixture>["level"]) => { level.flux.domains.push(level.flux.domains[0]); },
+    (level: ReturnType<typeof namedFluxFixture>["level"]) => { level.flux.domains[0].id = "../upper_river"; },
+    (level: ReturnType<typeof namedFluxFixture>["level"]) => { level.flux.domains[0].id = "UPPER"; },
+    (level: ReturnType<typeof namedFluxFixture>["level"]) => { level.flux.domains[0].state.ground = "flux_state/lower_lake/ground.exr"; },
+    (level: ReturnType<typeof namedFluxFixture>["level"]) => { level.flux.domains[0].state.height = "flux_state/../height.exr"; },
+  ]) {
+    const { members, level } = namedFluxFixture(); mutate(level); members["map/level.json"] = json(level);
+    rejects(members, "bad_flux_state");
+  }
+});
+
+test("named Flux validates domain fit, origin and terrain provenance", () => {
+  for (const mutate of [
+    (s: ReturnType<typeof namedFluxFixture>["level"]["flux"]["domains"][number]) => { s.state.centre = [0, 0, 29502]; },
+    (s: ReturnType<typeof namedFluxFixture>["level"]["flux"]["domains"][number]) => { s.state.origin = [1, 0, 0]; },
+    (s: ReturnType<typeof namedFluxFixture>["level"]["flux"]["domains"][number]) => { s.state.res = [192, 512]; },
+    (s: ReturnType<typeof namedFluxFixture>["level"]["flux"]["domains"][number]) => { s.state.provenance = { ...s.provenance, settings_sha256: "6".repeat(64) }; },
+  ]) {
+    const { members, level } = namedFluxFixture(); mutate(level.flux.domains[0]);
+    members["map/level.json"] = json(level);
+    members["map/flux_state/upper_river/state.json"] = json(level.flux.domains[0].state);
+    rejects(members, "bad_flux_state");
+  }
+});
+
+test("named Flux does not authorize undeclared textures or general EXRs", () => {
+  for (const name of ["map/flux_state/upper_river/extra.exr", "map/flux_state/third/height.exr", "preview.exr"]) {
+    const { members } = namedFluxFixture(); members[name] = texture;
+    rejects(members, "forbidden_file");
+  }
+});

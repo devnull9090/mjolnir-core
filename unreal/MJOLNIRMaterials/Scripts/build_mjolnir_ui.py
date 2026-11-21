@@ -3018,7 +3018,13 @@ def build_label():
     rules.set_editor_property("apply_recursively", True)
     rules.set_editor_property("cook_rule", unreal.PrimaryAssetCookRule.ALWAYS_COOK)
     label.set_editor_property("rules", rules)
-    label.set_editor_property("label_assets_in_my_directory", True)
+    # Chunk 958 independently ships the PWR overview in the same UI namespace.
+    # Keep the existing shared widgets, art and subdirectories exclusive to 984.
+    excluded = {full, f"{ROOT}/WBP_MJOLNIRTacticalMap", f"{ROOT}/WBP_MJOLNIRWarfareZones"}
+    owned = [eal.load_asset(path) for path in eal.list_assets(ROOT, recursive=True, include_folder=False)
+             if path.split(".")[0] not in excluded]
+    label.set_editor_property("label_assets_in_my_directory", False)
+    label.set_editor_property("explicit_assets", owned)
     eal.save_loaded_asset(label)
 
 

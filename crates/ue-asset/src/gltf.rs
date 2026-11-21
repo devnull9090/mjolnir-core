@@ -2,7 +2,8 @@
 //!
 //! One file per mesh: a node per LOD (LOD 0 visible, the rest present but
 //! unattached to the scene so a viewer shows one), a primitive per section
-//! with its material slot's name, positions, normals and the first UV channel
+//! with its material slot's name, positions, normals, all decoded UV channels
+//! and RGBA vertex colors
 //! as accessors over a single buffer. No textures: a material is a named slot
 //! with a default appearance, which is what a DCC tool needs to rebind.
 //!
@@ -14,7 +15,8 @@
 //! glTF's axes are +Y up, right-handed, metres; Unreal's are +Z up,
 //! left-handed, centimetres. Positions and normals are converted:
 //! `(x, y, z)` in Unreal becomes `(x, z, y) / 100` here, which flips
-//! handedness by swapping two axes, so triangle winding is reversed as well.
+//! handedness by swapping two axes. Native Unreal clockwise indices therefore
+//! become glTF counterclockwise indices without an additional index reversal.
 
 use crate::mesh::{Bone, Lod, Section};
 
@@ -37,6 +39,7 @@ struct Accessor {
     count: usize,
     component_type: u32,
     kind: &'static str,
+    normalized: bool,
     min: Option<[f32; 3]>,
     max: Option<[f32; 3]>,
 }
@@ -76,6 +79,7 @@ impl Buffer {
             count: data.len(),
             component_type: 5126,
             kind: "VEC3",
+            normalized: false,
             min: bounds.then_some(min),
             max: bounds.then_some(max),
         });
@@ -99,6 +103,28 @@ impl Buffer {
             count: data.len(),
             component_type: 5126,
             kind: "VEC2",
+            normalized: false,
+            min: None,
+            max: None,
+        });
+        self.accessors.len() - 1
+    }
+
+    fn push_colors(&mut self, data: &[u8]) -> usize {
+        pad4(&mut self.bytes, 0);
+        let offset = self.bytes.len();
+        self.bytes.extend_from_slice(data);
+        self.views.push(View {
+            offset,
+            length: data.len(),
+            target: 34962,
+        });
+        self.accessors.push(Accessor {
+            view: self.views.len() - 1,
+            count: data.len() / 4,
+            component_type: 5121,
+            kind: "VEC4",
+            normalized: true,
             min: None,
             max: None,
         });
@@ -121,6 +147,7 @@ impl Buffer {
             count: data.len(),
             component_type: 5125,
             kind: "SCALAR",
+            normalized: false,
             min: None,
             max: None,
         });
@@ -179,12 +206,40 @@ fn push_lod(
     } else {
         None
     };
-    let uv = if lod.uvs.len() == vertex_count * 2 {
-        let uvs: Vec<[f32; 2]> = lod.uvs.chunks_exact(2).map(|t| [t[0], t[1]]).collect();
-        Some(buffer.push_uvs(&uvs))
-    } else {
+    let mut uv_accessors = Vec::new();
+    if !lod.uvs.is_empty() || !lod.extra_uvs.is_empty() {
+        for channel in std::iter::once(&lod.uvs).chain(lod.extra_uvs.iter()) {
+            if channel.len() != vertex_count * 2 || channel.iter().any(|v| !v.is_finite()) {
+                return Err(format!("{name}: invalid UV channel {}", uv_accessors.len()));
+            }
+            let uvs: Vec<[f32; 2]> = channel.chunks_exact(2).map(|t| [t[0], t[1]]).collect();
+            uv_accessors.push(buffer.push_uvs(&uvs));
+        }
+    }
+    if lod
+        .source_uv_channels
+        .is_some_and(|n| n as usize != uv_accessors.len())
+    {
+        return Err(format!(
+            "{name}: decoded UV channels differ from native count"
+        ));
+    }
+    let color = if lod.colors.is_empty() {
         None
+    } else {
+        if lod.colors.len() != vertex_count * 4 {
+            return Err(format!("{name}: vertex color count differs from positions"));
+        }
+        Some(buffer.push_colors(&lod.colors))
     };
+    if lod
+        .source_color_vertices
+        .is_some_and(|n| n as usize != lod.colors.len() / 4)
+    {
+        return Err(format!(
+            "{name}: decoded vertex colors differ from native count"
+        ));
+    }
 
     let sections: Vec<&Section> = if lod.sections.is_empty() {
         Vec::new()
@@ -211,18 +266,16 @@ fn push_lod(
         if first >= end {
             continue;
         }
-        // Swapping two axes mirrors the geometry; reversing the winding
-        // keeps the faces pointing out.
-        let mut indices = Vec::with_capacity(end - first);
-        for tri in lod.indices[first..end].chunks_exact(3) {
-            indices.extend_from_slice(&[tri[0], tri[2], tri[1]]);
-        }
+        // Unreal's native face convention is clockwise (cross(C-A, B-A)).
+        // The mirrored axis conversion already makes it glTF's CCW order.
+        // Epic's GLTF exporter likewise copies the native index order.
+        let indices = &lod.indices[first..end];
         if indices.iter().any(|&i| i as usize >= vertex_count) {
             return Err(format!(
                 "{name}: an index reaches past the {vertex_count} vertices"
             ));
         }
-        let idx = buffer.push_indices(&indices);
+        let idx = buffer.push_indices(indices);
         let material = usize::try_from(material)
             .ok()
             .filter(|m| *m < material_count)
@@ -231,8 +284,11 @@ fn push_lod(
         if let Some(n) = normal {
             attrs.push_str(&format!(",\"NORMAL\":{n}"));
         }
-        if let Some(t) = uv {
-            attrs.push_str(&format!(",\"TEXCOORD_0\":{t}"));
+        for (channel, t) in uv_accessors.iter().enumerate() {
+            attrs.push_str(&format!(",\"TEXCOORD_{channel}\":{t}"));
+        }
+        if let Some(c) = color {
+            attrs.push_str(&format!(",\"COLOR_0\":{c}"));
         }
         primitives.push(format!(
             "{{\"attributes\":{{{attrs}}},\"indices\":{idx},\"material\":{material},\"mode\":4}}"
@@ -241,8 +297,15 @@ fn push_lod(
     if primitives.is_empty() {
         return Ok(None);
     }
+    let native_uv = lod
+        .source_uv_channels
+        .map_or("null".into(), |n| n.to_string());
+    let native_colors = lod
+        .source_color_vertices
+        .map_or("null".into(), |n| n.to_string());
+    let complete = lod.source_uv_channels.is_some() && lod.source_color_vertices.is_some();
     Ok(Some(format!(
-        "{{\"name\":{},\"primitives\":[{}]}}",
+        "{{\"name\":{},\"primitives\":[{}],\"extras\":{{\"nativeUvChannelCount\":{native_uv},\"nativeColorVertexCount\":{native_colors},\"decodedUvColorComplete\":{complete}}}}}",
         json_str(name),
         primitives.join(",")
     )))
@@ -510,8 +573,9 @@ fn assemble(
                 ),
                 _ => String::new(),
             };
+            let normalized = if a.normalized { ",\"normalized\":true" } else { "" };
             format!(
-                "{{\"bufferView\":{},\"componentType\":{},\"count\":{},\"type\":\"{}\"{bounds}}}",
+                "{{\"bufferView\":{},\"componentType\":{},\"count\":{},\"type\":\"{}\"{bounds}{normalized}}}",
                 a.view, a.component_type, a.count, a.kind
             )
         })
@@ -561,8 +625,10 @@ mod tests {
             ],
             normals: vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
             uvs: vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0],
-            indices: vec![0, 1, 2, 0, 2, 3],
+            // Native Unreal clockwise faces with outward +Z normals.
+            indices: vec![0, 2, 1, 0, 3, 2],
             inlined: true,
+            ..Lod::default()
         }
     }
 
@@ -594,13 +660,87 @@ mod tests {
         let n0 = f32::from_le_bytes(bin[48..52].try_into().unwrap());
         let n1 = f32::from_le_bytes(bin[52..56].try_into().unwrap());
         assert_eq!((n0, n1), (0.0, 1.0));
-        // The first triangle's winding was reversed.
+        // Native order is retained; the axis swap produces an outward CCW face.
         let idx_at = bin.len() - 24;
         let first: Vec<u32> = bin[idx_at..idx_at + 12]
             .chunks_exact(4)
             .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
             .collect();
-        assert_eq!(first, vec![0, 2, 1]);
+        assert_eq!(first, lod.indices[..3]);
+        let vertex = |index: u32| -> [f32; 3] {
+            let at = index as usize * 12;
+            std::array::from_fn(|k| {
+                f32::from_le_bytes(bin[at + k * 4..at + k * 4 + 4].try_into().unwrap())
+            })
+        };
+        let [a, b, c] = [vertex(first[0]), vertex(first[1]), vertex(first[2])];
+        let ab: [f32; 3] = std::array::from_fn(|k| b[k] - a[k]);
+        let ac: [f32; 3] = std::array::from_fn(|k| c[k] - a[k]);
+        // +Y is both the stored normal and cross(B-A,C-A) after conversion.
+        assert!(ab[2] * ac[0] - ab[0] * ac[2] > 0.0);
+    }
+
+    #[test]
+    fn glb_preserves_auxiliary_uvs_and_normalized_color_masks() {
+        let mut lod = quad();
+        lod.extra_uvs = vec![vec![-5.0, 12.0, 256.0, 1024.0, 3.25, 8.5, -2.0, 7.0]];
+        lod.colors = vec![
+            255, 0, 17, 64, 7, 32, 128, 255, 80, 90, 100, 110, 1, 2, 3, 4,
+        ];
+        lod.source_uv_channels = Some(2);
+        lod.source_color_vertices = Some(4);
+        let glb = write_glb(&MeshExport {
+            name: "foliage",
+            materials: &[],
+            lods: std::slice::from_ref(&lod),
+            bones: &[],
+        })
+        .unwrap();
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let doc: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        let bin = &glb[28 + json_len..];
+        let attrs = &doc["meshes"][0]["primitives"][0]["attributes"];
+        let accessor = |name: &str| &doc["accessors"][attrs[name].as_u64().unwrap() as usize];
+        let bytes = |a: &serde_json::Value| {
+            let view = &doc["bufferViews"][a["bufferView"].as_u64().unwrap() as usize];
+            let offset = view["byteOffset"].as_u64().unwrap() as usize;
+            let length = view["byteLength"].as_u64().unwrap() as usize;
+            &bin[offset..offset + length]
+        };
+        let uv: Vec<f32> = bytes(accessor("TEXCOORD_1"))
+            .chunks_exact(4)
+            .map(|v| f32::from_le_bytes(v.try_into().unwrap()))
+            .collect();
+        assert_eq!(uv, lod.extra_uvs[0]);
+        let color = accessor("COLOR_0");
+        assert_eq!(color["componentType"], 5121);
+        assert_eq!(color["normalized"], true);
+        assert_eq!(color["type"], "VEC4");
+        assert_eq!(color["count"], 4);
+        assert_eq!(bytes(color), lod.colors);
+        assert_eq!(doc["meshes"][0]["extras"]["nativeUvChannelCount"], 2);
+        assert_eq!(doc["meshes"][0]["extras"]["nativeColorVertexCount"], 4);
+        assert_eq!(doc["meshes"][0]["extras"]["decodedUvColorComplete"], true);
+    }
+
+    #[test]
+    fn known_source_attributes_cannot_silently_disappear() {
+        let mut lod = quad();
+        lod.source_uv_channels = Some(2);
+        let export = |lod: &Lod| {
+            write_glb(&MeshExport {
+                name: "bad",
+                materials: &[],
+                lods: std::slice::from_ref(lod),
+                bones: &[],
+            })
+        };
+        assert!(export(&lod).unwrap_err().contains("native count"));
+        lod.source_uv_channels = Some(1);
+        lod.source_color_vertices = Some(4);
+        assert!(export(&lod).unwrap_err().contains("native count"));
+        lod.source_color_vertices = Some(0);
+        assert!(export(&lod).is_ok());
     }
 
     #[test]

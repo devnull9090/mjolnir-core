@@ -102,9 +102,79 @@ def decor_spec(d, origin, roughness=None, palette=None):
 
 
 def runtime_decor(decor, roughness=None, palette=None):
-    """Leave completed baked MICs alone: no runtime baked-component reads."""
+    """Leave baked MICs and instanced pines out of runtime actor creation."""
     rock_material(None, roughness)
-    return [d for d in decor if not (bakeable(d) and rock_material(d["mesh"], roughness, palette))]
+    return [d for d in decor if not pine_hism(d) and not (bakeable(d) and rock_material(d["mesh"], roughness, palette))]
+
+
+def pine_hism(d):
+    """Complete static native pines need no per-actor material customization."""
+    from authored_decor import PINE_OPTIMIZED, PINE_SAPLING, PWR_MATURE_PINE
+    paths = {p + "." + p.rsplit("/", 1)[-1] for p in (PINE_OPTIMIZED, PINE_SAPLING, PWR_MATURE_PINE)}
+    if not bakeable(d) or d["mesh"] not in paths or not d.get("static") or d.get("scalars"):
+        return False
+    rot = d.get("rot") or [0, 0, 0]
+    return len(rot) == 3 and abs(rot[0]) < 1e-7 and abs(rot[2]) < 1e-7
+
+
+def needs_standin(mesh):
+    """Shipped meshes use proxies; the exact authored pine must already exist.
+
+    Never create a proxy at its cooked asset path: that would overwrite the
+    measured complete geometry before the HISM loads it.
+    """
+    from authored_decor import PWR_MATURE_PINE
+    if mesh==PWR_MATURE_PINE+'.'+PWR_MATURE_PINE.rsplit('/',1)[-1]:
+        return False
+    if not mesh.startswith(('/Game/Env/','/Game/Megascans/')):
+        raise ValueError(f'{mesh}: not under a never-cooked stand-in folder (/Game/Env, /Game/Megascans)')
+    return True
+
+
+def pine_cull_range(value):
+    """Validate a map-specific pine draw-distance range in centimetres."""
+    try:
+        parts = value.split(",") if isinstance(value, str) else value
+        if len(parts) != 2 or any(isinstance(v, bool) for v in parts):
+            raise ValueError()
+        result = [float(v) for v in parts]
+        if not all(math.isfinite(v) for v in result) or not 0 <= result[0] < result[1]:
+            raise ValueError()
+        return result
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError("pine cull must be finite start,end centimetres with 0 <= start < end")
+
+
+def pine_groups(decor, origin=(0, 0, 0), cell_cm=25000, cull_cm=(90000, 180000)):
+    """Exact root-adjusted transforms, grouped spatially for HISM occlusion.
+
+    Keep swap.decor intact: the native collision builder still consumes it.
+    Each returned group uses one mesh and one 250 m cell, shadows on, WPO off,
+    and map-specific distance culling (900–1800 m by default).
+    """
+    cull = pine_cull_range(cull_cm)
+    grouped = {}
+    for d in decor:
+        if not pine_hism(d):
+            continue
+        loc = [float(origin[i] + d["pos"][i]) for i in range(3)]
+        yaw = float((d.get("rot") or [0, 0, 0])[1])
+        scale = list(d.get("scale") or [1, 1, 1])
+        if (len(scale) != 3 or not all(math.isfinite(v) and v > 0 for v in scale)
+                or not all(math.isfinite(v) for v in loc) or not math.isfinite(yaw)):
+            raise ValueError(f"Invalid pine transform: {d['id']}")
+        c, s = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+        record = [*loc, yaw, scale[0], 0, 0,
+                  scale[0] * c, scale[0] * s, 0, -scale[1] * s, scale[1] * c, 0, 0, 0, scale[2]]
+        key = (d["mesh"], math.floor(loc[0] / cell_cm), math.floor(loc[1] / cell_cm))
+        grouped.setdefault(key, []).append((d["id"], record))
+    result = []
+    for key, rows in sorted(grouped.items()):
+        rows.sort(key=lambda row: row[0])
+        group = {"mesh": key[0], "rule": "pine woodland", "bands": 1,
+                 "cull": list(cull), "shadow": True, "static": True, "exact": True}
+        result.append(([r for _, r in rows], group, [i for i, _ in rows]))
+    return result
 
 
 def bakeable(d):
@@ -112,8 +182,10 @@ def bakeable(d):
     at most `scalars` (the loader's runtime material values) and `static`.
     Anything with its own materials, tint, pulse or capture role stays the
     loader's."""
+    from authored_decor import PWR_MATURE_PINE
+    custom_pine=PWR_MATURE_PINE+'.'+PWR_MATURE_PINE.rsplit('/',1)[-1]
     return (isinstance(d, dict) and isinstance(d.get("mesh"), str) and isinstance(d.get("id"), str)
-            and isinstance(d.get("pos"), list) and d["mesh"].startswith(("/Game/Env/", "/Game/Megascans/"))
+            and isinstance(d.get("pos"), list) and (d["mesh"].startswith(("/Game/Env/", "/Game/Megascans/")) or d["mesh"]==custom_pine)
             and not any(k in d for k in ("materials", "tint", "pulse", "capture_only", "cast_shadow",
                                          "sort_priority")))
 
@@ -163,7 +235,8 @@ def write_exact(path, records):
         m = [r[7:10], r[10:13], r[13:16]]
         q, s = exact_transform(m)
         out += struct.pack("<10f", r[0], r[1], r[2], *q, *s)
-    open(path, "wb").write(bytes(out))
+    with open(path, "wb") as stream:
+        stream.write(bytes(out))
 
 
 def mesh_info(mjolnir, paks, path):
@@ -214,8 +287,20 @@ def main():
     ap.add_argument("--origin", default="0,0,0", help="the level's canvas origin (cm), which decor sits on")
     ap.add_argument("--rock-roughness", type=float, help="bake native Uluwatu MICs with this roughness floor (0..1)")
     ap.add_argument("--rock-palette", choices=("coastal",), help="map-owned neutral coastal rock materials")
+    ap.add_argument("--pine-cull", type=pine_cull_range, default=[90000, 180000],
+                    help="pine start,end draw distances in cm; default 90000,180000")
+    ap.add_argument("--render-only-hism", help="explicit hash-bound exterior cliff input; never swap.decor or native collision")
+    ap.add_argument("--render-only-pines", help="explicit exterior pines retaining native slots; never swap.decor or native collision")
     a = ap.parse_args()
     rock_material(None, a.rock_roughness)  # Validate before writing output.
+    exterior_groups, exterior_receipt = [], None
+    if a.render_only_hism:
+        from render_only_hism import groups as exterior_hism_groups
+        exterior_groups, exterior_receipt = exterior_hism_groups(a.render_only_hism)
+    exterior_pine_groups, exterior_pine_receipt = [], None
+    if a.render_only_pines:
+        from render_only_pines import groups as exterior_pines
+        exterior_pine_groups, exterior_pine_receipt = exterior_pines(a.render_only_pines)
     origin = [float(v) for v in a.origin.split(",")]
 
     fol = json.load(open(os.path.join(a.work, "foliage", "foliage.json"), encoding="utf-8"))
@@ -224,11 +309,19 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     bin_path = os.path.join(out_dir, "foliage_bake.bin")
     shutil.copyfile(os.path.join(a.work, "foliage", "foliage.bin"), bin_path)
+    # PCG exports keep unquantized transforms in the same exact sidecars used
+    # by tree recipes. Preserve them before appending recipe groups below.
+    for index, group in enumerate(groups, 1):
+        for flag, suffix in (("exact", "xf"), ("custom", "xc")):
+            if group.get(flag):
+                shutil.copyfile(os.path.join(a.work, "foliage", f"foliage.bin.{suffix}{index}"),
+                                f"{bin_path}.{suffix}{index}")
     swap_path = os.path.join(a.work, "swap.json")
     decor = []
+    pine_receipt = {"instances": 0, "components": 0, "groups": [], "cull_cm": list(a.pine_cull)}
     if os.path.exists(swap_path):
         swap = json.load(open(swap_path, encoding="utf-8"))
-        decor = [d for d in swap.get("decor") or [] if bakeable(d)]
+        decor = [d for d in swap.get("decor") or [] if bakeable(d) and not pine_hism(d)]
         from upgrade_ce_map import append_foliage, leaf_groups
         for records, group in leaf_groups(swap):
             append_foliage(bin_path, records)
@@ -245,6 +338,28 @@ def main():
                 open(f"{bin_path}.xc{len(groups)}", "wb").write(
                     b"".join(struct.pack("<4f", *r[16:20]) for r in records))
                 group["custom"] = True
+        for records, group, ids in pine_groups(swap.get("decor") or [], origin, cull_cm=a.pine_cull):
+            append_foliage(bin_path, records)
+            groups.append(group)
+            write_exact(f"{bin_path}.xf{len(groups)}", records)
+            pine_receipt["groups"].append({"group": len(groups), "count": len(records), "ids": ids})
+            pine_receipt["instances"] += len(records)
+            pine_receipt["components"] += 1
+
+    # Separate opt-in source: these groups are never appended to swap.decor,
+    # which remains the complete native collision/ground scenery input.
+    if exterior_groups or exterior_pine_groups:
+        from upgrade_ce_map import append_foliage
+    for records, group, ids in exterior_groups:
+        append_foliage(bin_path, records)
+        groups.append(group)
+        write_exact(f"{bin_path}.xf{len(groups)}", records)
+        exterior_receipt["groups"].append({"group":len(groups),"count":len(records),"ids":ids})
+    for records, group, ids in exterior_pine_groups:
+        append_foliage(bin_path, records)
+        groups.append(group)
+        write_exact(f"{bin_path}.xf{len(groups)}", records)
+        exterior_pine_receipt["groups"].append({"group":len(groups),"count":len(records),"ids":ids})
 
     spec_groups, meshes = [], {}
     for g in groups:
@@ -271,14 +386,19 @@ def main():
         # the world that names it: no stand-in.
         if mesh.startswith(COOKED):
             continue
-        if not mesh.startswith(("/Game/Env/", "/Game/Megascans/")):
-            sys.exit(f"{mesh}: not under a never-cooked stand-in folder (/Game/Env, /Game/Megascans)")
+        if not needs_standin(mesh):
+            continue
         if mesh not in cache:
             cache[mesh] = mesh_info(a.mjolnir, a.paks, mesh)
         standins.append(dict(cache[mesh], path=mesh))
     json.dump(cache, open(cache_path, "w", encoding="utf-8"), indent=1)
-    json.dump({"bin": bin_path.replace("\\", "/"), "actor": "MJOLNIR_Foliage", "groups": spec_groups,
-               "decor": spec_decor, "standins": standins}, open(a.out, "w", encoding="utf-8"), indent=1)
+    output = {"bin": bin_path.replace("\\", "/"), "actor": "MJOLNIR_Foliage", "groups": spec_groups,
+              "decor": spec_decor, "standins": standins, "pine_hism": pine_receipt}
+    if exterior_receipt:
+        output["render_only_hism"] = exterior_receipt
+    if exterior_pine_receipt:
+        output["render_only_pines"] = exterior_pine_receipt
+    json.dump(output, open(a.out, "w", encoding="utf-8"), indent=1)
     baked = sum(1 for g in spec_groups if g["mesh"])
     print(f"foliage bake: {baked} of {len(spec_groups)} group(s), {len(spec_decor)} decor piece(s), "
           f"{len(standins)} stand-in mesh(es) -> {a.out}")

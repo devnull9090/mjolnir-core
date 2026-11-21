@@ -1,6 +1,7 @@
 """Validated native mesh placements shared by runtime and Blender preparation."""
 import json
 import math
+import re
 from pathlib import Path
 
 # Complete shipped sapling: bark and needles are both in the mesh. Bounds
@@ -9,6 +10,36 @@ PINE_SAPLING='/Game/Env/Bio/Tree/Pine/Tree_Pine_Sapling_A/Meshes/SM_Tree_Pine_Sa
 PINE_SAPLING_MIN_Z=-5.3125
 PINE_SAPLING_HEIGHT=211.3125
 PINE_OPTIMIZED='/Game/Env/Bio/Tree/Pine/Tree_Windswept_A/Meshes/SM_Tree_Sapling_Optimized'
+PWR_MATURE_PINE='/Game/MJOLNIR/Scenery/PWR/SM_PWR_MaturePine_A'
+PWR_MATURE_PINE_RECIPE='PWR_MaturePine_A'
+PWR_MATURE_PINE_BARK=('MI_Pine_Tree_Mat',)
+
+
+def complete_tree_recipe(variant, recipes):
+    """Only the explicitly authored complete PWR pine accepts measured bounds.
+
+    Bounds and the reviewed soil-contact root datum are centimetres in the
+    final mesh's frame. The source hash identifies the assembly, not a template
+    or an individual branch. Do not infer these measurements from its name.
+    """
+    if variant != PWR_MATURE_PINE_RECIPE:
+        raise ValueError('Unsupported custom complete tree recipe')
+    recipe=recipes.get(variant)
+    if not isinstance(recipe,dict):
+        raise ValueError('Missing measured complete tree recipe '+variant)
+    mesh=recipe.get('complete_mesh')
+    if mesh not in (PWR_MATURE_PINE,PWR_MATURE_PINE+'.'+PWR_MATURE_PINE.rsplit('/',1)[-1]):
+        raise ValueError('Complete tree recipe must name the exact PWR mature pine')
+    if (not _number(recipe.get('min_z')) or not _number(recipe.get('height'))
+            or recipe['height']<=0):
+        raise ValueError('Invalid measured complete tree bounds')
+    if not _number(recipe.get('root_z')) or not recipe['min_z']<=recipe['root_z']<=recipe['min_z']+recipe['height']:
+        raise ValueError('Invalid measured complete tree root datum')
+    if not re.fullmatch(r'[0-9a-fA-F]{64}',str(recipe.get('geometry_sha256',''))):
+        raise ValueError('Missing complete tree geometry hash')
+    if recipe.get('bark_material_slots') != list(PWR_MATURE_PINE_BARK):
+        raise ValueError('Complete tree bark slots do not match the measured source')
+    return recipe
 
 
 def _number(value):
@@ -47,7 +78,7 @@ def load_authored_decor_document(path,existing_ids=()):
             raise ValueError('Invalid background tree yaw_degrees')
         if not _number(tree.get('height_m')) or tree['height_m']<=0:
             raise ValueError('Background tree height_m must be positive')
-        if tree.get('variant','Lrg_A') not in ('Lrg_A','Pine_Sapling_A','Pine_Optimized'):
+        if tree.get('variant','Lrg_A') not in ('Lrg_A','Pine_Sapling_A','Pine_Optimized',PWR_MATURE_PINE_RECIPE):
             raise ValueError('Unknown native background tree variant')
     factor=doc.get('leaf_cluster_scale',1.0)
     if not _number(factor) or factor<=0:
@@ -80,19 +111,31 @@ def expand_background_trees(doc,recipes,bounds,existing_ids=(),leaf_mesh=None):
     ids.update(tree['id'] for tree in trees)
     for tree in trees:
         variant=tree.get('variant','Lrg_A')
-        if variant in ('Pine_Sapling_A','Pine_Optimized'):
-            # Uniform sizing keeps the native tapered silhouette. Position is
-            # the mesh's lowest point, so the root does not hover off the ridge.
-            mesh,min_z,height=(PINE_SAPLING,PINE_SAPLING_MIN_Z,PINE_SAPLING_HEIGHT) if variant=='Pine_Sapling_A' else (PINE_OPTIMIZED,-166.25,2150.125)
+        if variant in ('Pine_Sapling_A','Pine_Optimized',PWR_MATURE_PINE_RECIPE):
+            # Uniform sizing keeps the native tapered silhouette. Shipped
+            # saplings retain their existing lowest-point convention. The
+            # measured mature pine has a separate datum for buried roots.
+            if variant==PWR_MATURE_PINE_RECIPE:
+                recipe=complete_tree_recipe(variant,recipes)
+                recorded=doc.get('complete_tree_provenance',{}).get(variant)
+                if recorded is not None and any(recorded.get(k)!=recipe[k] for k in
+                        ('complete_mesh','min_z','height','root_z','geometry_sha256','bark_material_slots')):
+                    raise ValueError('Complete tree recipe changed after PCG conversion')
+                mesh,min_z,height=PWR_MATURE_PINE,recipe['min_z'],recipe['height']
+            else:
+                mesh,min_z,height=(PINE_SAPLING,PINE_SAPLING_MIN_Z,PINE_SAPLING_HEIGHT) if variant=='Pine_Sapling_A' else (PINE_OPTIMIZED,-166.25,2150.125)
             scale=tree['height_m']*100/height
+            root_z=recipe['root_z'] if variant==PWR_MATURE_PINE_RECIPE else min_z
             x,y,z=tree['position_m']
             ident=tree['id']+'_part_0'
             if ident in ids: raise ValueError('Duplicate native tree part ID '+ident)
             ids.add(ident)
             decor.append({'id':ident,'mesh':object_path(mesh),
-                          'pos':[round(x*100,1),round(-y*100,1),round(z*100-min_z*scale,1)],
-                          'rot':[0,round(-tree.get('yaw_degrees',0),1),0],
-                          'scale':[round(scale,5)]*3,'static':True})
+                          'pos':[x*100,-y*100,z*100-root_z*scale],
+                          'rot':[0,-tree.get('yaw_degrees',0),0],
+                          'scale':[scale]*3,'static':True})
+            if variant==PWR_MATURE_PINE_RECIPE:
+                decor[-1]['source_geometry_sha256']=recipe['geometry_sha256']
             continue
         if variant not in recipes: raise ValueError('Missing background tree recipe '+variant)
         recipe=recipes[variant]

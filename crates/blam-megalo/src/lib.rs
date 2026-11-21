@@ -18,6 +18,7 @@ pub mod race;
 pub mod raw;
 pub(crate) mod script;
 pub mod variant;
+pub mod warfare;
 
 pub use variant::Variant;
 

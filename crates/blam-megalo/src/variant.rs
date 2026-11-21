@@ -295,6 +295,8 @@ pub enum Action {
     EndRound,
     /// Type 29: the killer of `victim` this tick, into `out`.
     GetKiller { victim: Player, out: Player },
+    /// Type 40, CU4 0x399dce: player's occupied vehicle, or no object.
+    GetPlayerVehicle { player: Player, out: Object },
     /// Type 44: 0 normal, 1 high (hold to pick up), 2 automatic.
     SetWeaponPickupPriority { object: Object, priority: u8 },
     /// Type 54: the object's shields as a percentage (full = 100), into `out`
@@ -382,6 +384,9 @@ pub struct EntryPoints {
 pub struct Variables {
     /// `global.number[]` (0..=12).
     pub global_numbers: u8,
+    /// Per-global-number replication priority: 0 local, 1 low, 2 high.
+    /// CU4 never sends priority-0 variables to clients.
+    pub global_number_priorities: [u8; 12],
     /// `global.player[]` (0..=8).
     pub global_players: u8,
     /// `global.object[]` (0..=16).
@@ -534,6 +539,8 @@ pub struct ScriptTraits {
 /// MJOLNIR's variants have always written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BaseOptions {
+    /// Team score aggregation: 0 sum, 1 minimum, 2 maximum, 3 script only.
+    pub team_scoring: u8,
     /// Minutes before the round ends; 0 for no limit (misc u8).
     pub time_limit: u8,
     /// Sudden death seconds, stored plus one (misc u7 at `o+0x2bc`): 0
@@ -568,6 +575,7 @@ pub struct BaseOptions {
 impl Default for BaseOptions {
     fn default() -> Self {
         BaseOptions {
+            team_scoring: 0,
             time_limit: 0,
             sudden_death_raw: 0,
             lives: 0,
@@ -1030,7 +1038,7 @@ fn write_base(
     }
     zeros(w, &[7, 7, 7])?;
     // teams: with teams on, red and blue are enabled (flag bit 0)
-    put(w, 0, 3)?;
+    put(w, b.team_scoring as u64, 3)?;
     put(w, 0, 3)?;
     put(w, 0, 2)?;
     for t in 0..8u64 {
@@ -1297,6 +1305,11 @@ fn write_action(w: &mut BitWriter, a: &Action) -> Result<(), Error> {
             write_object(w, *object)?;
             put(w, *priority as u64, 2)
         }
+        Action::GetPlayerVehicle { player, out } => {
+            put(w, 40, 7)?;
+            write_player(w, *player)?;
+            write_object(w, *out)
+        }
         Action::GetShields { object, out } | Action::GetHealth { object, out } => {
             put(
                 w,
@@ -1383,10 +1396,14 @@ fn write_trigger(w: &mut BitWriter, t: &Trigger) -> Result<(), Error> {
 
 /// `count` declarations of a number variable (default 0, priority 0).
 fn write_numbers(w: &mut BitWriter, count: u8, bits: u32) -> Result<(), Error> {
+    write_numbers_with_priorities(w, count, bits, &[])
+}
+
+fn write_numbers_with_priorities(w: &mut BitWriter, count: u8, bits: u32, priorities: &[u8]) -> Result<(), Error> {
     put(w, count as u64, bits)?;
-    for _ in 0..count {
+    for index in 0..count {
         write_number(w, &Number::Constant(0))?;
-        put(w, 0, 2)?;
+        put(w, priorities.get(index as usize).copied().unwrap_or(0) as u64, 2)?;
     }
     Ok(())
 }
@@ -1490,7 +1507,7 @@ impl Variant {
 
         put(&mut w, 0, 3)?; // statistics
                             // global scope: numbers, timers, teams, players, objects
-        write_numbers(&mut w, v.global_numbers, 4)?;
+        write_numbers_with_priorities(&mut w, v.global_numbers, 4, &v.global_number_priorities)?;
         zeros(&mut w, &[4, 4])?;
         write_handles(&mut w, v.global_players, 4)?;
         write_handles(&mut w, v.global_objects, 5)?;
@@ -1702,7 +1719,8 @@ fn read_base(r: &mut BitReader) -> Result<(BaseOptions, bool, u8, u8), Error> {
         read_traits(r)?;
     }
     skip(r, &[7, 7, 7])?;
-    skip(r, &[3, 3, 2])?;
+    let team_scoring = get(r, 3)? as u8;
+    skip(r, &[3, 2])?;
     for _ in 0..8 {
         r.read(4)?;
         read_strings(r, 1, 5, 6)?;
@@ -1717,6 +1735,7 @@ fn read_base(r: &mut BitReader) -> Result<(BaseOptions, bool, u8, u8), Error> {
         skip(r, &[8, 8, 8, 4])?;
     }
     let base = BaseOptions {
+        team_scoring,
         time_limit,
         sudden_death_raw,
         lives,
@@ -1986,6 +2005,10 @@ fn read_action(r: &mut BitReader) -> Result<Action, Error> {
                 priority: get(r, 2)? as u8,
             }
         }
+        40 => Action::GetPlayerVehicle {
+            player: read_player(r)?,
+            out: read_object(r)?,
+        },
         ty @ (54 | 55) => {
             let object = read_object(r)?;
             let out = read_number(r)?;
@@ -2225,7 +2248,13 @@ impl Variant {
         for _ in 0..stats {
             skip(&mut r, &[7, 2, 2, 1])?;
         }
-        let global_numbers = read_numbers(&mut r, 4)?;
+        let global_numbers = get(&mut r, 4)? as u8;
+        if global_numbers > 12 { return Err(Error::Unsupported("too many global numbers".into())); }
+        let mut global_number_priorities = [0; 12];
+        for priority in global_number_priorities.iter_mut().take(global_numbers as usize) {
+            read_number(&mut r)?;
+            *priority = get(&mut r, 2)? as u8;
+        }
         expect_none(&mut r, 4, "global timers")?;
         expect_none(&mut r, 4, "global teams")?;
         let global_players = read_handles(&mut r, 4)?;
@@ -2326,6 +2355,7 @@ impl Variant {
             triggers,
             vars: Variables {
                 global_numbers,
+                global_number_priorities,
                 global_players,
                 global_objects,
                 player_numbers,

@@ -1,0 +1,19 @@
+    // Rounded and angular faces cut out of two actual Halo gravel scans.
+    // The native scan controls both the pebble boundary and its mineral face.
+    float3 mineralHue=clamp(coarse/max(.018,dot(coarse,luma)),.79,1.25);
+    float3 singleFace=lerp(float3(.105,.090,.079),float3(.48,.43,.365),scan.a)
+                      *lerp(1.0.xxx,mineralHue,.44);
+    float degree=finishScope*deposit;
+    float inset=scan.r*degree*(.52+.38*highFace);
+    color=lerp(color,singleFace,inset);
+    // Windrows overlap the road and duff along an intermittent road survey.
+    // Blade, bark and stone silhouettes have distinct materials within a fan.
+    float trackEdge=1-smoothstep(.46,.75,survey.x);
+    float vergeBand=finishScope*trackEdge*smoothstep(.22,.57,survey.y)*(1-smoothstep(.78,.96,survey.y));
+    float dry=smoothstep(.36,.76,scan.a);
+    float3 splinter=lerp(float3(.060,.031,.018),float3(.225,.145,.085),litter.r);
+    float3 straw=lerp(float3(.24,.15,.068),float3(.52,.357,.155),scan.a);
+    float3 dryVerge=lerp(color,splinter,.17*vergeBand*(1-pine));
+    dryVerge=lerp(dryVerge,lerp(splinter,straw,dry),saturate(scan.g*1.28));
+    dryVerge=lerp(dryVerge,singleFace*float3(1.09,1.06,1.01),scan.r);
+    color=lerp(color,dryVerge,vergeBand);

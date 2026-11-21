@@ -1,0 +1,78 @@
+        // A fractured pavement lip opens onto a compacted aggregate bed. Its
+        // outer edge follows variations in the road cut and the local soil.
+        float fromLip = edgeMetres-8.67;
+        float innerBed = 1.-smoothstep(.62,2.38,fromLip+.46*(dust-.5));
+        float brokenCrust = (1.-smoothstep(.07,.36,abs(fromLip+.21*(mineralGrain-.4))))
+                          * smoothstep(.22,.62,.62*chip.a+.38*mineralGrain);
+        asphalt *= 1.-.31*brokenCrust;
+        float3 soilFines = lerp(float3(.071,.059,.043),float3(.139,.111,.078),dust);
+        float3 gravelBed = stones*float3(1.19,1.19,1.22);
+        float gravel = saturate(.15+.58*innerBed+.25*mineralGrain);
+        float3 shoulder = lerp(soilFines,gravelBed,gravel);
+        float looseHeight = 0.;
+        [branch] if (fromLip>-.55 && fromLip<4.5 && grainFoot<.14)
+        {
+            // The original stone scan fills the narrow road cut. Areas of
+            // close-set, smaller faces are visible between the detached scree.
+            float2x2 st= float2x2(.672,-.741,.741,.672);
+            float2 bedUV=mul(st,m)/1.37+float2(.36,.74);
+            float3 fineStone=Texture2DSampleGrad(PathGravel,SiteEarthSampler,bedUV,
+                mul(st,earthDx)/1.37,mul(st,earthDy)/1.37).rgb;
+            float mineral=dot(fineStone,float3(.2126,.7152,.0722));
+            float depth=smoothstep(.035,.155,mineral);
+            float crown=smoothstep(.115,.244,mineral);
+            float visibility=1.-smoothstep(.045,.14,grainFoot);
+            float dense=visibility*innerBed*smoothstep(-.55,-.19,fromLip);
+            float3 bedColour=lerp(float3(.052,.048,.043),
+                                  fineStone*float3(1.23,1.20,1.17)+float3(.058,.053,.047),depth);
+            shoulder=lerp(shoulder,bedColour,dense*.91);
+            // The pre-existing edge atlas supplies detached scanned stones.
+            // Offset, orientation and size vary per site and stay world-locked.
+            float2 q=float2(.98*m.x+.31*m.y,-.47*m.x+1.06*m.y)*1.11;
+            float2 base=floor(q), f=frac(q);
+            float high=step(1.,f.x+f.y);
+            float3 weights=lerp(float3(1.-f.x-f.y,f.x,f.y),
+                                float3(f.x+f.y-1.,1.-f.x,1.-f.y),high);
+            float2 vertices[3]={base+high.xx,base+float2(1.-high,high),base+float2(high,1.-high)};
+            float miss=1.,sum=0.,tone=0.;
+            [unroll] for (int i=0;i<3;++i)
+            {
+                uint2 id=asuint(int2(vertices[i]));
+                uint h=(id.x*0x68bc21ebu)^(id.y*0x02e5be93u);
+                h^=h>>16u;h*=0x7feb352du;h^=h>>15u;h*=0x846ca68bu;h^=h>>16u;
+                float3 seed=float3(uint3(h,h>>10u,h>>20u)&1023u)/1023.;
+                float s,c;sincos(seed.x*6.2831853,s,c);
+                float2x2 spin=float2x2(c,-s,s,c);
+                float2 invPeriod=lerp(1.05,1.93,seed.y)/float2(1.12,5.04);
+                float2 uv=mul(spin,m)*invPeriod+seed.yz;
+                float2 gx=mul(spin,earthDx)*invPeriod,gy=mul(spin,earthDy)*invPeriod;
+                float2 reach=.68*(abs(gx)+abs(gy));
+                float lodLimit=min(1.,.18/max(.00001,max(reach.x,reach.y)));
+                float2 inset=max(0.,reach*lodLimit-5./float2(224.,1008.));
+                float2 scale=1.-2.*inset,tile=float2(224./2048.,1008./1024.);
+                float4 v=Texture2DSampleGrad(SweepFloorDetail,SiteEarthSampler,
+                    (frac(uv)*scale+inset)*tile+float2(1816./2048.,8./1024.),
+                    gx*scale*tile*lodLimit,gy*scale*tile*lodLimit);
+                float face=smoothstep(.045,.68,v.r)*smoothstep(.012,.24,weights[i]);
+                miss*=1.-face;
+                sum+=face;
+                tone+=face*v.a;
+            }
+            float deposit=visibility*(1.-miss)*(.17+.83*innerBed)
+                          *smoothstep(-.51,-.17,fromLip);
+            float scanValue=tone/max(.015,sum);
+            float3 mineralColour=lerp(float3(.085,.081,.076),float3(.367,.319,.253),
+                                      smoothstep(.16,.80,scanValue));
+            shoulder=lerp(shoulder,mineralColour,deposit);
+            // Angular remnants of asphalt continue across the first loose
+            // stones. Small cavities between the two surfaces stay dark.
+            float lip=1.-smoothstep(.16,.81,abs(fromLip-.07));
+            float fragment=smoothstep(.42,.71,.47*chip.a+.36*crown+.17*dust)*lip;
+            shoulder=lerp(shoulder,asphalt*(.70+.16*depth),fragment*.89);
+            looseHeight=dense*(.004*depth+.005*crown)+deposit*(.004+.009*scanValue)
+                        +.010*fragment-.006*brokenCrust;
+        }
+        float2 dhShoulder=float2(ddx(looseHeight),ddy(looseHeight));
+        float2 shoulderSlope=float2(earthDy.y*dhShoulder.x-earthDx.y*dhShoulder.y,
+                                    earthDx.x*dhShoulder.y-earthDy.x*dhShoulder.x)*inverseGroundDet;
+        float2 n=lerp(stonesN*.61-clamp(shoulderSlope,-.68,.68),chipN*.74+stonesN*.022,course);

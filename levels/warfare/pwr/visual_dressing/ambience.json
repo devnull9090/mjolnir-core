@@ -1,0 +1,30 @@
+{
+  "root": "/Game/MJOLNIR/GrassPilot/Playable",
+  "waves": {
+    "SW_PWR_ForestDay": "sound_sfx_ambience_exteriors_loops_forestday_loop.wav",
+    "SW_PWR_WindLight": "sound_sfx_ambience_exteriors_loops_windlight_loop.wav",
+    "SW_PWR_Stream": "sound_sfx_ambience_a30_a30stream_loop.wav",
+    "SW_PWR_Falls": "sound_sfx_ambience_a30_a30falls_loop.wav"
+  },
+  "background": [
+    {"wave": "SW_PWR_ForestDay", "gain": 0.32, "fade_in": 3.0},
+    {"wave": "SW_PWR_WindLight", "gain": 0.2, "fade_in": 3.0}
+  ],
+  "flowing_water": {
+    "wave": "SW_PWR_Stream",
+    "min_speed": 0.6,
+    "loud_speed": 2.0,
+    "spacing_m": 55,
+    "gain": [0.22, 0.55],
+    "inner_m": 10,
+    "falloff_m": 34,
+    "max": 6
+  },
+  "waterfall": {
+    "wave": "SW_PWR_Falls",
+    "gain": 0.85,
+    "inner_m": 14,
+    "falloff_m": 70,
+    "max": 4
+  }
+}

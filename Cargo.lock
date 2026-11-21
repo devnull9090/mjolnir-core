@@ -208,6 +208,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha2",
  "ue-asset",
  "ue-iostore",
  "ue-texture",

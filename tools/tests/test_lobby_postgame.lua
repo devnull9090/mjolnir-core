@@ -653,4 +653,39 @@ do
     eq(postScreens, 1, "its own match after votes as before")
     reset()
 end
+-- Warfare explicitly opts out of the ordinary mixed-mode rotation. Its
+-- no-vote default remains on PWR, and an unsupported map cannot opt itself
+-- into a descriptor-restricted mode by listing its id.
+do
+    local descriptor = dofile("mods/MJOLNIRLevelLoader/Scripts/mode_descriptors.lua").warfare
+    Modes.register(descriptor)
+    MAPS = MAPS:sub(1, -2) .. ',{"code":"PWR","title":"Pelican Warfare","modes":["koth"]},'
+        .. '{"code":"QWR","title":"Other map","modes":["warfare"]}]'
+    worlds = { BGL = true, PRS = true, DCN = true, ZZT = false, PWR = true, QWR = true }
+    local options = voteOptions({ code = "PWR", variant = "warfare" })
+    eq(#options, 1, "Warfare only rotates among supported Warfare maps")
+    eq(options[1].code, "PWR"); eq(options[1].mode, "warfare"); eq(options[1].again, true)
+    local foreign = voteOptions({ code = "QWR", variant = "warfare" })
+    eq(#foreign, 1, "an unsupported map cannot self-register via its modes list")
+    eq(foreign[1].code, "PWR")
+    descriptor.maps.QWR = true
+    options = voteOptions({ code = "PWR", variant = "warfare" })
+    eq(#options, 2, "future explicitly supported Warfare maps can rotate")
+    eq(options[2].code, "QWR"); eq(options[2].mode, "warfare")
+    descriptor.maps.QWR = nil
+    reset()
+    host, worldName, Live.quitAt = true, "Frontend", nil
+    standings("PWR", "warfare", os.time() + 20)
+    hostPostGame()
+    local vote = post().vote
+    eq(#vote.options, 1)
+    vote.endsAt = os.clock() - 1
+    postTick()
+    eq(vote.chosen, 1, "no ballots replays Warfare instead of silently changing modes")
+    runQueued()
+    eq(countdowns(), 1)
+    reset()
+    options = voteOptions({ code = "BGL", variant = "slayer" })
+    eq(#options > 1, true, "ordinary mode rotation is unchanged")
+end
 print("Lobby after a match: " .. checks .. " checks passed")
