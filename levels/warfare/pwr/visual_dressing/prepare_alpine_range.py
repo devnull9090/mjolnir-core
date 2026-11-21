@@ -74,17 +74,11 @@ def survey_cirque(x, y):
     return surface, footprint
 
 
-def build(out):
-    if out.resolve() == BASE.resolve():
-        raise ValueError("Use a separate candidate directory")
-    out.mkdir(parents=True, exist_ok=True)
-    baseline = json.loads((BASE / "receipt.json").read_text())
-    if sha256(DEM) != baseline["survey_sha256"]:
-        raise ValueError("The candidate requires the surveyed release source")
-    with np.load(BASE / "apron.source.npz") as source:
-        vertices = source["vertices_m"]
-        triangles = source["triangles"]
-        seam_normals = source["normals"][:4032]
+def range_field(vertices):
+    """The rear range and rib sharpening on the 8 m grid, from the parent apron's vertices.
+
+    Returns grid x, y, the parent height, the protection weight, ribs and rear lift; the
+    displacement anywhere is sample_grid((ribs + rear_lift) * weight, x, y)."""
     y, x = np.indices((1024, 1024), dtype=float)
     x = (x + 0.5) * CELL - 4000
     y = 4000 - (y + 0.5) * CELL
@@ -114,6 +108,21 @@ def build(out):
     high = smooth(335, 760, height)
     relief = nd.gaussian_filter(height, 1) - nd.gaussian_filter(height, 4.3)
     ribs = np.clip(relief * .63, -25, 23) * high
+    return x, y, height, weight, ribs, rear_lift, rows
+
+
+def build(out):
+    if out.resolve() == BASE.resolve():
+        raise ValueError("Use a separate candidate directory")
+    out.mkdir(parents=True, exist_ok=True)
+    baseline = json.loads((BASE / "receipt.json").read_text())
+    if sha256(DEM) != baseline["survey_sha256"]:
+        raise ValueError("The candidate requires the surveyed release source")
+    with np.load(BASE / "apron.source.npz") as source:
+        vertices = source["vertices_m"]
+        triangles = source["triangles"]
+        seam_normals = source["normals"][:4032]
+    x, y, height, weight, ribs, rear_lift, rows = range_field(vertices)
     vx, vy, original = vertices.T.copy()
     dz = sample_grid((ribs + rear_lift) * weight, vx, vy)
     if np.any(dz[:4032]) or not np.all(np.isfinite(dz)):

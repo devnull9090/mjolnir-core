@@ -177,7 +177,17 @@ def apply(work, verify):
     if editor.get_editor_world().get_path_name().split(".")[0] != world:
         assert levels.load_level(world)
     if not verify:
-        mats = [metal_material("M_FR_BridgeDeck", DECK), metal_material("M_FR_BridgeTrim", TRIM), light_material()]
+        # The deck wears the Forerunner floor master the bases use (pwr_forerunner_floor.py): one family.
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import pwr_forerunner_floor as floor
+        master, _ = floor.ensure_master(os.environ.get("MJ_FR_TEXTURES", os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "../../../out/pwr/base-ground/textures")))
+        mats = [floor.instance("MI_FR_BridgeDeck", master, dict(FloorTint=(0.34, 0.36, 0.38, 1), FloorAxis=(1, 0, 0, 0),
+                                                                FloorLayout=(1500, 500, 5, 0.7))),
+                floor.instance("MI_FR_BridgeTrim", master, dict(FloorTint=(0.16, 0.18, 0.2, 1), FloorAxis=(1, 0, 0, 0),
+                                                                FloorFinish=(0.2, 0.5, 0.9, 0.5), FloorLayout=(1500, 250, 4, 0.5))),
+                light_material()]
         for a in actors.get_all_level_actors():
             if a.get_actor_label().startswith(PREFIX):
                 actors.destroy_actor(a)

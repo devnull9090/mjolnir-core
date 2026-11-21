@@ -1,5 +1,6 @@
 """Cooked-package and release checks for the outlet planting, cutbank and spring."""
 import argparse
+import json
 import os
 from pathlib import Path
 import shutil
@@ -13,6 +14,9 @@ from stage_world_playtest import jsonfile, stage_name
 import sys
 sys.path.insert(0, str(p.ROOT / "tools/level"))
 from flux_wrap_safe import make_level_safe
+import forerunner_surfaces
+import stage_vista
+import stage_interiors
 
 WORK = p.ROOT / "out/pwr/river-riparian"
 BASIN = WORK.parent / "river-basin"
@@ -99,12 +103,40 @@ def stage(art, version):
         # Baked Flux borders: wrap-safe, so the river tile's south edge does not blend with its
         # high north edge into a curtain at the seam (tools/level/flux_wrap_safe.py).
         changed, flux_report = make_level_safe(inputs/"pwr.level.json", inputs)
+        # Forerunner ground: courts, approaches and site finishes onto the Forerunner floor master and
+        # natural bed ground (tools/level/forerunner_surfaces.py). Slot names come from this release's
+        # own cooked meshes, read beside the game's global container.
+        with tempfile.TemporaryDirectory(dir=WORK) as paks:
+            for f in inputs.glob("pakchunk*.u*"):
+                shutil.copyfile(f, Path(paks)/f.name)
+            for g in ("global.utoc", "global.ucas"):
+                shutil.copyfile(Path(p.paks)/g, Path(paks)/g)
+            level = jsonfile(inputs/"pwr.level.json")
+            surface_report = forerunner_surfaces.reskin(level, str(p.ROOT/"target/release/mjolnir.exe"), str(Path(paks).resolve()))
+            # Distant range: atmosphere and range material values (visual_dressing/vista.json), and
+            # a re-refined range mesh container when PWR_VISTA_APRON names a packaged apron folder.
+            vista_report = stage_vista.apply(inputs, level, hashes, os.environ.get("PWR_VISTA_APRON") or None)
+            # Base interiors (stage_interiors.py): the meshes whose coplanar faces were separated go
+            # into the release's own base container when PWR_BASES_COOKED names their cook
+            # (PWR_BASES_MANIFEST the import manifest); then lights at the lamps of the meshes as
+            # they now ship, and the lamps' glow.
+            interiors = {}
+            if os.environ.get("PWR_BASES_COOKED"):
+                interiors["splice"] = stage_interiors.splice(inputs, os.environ["PWR_BASES_COOKED"], hashes,
+                                                             os.environ["PWR_BASES_MANIFEST"])
+                for f in inputs.glob("pakchunk955-*.u*"):
+                    shutil.copyfile(f, Path(paks)/f.name)
+            fixtures = jsonfile(stage_vista.CONFIG).get("fixture_lights")
+            if fixtures:
+                interiors["lights"] = stage_interiors.light(level, str(p.ROOT/"target/release/mjolnir.exe"),
+                                                            str(Path(paks).resolve()), fixtures)
+            (inputs/"pwr.level.json").write_text(json.dumps(level, indent=2))
         for rel in changed+["level.json"]:
             member = "map/"+rel
             hashes[member] = p.sha(inputs/stage_name(member))
         seal_release(args,folder,inputs,parent,hashes,manifest,dict(
             modified_members=sorted(k for k in hashes if hashes[k]!=original[k]),
-            riparian_shore=art,compiled_bsp_sha256=art["compiled_bsp_sha256"],flux_wrap_safe=flux_report))
+            riparian_shore=art,compiled_bsp_sha256=art["compiled_bsp_sha256"],flux_wrap_safe=flux_report,forerunner_surfaces=surface_report,vista=vista_report,interiors=interiors))
         folder.rename(output)
     print(output)
 
