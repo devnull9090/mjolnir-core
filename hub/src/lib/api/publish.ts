@@ -1214,6 +1214,16 @@ export function registerPublishRoutes(app: OpenAPIHono<ApiEnv>) {
         return c.redirect(release.download_url, 302);
       }
 
+      // The bucket's own public host serves the archive whole, with its
+      // length and byte ranges. Streamed through this Worker a large archive
+      // stops short on any connection slower than the bucket: 685 MB arrived
+      // complete once in six tries (2026-11-21). Clients check the SHA-256
+      // the API gave them, so where the bytes come from changes nothing.
+      const publicBase = (c.env.MODS_PUBLIC_URL ?? "").replace(/\/+$/, "");
+      if (publicBase) {
+        return c.redirect(`${publicBase}/${release.r2_key!.split("/").map(encodeURIComponent).join("/")}`, 302);
+      }
+
       const obj = await c.env.MODS_BUCKET.get(release.r2_key!);
       if (!obj) return c.json({ error: "not_found" }, 404);
       return c.body(obj.body as unknown as ReadableStream, 200, {
