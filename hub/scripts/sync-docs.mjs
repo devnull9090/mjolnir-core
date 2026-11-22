@@ -158,6 +158,23 @@ function rewriteImages(body) {
 // ── Search chunks ────────────────────────────────────────────────────────
 
 /**
+ * Raw HTML tags out of a run of text, repeated until there is nothing left to
+ * take: one pass over `<scr<b>ipt>` joins what is on either side of the tag it
+ * removes into a new one. What comes out is only ever shown as text (a search
+ * snippet, a summary) or made into a heading's anchor, never written into a
+ * page as HTML, but a string that is said to have no tags should have none.
+ */
+function stripTags(text) {
+  let before;
+  let after = text;
+  do {
+    before = after;
+    after = before.replace(/<\/?[a-zA-Z][^>]*>/g, "");
+  } while (after !== before);
+  return after;
+}
+
+/**
  * Inline Markdown down to the text a reader sees. Unlike toPlainText this
  * keeps underscores inside words: `mjolnir_auto` and `cheat_all_weapons` are
  * what people search for.
@@ -172,9 +189,7 @@ function inlineText(value) {
     .map((piece, index) =>
       index % 2 === 1
         ? piece.replace(/^`+|`+$/g, "")
-        : piece
-            .replace(/<(https?:[^>]+)>/g, "$1")
-            .replace(/<\/?[a-zA-Z][^>]*>/g, "")
+        : stripTags(piece.replace(/<(https?:[^>]+)>/g, "$1"))
             .replace(/\*\*([^*]+)\*\*/g, "$1")
             .replace(/(^|[^\w*])\*([^*\s][^*]*)\*(?!\w)/g, "$1$2")
             .replace(/(^|[^\w])_([^_\s][^_]*)_(?!\w)/g, "$1$2")
