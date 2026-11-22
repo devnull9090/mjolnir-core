@@ -2751,13 +2751,23 @@ impl Baker {
             } else {
                 kind.weapons.iter().collect()
             };
-            // One arsenal serves every map (defs/level/bots.json): a weapon the
-            // map's palette lacks is left out of the turn, and with none left
+            // One arsenal serves every map (defs/level/bots.json). A weapon
+            // named by its full tag path (`objects\weapons\...`) is added to
+            // the palette when the map lacks it, as a character is, so a bot
+            // starts with what a player starts with on every map. A bare name
+            // the palette lacks is left out of the turn, and with none left
             // the donor's stays.
             let mut weapons = Vec::new();
             for want in wanted {
                 match palette_index(&self.file, "weapon palette", "name", want)? {
                     Some(w) => weapons.push(w),
+                    None if want.contains('\\') => {
+                        let i = self.add_element("weapon palette")?;
+                        apply_set(&mut self.file, &format!("weapon palette[{i}].name"), &format!("weap:{want}"))
+                            .with_context(|| format!("bots: weapon {want}"))?;
+                        println!("  palette weapon palette[{i}] <- {want}");
+                        weapons.push(i);
+                    }
                     None => println!("  note    bots: {}: no weapon palette entry matching {want:?}, left out", kind.name),
                 }
             }
