@@ -137,7 +137,8 @@ pipeline note's known issues).
 
 ## What is still CU3-or-earlier-measured
 
-These notes carry an older build stamp and have **not** been re-measured against CU4. Most
+These notes carry an older build stamp. Their sections dated 2026-08-19 and later were measured
+on CU4; the undated body was **not** re-measured. Most
 describe file formats, which move far less often than code addresses — and the CU4 corpus
 validating 100% structurally is indirect evidence the container and tag layout notes still hold
 — but nothing here should be cited as CU4-verified:

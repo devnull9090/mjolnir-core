@@ -30,7 +30,8 @@ export default function MultiplayerResearchPage() {
     <main id="main" className="mx-auto max-w-4xl">
       <aside className="mb-8 border border-gold/30 bg-gold/5 p-5 text-sm leading-7">
         <strong className="text-gold">Looking to play multiplayer?</strong>{" "}
-        The multiplayer alpha now includes all 19 classic Halo CE maps with Slayer and CTF.{" "}
+        The multiplayer alpha now has the 19 classic Halo CE maps, Halo 2 and Custom Edition maps,
+        Forge, bots, and Slayer, CTF and fifteen more game types.{" "}
         <Link href="/multiplayer" className="font-semibold text-gold underline">Get setup steps and multiplayer FAQs.</Link>{" "}
         The investigation below records the earlier CU2 research.
       </aside>
@@ -58,7 +59,7 @@ export default function MultiplayerResearchPage() {
 
       <section className="py-9" aria-labelledby="verdict-heading">
         <h2 id="verdict-heading" className="text-xl font-bold">
-          Current verdict
+          Verdict at CU2
         </h2>
         <div className="mt-5 border-l-2 border-gold bg-surface px-5 py-4">
           <p className="font-semibold text-foreground">No hidden multiplayer world package was found.</p>
@@ -134,7 +135,8 @@ export default function MultiplayerResearchPage() {
             <p className="mt-2 text-sm leading-6 text-text-muted">
               The native simulation module contains CTF, Slayer, Oddball, King of the Hill,
               Infection, Juggernaut, Assault, Territories, Forge, team, respawn, and loadout
-              identifiers. Presence does not yet prove that the shipping UE5 layer can activate them.
+              identifiers. Presence alone did not prove that the shipping UE5 layer could activate them;
+              the updates below say what has since.
             </p>
             <p className="mt-2 text-sm leading-6 text-text-muted">
               <strong className="text-foreground">Update 2026-10-21:</strong> the Megalo engine now
@@ -170,8 +172,8 @@ export default function MultiplayerResearchPage() {
         <p className="mt-4 text-sm leading-6 text-text-muted">
           Fourteen high-level session, lobby, and travel hooks registered but produced no callbacks
           during the captured interval. This is an observation, not proof that the official flow
-          bypasses them: tracing may have begun after an earlier transition. The next probe snapshots
-          reflected variant and network-component state and traces endpoint assignment directly.
+          bypasses them: tracing may have begun after an earlier transition. The next probe was to
+          snapshot reflected variant and network-component state and trace endpoint assignment directly.
         </p>
         <div className="mt-5 border border-border p-5">
           <EvidenceBadge level="Verified" />
@@ -184,8 +186,8 @@ export default function MultiplayerResearchPage() {
             therefore does not prove a network peer exists.
           </p>
           <p className="mt-3 text-sm leading-6 text-text-muted">
-            A second human tester is not currently available. The solo-versus-co-op differential,
-            custom-travel session preservation, and competitive-mode activation remain unverified.
+            No second human tester was available then, so the solo-versus-co-op differential,
+            custom-travel session preservation, and competitive-mode activation stayed unverified.
           </p>
           <p className="mt-3 text-sm leading-6 text-text-muted">
             <strong className="text-foreground">Update 2026-10-21:</strong> two of the three are
@@ -271,8 +273,8 @@ export default function MultiplayerResearchPage() {
         </div>
         <p className="mt-4 text-sm leading-6 text-text-muted">
           MJOLNIRMultiplayer now uses the verified CU2 root-world paths and dispatches plain or
-          listen-server travel through the live player controller. It still does not create or
-          advertise a session, and travel has not yet been verified in HCE.
+          listen-server travel through the live player controller. At the time it did not create or
+          advertise a session, and travel had not been verified in HCE.
         </p>
         <p className="mt-4 text-sm leading-6 text-text-muted">
           <strong className="text-foreground">Update 2026-10-21:</strong> superseded. MJOLNIRLobby

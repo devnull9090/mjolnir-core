@@ -38,7 +38,7 @@ from a runtime mod reading your level file. One `.level.json` describes both.
 |---|---|
 | `mjolnir` CLI | a release install (`scoop install mjolnir` or `brew install mjolnir`, see [getting_started.md](getting_started.md)), or `cargo build --release -p blam-cli` from a clone |
 | Blender 4.0+ addon | `scripts\install-blender-tools.ps1` (installs and enables it, plus blender-mcp), or install `tools/blender/mjolnir_level` by hand ([its README](../tools/blender/mjolnir_level/README.md)) |
-| `MJOLNIRLevelLoader` mod | the launcher installs it, with its native DLL, when it installs multiplayer or a map. `scripts\install-bridge.ps1 -Mods MJOLNIRLevelLoader` copies the repository's Lua instead and replaces the whole folder, removing the installed `levels/`, `registry/`, `variants/` and native DLL (build the DLL first with `native\map_registry\build.ps1` to keep it) |
+| `MJOLNIRLevelLoader` mod | the launcher installs it, with its native DLL, when it installs multiplayer or a map. `scripts\install-bridge.ps1 -Mods MJOLNIRLevelLoader` copies the repository's Lua instead and replaces the whole folder, removing the installed `levels/`, `registry/`, `variants/` and native DLL (build the DLL first with `native\map_registry\build.ps1` to keep it). While testing a repository copy, start the game from Steam, not the launcher: a launcher launch puts the released files back ([update_check.md](update_check.md)) |
 | Mesh catalog (for the decor library) | `mjolnir mesh list --paks <Paks> --out mesh-catalog.json` (~3 min) |
 
 `<Paks>` is `<game>\Meteorite\Content\Paks`; set `HCE_PAKS` once and drop the

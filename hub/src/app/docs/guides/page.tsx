@@ -18,11 +18,10 @@ export default function GuidesPage() {
         <p className="mb-3 text-xs font-bold uppercase text-gold">MJOLNIR Guides</p>
         <h1 className="text-3xl font-black sm:text-4xl">Guides</h1>
         <p className="mt-4 max-w-2xl text-base leading-7 text-text-muted">
-          Follow one start to finish and you will have done the thing. Every step here has been run
-          against the real game. For the working history behind them — including the turns that were
-          wrong — see{" "}
+          Follow one start to finish and you will have done the thing. For how each feature works,
+          and the history behind it, see the docs{" "}
           <Link href="/docs/notes" className="text-gold hover:underline">
-            research notes
+            by subject
           </Link>
           .
         </p>

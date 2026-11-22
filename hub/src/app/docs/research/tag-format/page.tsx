@@ -212,7 +212,7 @@ blocks: camera_track_control_point_block  max 16
               <p className="text-sm font-semibold">The data walk is not yet proven</p>
               <p className="mt-2 text-sm leading-6 text-text-muted">
                 The decisive test is walking the bdat payload with the field list and asserting it
-                is consumed exactly, for all 12,290 shipped tags. Until that passes, field offsets
+                is consumed exactly, for all 12,290 shipped tags (CU2&apos;s count; CU4 ships 12,292). Until that passes, field offsets
                 into the data are inferred rather than confirmed.
               </p>
             </div>
@@ -236,7 +236,7 @@ blocks: camera_track_control_point_block  max 16
           A Rust workspace under crates/ reads containers and layouts directly. ue-iostore parses UE
           5.5 IoStore containers, blam-tag parses the container header and section tree, blam-defs
           holds the shared definition model, and blam-cli exposes it as the mjolnir command. It
-          parses 101 of 101 groups across all 12,290 shipped payloads and recovers a complete field
+          parses 101 of 101 groups across all 12,290 shipped payloads (CU2&apos;s count; CU4 ships 12,292) and recovers a complete field
           list for every one.
         </p>
         <p className="mt-4 text-sm leading-6 text-text-muted">

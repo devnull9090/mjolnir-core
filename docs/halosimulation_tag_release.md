@@ -1,7 +1,7 @@
 # HaloSimulation_tag_release.dll Analysis
 
 **Status:** Active research
-**Last verified:** 2026-07-26
+**Last verified:** 2026-07-26 (CU2 RVAs); CU4 notes added 2026-10-21
 **Game build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2`
 
 > **Build label:** this note is stamped CU2; the installed build is CU4, whose simulation DLL is
@@ -128,7 +128,9 @@ never asks for it, but once the load-map handler is patched to request it (MJOLN
 multiplayer switch, which also lifts the map-variant checks the campaign flow cannot satisfy;
 `mjolnir live engine --launch-engine 2` makes the handler patch alone, by hand), converted CE
 maps run under it with a `.mglo` variant from `mjolnir megalo write`, which writes Slayer and CTF
-(PR #106, mods-v0.7.0).
+(PR #106, mods-v0.7.0). **Update 2026-11-21:** `megalo write` now also writes Team Slayer, Assault, Oddball,
+Team Oddball, Juggernaut, Stalker, Reverse Tag, King, Crazy King, Team King, Race, Team Race,
+Rally, Team Rally and Warfare (`crates/blam-cli/src/megalo.rs`, CLI 0.13.0).
 
 ## Reproduction
 
@@ -136,10 +138,10 @@ Use Ghidra 12.1.2 or newer. The current headless launcher does not execute repos
 unless Ghidra is started through PyGhidra, so the maintained probes are Java scripts.
 
 ```powershell
-& "C:\tools\ghidra_12.1.2_PUBLIC\support\analyzeHeadless.bat" `
+& "<ghidra-dir>\support\analyzeHeadless.bat" `
   <project-dir> HaloSimulation `
   -import <path-to-HaloSimulation_tag_release.dll> `
-  -scriptPath "C:\haloce\tools\ghidra" `
+  -scriptPath "<repo>\tools\ghidra" `
   -postScript AnalyzeBlamShell.java <output-dir>
 ```
 
@@ -147,6 +149,10 @@ For the host-side loader path, run `AnalyzeBlamLoader.java` against an analyzed
 `HaloCampaignEvolved.exe` project and verify the stored executable hash first.
 
 ## Next Checks
+
+**Partly answered (2026-10-21):** the game-variant selector the shipping flow never sets is the
+load-map handler's engine request, which `native/map_registry` patches (see the update above).
+The structure passed to slot 2 has still not been recovered.
 
 1. Find all host call sites for primary shell slots 2 and 3.
 2. Recover the startup structure passed to slot 2 and identify the game-variant selector.

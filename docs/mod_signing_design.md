@@ -6,7 +6,7 @@
 hub rejects an unsigned upload.
 
 Who bundled a `.mjolnir`, and how does anyone downstream know its bytes are the bytes
-they bundled? Today the answer is "the hub says so": the archive hash is pinned by the
+they bundled? Before this design, the answer is "the hub says so": the archive hash is pinned by the
 hub's scan record, the download is checked against it, and ownership is a row in a
 database. That is integrity against corruption, not authenticity — and it all rests on
 trusting the hub. This design adds author signatures so the claim "user U published
@@ -15,14 +15,16 @@ including when the hub itself is the thing you doubt.
 
 ## Three different problems, named
 
+As they stood before signing shipped:
+
 1. **Integrity** — did the bytes change between publish and install? *Solved today* for
    the honest-hub case: sha256 recorded at scan, verified at download, containers
    re-hashed on disk by `verify_installed`.
-2. **Attribution** — which account bundled release 1.2.0? *Not recorded today.* Only
-   `mods.owner_id` exists; if a mod changes hands or an API key leaks, nothing says who
+2. **Attribution** — which account bundled release 1.2.0? *Was not recorded.* Only
+   `mods.owner_id` existed; if a mod changes hands or an API key leaks, nothing said who
    uploaded which release.
 3. **Authenticity** — can the claim in (2) be proven without trusting the hub, and can
-   tampering by anyone — including the hub — be detected? *Does not exist today* for
+   tampering by anyone — including the hub — be detected? *Did not exist* for
    community mods. `mod_releases.signature` is platform-CI-only (script/native mods),
    verified against one pinned key compiled into the launcher.
 
@@ -47,8 +49,8 @@ imagined to solve and does not.
 ## The format
 
 A signed archive carries one extra member at the root: `signature.json`. Everything
-else about `.mjolnir` is unchanged, and unsigned archives remain valid during the
-transition (see Rollout).
+else about `.mjolnir` is unchanged. The hub has rejected unsigned uploads since 2026-08-02;
+releases published before then stay installable and are recorded as unsigned (see Rollout).
 
 ### Envelope
 
@@ -215,8 +217,8 @@ At install, after the existing hash check and before anything is materialized:
   cannot *prevent* what it detects.
 - **Downgrade warning.** A previously-signed mod arriving unsigned warns — quiet
   disappearance of a signature is exactly what tampering looks like.
-- Unsigned (never signed) → installs normally during the transition, recorded as
-  unsigned.
+- Unsigned (never signed) → installs normally, recorded as unsigned. Only releases from
+  before 2026-08-02 can be unsigned: the hub rejects unsigned uploads since then.
 
 ## Tag editor behavior
 
