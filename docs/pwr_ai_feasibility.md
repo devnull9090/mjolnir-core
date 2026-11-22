@@ -490,9 +490,14 @@ In short, and correcting sections 1, 4 and 5 above:
   and 51,844 links with sector borders allowed to move by 1 wu, or 19,290 and
   62,109 at 0.6 wu. With exactly convex sectors of whole triangles PWR does
   not fit (about 98,000 links).
-- **The bases are separate pieces.** They sit on the terrain without sharing
-  its edges, so nothing joins them to it yet. Covenant waves that land at the
-  sites do not need them; AI that should walk into a base does.
+- **Three structures are separate pieces**: the two bases (near (-590, -80) m
+  and (600, -80) m) and one more of the same size at (0, 690) m. They sit on
+  the terrain without sharing its edges, so nothing joins them to it yet.
+  Covenant waves that land at the sites do not need them; AI that should walk
+  into a base does.
+- **Water was not cut out in that run.** River and lake beds counted as
+  floor. Section 2 above says deep water must be left out; whether the ground
+  stays connected then is not measured.
 
 Nothing has run in the game. The remaining steps, in order:
 

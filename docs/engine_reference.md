@@ -58,7 +58,8 @@ Written to the standard above:
 These are older notes. They are accurate about what they measured, but they are
 working logs rather than reference articles: some carry superseded turns, and
 their addresses are for the build named at their top. Each is a candidate for
-rewriting to the standard.
+rewriting to the standard. The one-line summaries below were written from each
+note's opening, not from a full read.
 
 ### The simulation itself
 
@@ -76,9 +77,9 @@ rewriting to the standard.
 
 | Doc | Covers |
 |---|---|
-| [re/collision_bsp/README.md](re/collision_bsp/README.md) | How the simulation resolves collision BSP data at runtime. |
+| [re/collision_bsp/README.md](re/collision_bsp/README.md) | How the simulation resolves collision BSP data at runtime, and why a resized collision table crashes it. |
 | [ce_terrain_collision.md](ce_terrain_collision.md) | Halo CE terrain as this engine's collision. |
-| [heightfield_collision.md](heightfield_collision.md) | Large terrain as tiled collision. |
+| [heightfield_collision.md](heightfield_collision.md) | Master heightfields for large terrain and the collision prototype built from them. |
 | [ce_native_support.md](ce_native_support.md) | Which CE tag data the engine reads natively. |
 | [new_scenario_loading.md](new_scenario_loading.md) | What a brand-new scenario needs before the game will start it. |
 
@@ -119,7 +120,7 @@ rewriting to the standard.
 | Pathfinding link and vertex indices are unsigned 16-bit, `0xFFFF` for none. | data | [AI pathfinding](engine_ai_pathfinding.md) |
 | A tag-data address inside the simulation is a 32-bit value `x`; the pointer is `segment_table[x >> 28] + x * 4`, with the segment table at RVA `0x2c2ccc0` (CU4). | traced | seen in every pathfinding reader |
 | An `instanced geometry instances` element is 148 bytes; its definition index is the short at `+0x34`, its pathfinding policy the byte at `+0x7c`. | traced, data | [AI pathfinding](engine_ai_pathfinding.md) |
-| `generate_pathfinding` and other build-time script functions are stubs: the shipped simulation cannot regenerate baked data. | traced | [AI pathfinding](engine_ai_pathfinding.md) |
+| `generate_pathfinding` is a stub, so the shipped simulation cannot regenerate pathfinding. The release build points 425 script functions at one shared return-false handler. | traced | [AI pathfinding](engine_ai_pathfinding.md), [re/restored_cheats.md](re/restored_cheats.md) |
 | AI is not placed in a multiplayer game by the stock script functions. | traced, live | [re/ai_in_multiplayer.md](re/ai_in_multiplayer.md) |
 
 ## Adding an article

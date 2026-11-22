@@ -172,6 +172,34 @@ fn main() {
         components.iter().take(5).map(|c| format!("{} sectors {:.1} wu^2", c.0, c.1)).collect::<Vec<_>>().join(", ")
     );
     println!("ring sizes: {sizes:?}");
+    // Where each piece of ground other than the largest lies, and whose it is.
+    {
+        let mut pieces: BTreeMap<usize, (f64, [f64; 2], std::collections::BTreeSet<u32>)> = BTreeMap::new();
+        for (s, &surface) in pf.sector_surface.iter().enumerate() {
+            let ring = blam_sbsp::unpack16::polygon(&mesh.collision, surface);
+            let a = area(&ring);
+            let e = pieces.entry(pf.component[s]).or_insert((0.0, [0.0; 2], Default::default()));
+            e.0 += a;
+            for k in 0..2 {
+                e.1[k] += a * ring.iter().map(|p| p[k] as f64).sum::<f64>() / ring.len() as f64;
+            }
+            for &m in &mesh.members[surface] {
+                e.2.insert(polygons[m as usize].object);
+            }
+        }
+        let mut pieces: Vec<_> = pieces.into_values().collect();
+        pieces.sort_by(|x, y| y.0.total_cmp(&x.0));
+        for (a, c, objects) in pieces.iter().skip(1).take(8) {
+            println!(
+                "  piece of {a:.0} wu^2 centred ({:.1}, {:.1}) wu = ({:.0}, {:.0}) m, instances {:?}",
+                c[0] / a,
+                c[1] / a,
+                c[0] / a * 3.048,
+                c[1] / a * 3.048,
+                objects.iter().take(12).collect::<Vec<_>>()
+            );
+        }
+    }
 
     let Some((scenario, bi)) = compare else { return };
     let scn = std::fs::read(&scenario).expect("scenario");

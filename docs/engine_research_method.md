@@ -86,9 +86,9 @@ prints counts and distributions, and keep it in the crate
   from the running game ([game_state_reader.md](game_state_reader.md)).
 - A crash seconds after an action usually means malformed data was read, not
   wrong values. Check the container before the contents.
-- Solo first, then two game copies on one PC, then two PCs. Each step finds
-  different faults ([multiplayer_servers.md](multiplayer_servers.md) describes
-  hosting).
+- Solo first, then two or three game copies on one PC
+  ([multi_instance.md](multi_instance.md)), then two PCs
+  ([two_pc_test.md](two_pc_test.md)). Each step finds different faults.
 
 ## Writing it down
 

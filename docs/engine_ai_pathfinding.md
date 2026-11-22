@@ -214,7 +214,7 @@ Warfare's 151 instances all do.
 | `0x16d960` | Returns a BSP's pathfinding data. Every reader goes through it. | traced |
 | `0x13d4618` (data) | The per-BSP runtime table the accessor reads. | traced |
 | `0x7e2660` (data) | The projection table (below). | traced, bytes read from the file |
-| HS function 464 | `generate_pathfinding`. Points at the shared return-false handler: **the game has no generator**. | traced |
+| HS function 464 | `generate_pathfinding`. Points at the shared return-false handler, like the other script functions the release build stubs out ([re/restored_cheats.md](re/restored_cheats.md)): **the game has no generator**. | traced |
 
 ### The lookup, step by step
 
@@ -374,9 +374,17 @@ not been tried on B40 itself.
 | 1.0 wu | 15,197 | 51,844 | 33,890 | 6,252 |
 
 All 18 terrain tiles come out as **one connected ground** of about 452,000
-wu², joined tile to tile by intersection links, plus three separate pieces of
-about 3,100 wu² each (the bases, which sit on the terrain without sharing its
-edges).
+wu², joined tile to tile by intersection links. Three structures stay separate
+pieces of about 3,100 wu² each: the two bases (centred near (-590, -80) m and
+(600, -80) m, by the home flags) and a third of the same size at (0, 690) m.
+They sit on the terrain without sharing its edges, so no seam joins them to it.
+
+Two limits on that result. It was run with **every floor accepted, river and
+lake beds included** (the simulation has no water, so they are ordinary
+collision); with deep water cut out, as the feasibility note recommends,
+connectivity has not been measured. And the output was checked only for closed
+rings and consistent hints: nothing yet verifies that each source triangle lies
+inside its sector's straightened polygon to within `border`.
 
 Why exactly convex sectors do not fit: the terrain is an irregular triangle
 mesh, and a convex polygon made of whole triangles can only have a handful of
@@ -415,6 +423,8 @@ cargo run --release -p blam-sbsp --example pf_roundtrip -- <scenario> <bsp index
 | What do `threshold` and the unflagged outer links mean? | We write neither as Bungie does. | Same trace; then compare AI behaviour on a link with and without the flag. |
 | Do generated object refs run? | Nothing here has been in the game. | The live gate: swap generated data in for B40 BSP 8's (where Bungie's own is known to run in a Megalo match), then a small converted map, then PWR. |
 | Does an overlapping floor (a base on terrain) need a seam of its own? | PWR's bases are separate pieces. | Read how shipped data joins a building's floor to terrain it overlaps (`pf_objects` on A30). |
+| Does generated output look like shipped output? | Only rings and hints are checked today. | Run `pf_stats`' measures (winding, flatness, dent depth) on generated tables, and add a check that every source triangle's centre lies within `border` of its sector's polygon. |
+| Is the ground still connected with deep water cut out? | The PWR run accepted river and lake beds. | Pass a water mask as the generator's floor filter and count the pieces again. |
 | What are `seams`, `jump seams`, `doors` and `giant pathfinding data`? | Unknown blocks in the same element. | Census them across the shipped scenarios first. |
 
 ## History
