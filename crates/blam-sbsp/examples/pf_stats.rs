@@ -176,6 +176,13 @@ fn main() {
         }
         let mut sizes: Vec<usize> = sizes.into_values().collect();
         sizes.sort_unstable_by(|a, b| b.cmp(a));
+        // Sectors named after the BSP index: which piece each is in, and where.
+        for s in a.iter().skip(2).filter_map(|x| x.parse::<usize>().ok()).filter(|&s| s < ns) {
+            let root = find(&mut parent, s);
+            let k = link(i32_at(sectors.element(s).unwrap(), 4) as usize);
+            let size = (0..ns).filter(|&x| find(&mut parent, x) == root).count();
+            println!("  sector {s}: piece {root} of {size} sector(s), a corner at {:?}", vertex(k[0]));
+        }
         println!("  components: {}, largest {:?}", sizes.len(), &sizes[..sizes.len().min(8)]);
         // The same without sectors on moving objects (`sector mobile`), to set
         // against ground generated for the static instances alone.

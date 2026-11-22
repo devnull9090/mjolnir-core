@@ -353,6 +353,26 @@ the bake does not create a collision plane or kill volume. The original level
 JSON is retained in the map archive, so the value reaches the loader. Omit it
 or use `null` to leave the loader's per-map default in effect.
 
+### `blam.pathfinding` — sectors from instanced geometry ([engine_ai_pathfinding.md](engine_ai_pathfinding.md))
+
+```jsonc
+"pathfinding": {
+  "instances": "static",    // which instances get sectors: those whose policy in the BSP is static
+  "plane_tolerance": 0.2,   // how far a sector's points may lie from its plane, wu
+  "dent": 0,                // how far a sector's corner may lie inside its convex hull, wu
+  "border": 0,              // how far a border between two sectors may move when straightened, wu
+  "max_corners": 16,        // corners per sector, straight runs not counted
+  "min_ground": 0           // connected ground smaller than this (wu², in plan) gets no sectors
+}
+```
+
+Replaces the AI pathfinding of the level's BSP (`single_bsp`, or the first of
+`active_bsps`) with sectors generated from its instanced geometry, for ground
+that lives in instances: a campaign BSP, or a converted terrain. The BSP's
+payload comes from `--bsp <index>=<payload>` or `--pathfinding-bsp <payload>`.
+Firing positions on that BSP are looked up again on the new sectors. Not with
+`blam.bots`, which builds the pathfinding from the BSP's shell.
+
 ### `blam.bots` — AI bots ([bots.md](bots.md))
 
 ```jsonc

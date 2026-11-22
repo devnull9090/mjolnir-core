@@ -499,16 +499,22 @@ In short, and correcting sections 1, 4 and 5 above:
   floor. Section 2 above says deep water must be left out; whether the ground
   stays connected then is not measured.
 
-Nothing has run in the game. The remaining steps, in order:
+**Run live on B40 (same day).** `level bake` now takes `blam.pathfinding` and
+writes the generated sectors as object refs. On B40's BSP 8 an Elite walked
+generated sectors across three instances to the player and killed them; the
+control with Bungie's data behaved the same way. One thing the first run
+taught: firing positions store the sector they stand on, and must be looked up
+again when sectors change. Details in the engine article.
 
-1. **Bake integration.** Have `level bake` write the generated sectors as
-   object refs (in the proved order), set the chosen instances' policy to
-   `static`, and point `instanced geometry refs` at them. Which instances are
-   chosen is a rule on the data (ground of at least a set area), never a list
-   of indices.
-2. **Live gate on B40.** Swap generated data in for B40 BSP 8's own, where
-   Bungie's is known to run in a Megalo match (the BOT test map). A crash there
-   is the generator's.
+Nothing has run on PWR. The remaining steps, in order:
+
+1. **Choose instances by rule and set their policy.** The bake so far takes
+   instances that are already `static`. PWR needs the terrain tiles chosen by a
+   rule on the data (ground of at least a set area), their policy byte set to
+   `static` in the BSP, and new object refs added for them (PWR's scenario has
+   none to reuse).
+2. **Firing positions for PWR.** Generate them on the new sectors, per capture
+   candidate (section 4).
 3. **Live gate on PWR.** One placed squad walking 300 wu across tiles, with the
    looser and the tighter border setting, to choose between them.
 4. Steps 6 to 10 of the list above (proxy budget, zones and objectives, the

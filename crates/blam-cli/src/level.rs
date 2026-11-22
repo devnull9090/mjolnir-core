@@ -148,6 +148,11 @@ pub struct BakeArgs {
     /// Repeatable.
     #[arg(long = "bsp", value_name = "INDEX=PAYLOAD")]
     pub bsps: Vec<String>,
+    /// The payload of the level's structure BSP, read to generate AI
+    /// pathfinding (`blam.pathfinding`) and not written anywhere: for a level
+    /// that plays on a canvas BSP as it ships.
+    #[arg(long = "pathfinding-bsp", value_name = "PAYLOAD")]
+    pub pathfinding_bsp: Option<PathBuf>,
     /// With `--standalone`: a cooked world package (`.umap`, plus a `.ubulk`
     /// beside it when it has one) to ship as the map's own Unreal world,
     /// renamed from the canvas mission's path to the codename's (same-length
@@ -404,6 +409,13 @@ pub struct BlamSection {
     /// and AI pathfinding generated from the kept BSP's collision.
     #[serde(default)]
     pub bots: Option<Bots>,
+    /// Generate AI pathfinding for the level's BSP from its instanced
+    /// geometry (docs/engine_ai_pathfinding.md), replacing what the canvas
+    /// scenario carries for that BSP. For ground that lives in instances: a
+    /// campaign BSP, or a converted terrain. Needs the BSP's payload
+    /// (`--bsp` or `--pathfinding-bsp`).
+    #[serde(default)]
+    pub pathfinding: Option<InstancePathfinding>,
     /// An `.hsc` file (relative to the level file) compiled into the scenario
     /// next to the startup script `clear.scripts` writes. Its names (objects,
     /// device groups, trigger volumes, flags) resolve against the scenario
@@ -411,6 +423,45 @@ pub struct BlamSection {
     /// Needs `clear.scripts`.
     #[serde(default)]
     pub script: Option<PathBuf>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstancePathfinding {
+    /// Which instances get sectors. `static`: those whose `pathfinding
+    /// policy` in the BSP is already static, the only ones the simulation
+    /// reads.
+    pub instances: PathfindingInstances,
+    /// How far a sector's points may lie from its plane, wu.
+    #[serde(default = "default_plane_tolerance")]
+    pub plane_tolerance: f32,
+    /// How far a sector's corner may lie inside its convex hull, wu.
+    #[serde(default)]
+    pub dent: f32,
+    /// How far the border between two sectors may move when it is
+    /// straightened, wu.
+    #[serde(default)]
+    pub border: f32,
+    /// The most corners a sector may have, straight runs not counted.
+    #[serde(default = "default_max_corners")]
+    pub max_corners: usize,
+    /// Connected ground smaller than this (wu^2 in plan) gets no sectors.
+    #[serde(default)]
+    pub min_ground: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PathfindingInstances {
+    Static,
+}
+
+fn default_plane_tolerance() -> f32 {
+    0.2
+}
+
+fn default_max_corners() -> usize {
+    16
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -2397,6 +2448,266 @@ impl Baker {
         Ok(BotIndices { squad, count, zone, objective, hint, spawns: spawns.iter().map(|s| (s.pos, s.yaw)).collect() })
     }
 
+    /// Replace BSP `bsp`'s pathfinding with sectors generated from its
+    /// instanced geometry (`sbsp` is the BSP's payload). The simulation finds
+    /// an AI's sector through the instance it stands on: `instanced geometry
+    /// refs[instance]` names an `object refs` element whose refs hold one
+    /// entry per collision surface of the instance's definition
+    /// (docs/engine_ai_pathfinding.md).
+    ///
+    /// Existing object refs keep their indices, because scenario objects name
+    /// them by index. An instance reuses the object it already has when that
+    /// object is its alone and the right size; otherwise it gets a new one,
+    /// cloned from such an object with its child blocks. Every other ref (the
+    /// shell's, and objects that are not instances) becomes none: the sectors
+    /// they named are gone.
+    fn instance_pathfinding(&mut self, cfg: &InstancePathfinding, bsp: usize, sbsp: &[u8]) -> Result<()> {
+        use blam_sbsp::navmesh::{self, Options, POLICY_STATIC};
+        use blam_sbsp::pathfinding;
+        use blockedit::{element_with_wrapper, NestedReplace};
+        let copies = pathfinding::shell_collision(sbsp)
+            .and_then(|shell| pathfinding::shell_copies(sbsp, &shell))
+            .unwrap_or_default();
+        let PathfindingInstances::Static = cfg.instances;
+        let (instances, polygons) = navmesh::instance_polygons(sbsp, &|i, inst| {
+            inst.policy == POLICY_STATIC && !copies.get(i).copied().unwrap_or(false)
+        })
+        .map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+        let mut refs: BTreeMap<usize, Vec<i32>> = BTreeMap::new();
+        for p in &polygons {
+            refs.entry(p.object as usize).or_insert_with(|| vec![-1; instances[p.object as usize].surfaces]);
+        }
+        if refs.is_empty() {
+            bail!("pathfinding: no instance of the BSP has a static pathfinding policy");
+        }
+        let options = Options {
+            plane_tolerance: cfg.plane_tolerance,
+            max_ring: cfg.max_corners,
+            dent: cfg.dent,
+            border: cfg.border,
+            ..Options::default()
+        };
+        let (mesh, pf) = navmesh::generate(&polygons, &|_, _| true, &options, cfg.min_ground)
+            .map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+        pf.check_rings().map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+        pf.check_hints().map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+        for (n, p) in polygons.iter().enumerate() {
+            if let Some(sector) = mesh.surface_of[n].and_then(|s| pf.surface_sector[s as usize]) {
+                refs.get_mut(&(p.object as usize)).expect("taken")[p.surface as usize] = sector as i32;
+            }
+        }
+
+        // What the scenario has now.
+        let pfp = format!("ai pathfinding data[{bsp}]");
+        struct Old {
+            /// `object id` is unset: an object for instanced geometry.
+            plain: bool,
+            /// The ref count of each `bsps` entry.
+            bsps: Vec<usize>,
+        }
+        let (old, mut igr, shell_refs) = {
+            let tag = TagFile::parse(&self.file, Some(self.file.len()))?;
+            let l = tag.layout()?;
+            let root = tag.read_data(&l)?;
+            let block = |path: &str| blockedit::find_block(&l, &self.file, &root, path).map(|f| f.block);
+            let objects = block(&format!("{pfp}.object refs"))?;
+            let mut old = Vec::new();
+            for o in 0..objects.count as usize {
+                let e = objects.element(o).context("object ref")?;
+                let entries = block(&format!("{pfp}.object refs[{o}].bsps"))?.count as usize;
+                let mut bsps = Vec::new();
+                for k in 0..entries {
+                    bsps.push(block(&format!("{pfp}.object refs[{o}].bsps[{k}].bsp2d refs"))?.count as usize);
+                }
+                old.push(Old { plain: e[16..].iter().all(|&b| b == 0xff), bsps });
+            }
+            let igr = block(&format!("{pfp}.instanced geometry refs"))?;
+            if igr.count as usize != instances.len() || igr.element_size != 4 {
+                bail!(
+                    "pathfinding: the scenario has {} instanced geometry ref(s) of {} bytes; the BSP has {} instance(s)",
+                    igr.count,
+                    igr.element_size,
+                    instances.len()
+                );
+            }
+            (old, igr.elements.to_vec(), block(&format!("{pfp}.bsp2d refs"))?.count as usize)
+        };
+        let named = |igr: &[u8], i: usize| i16::from_le_bytes([igr[i * 4], igr[i * 4 + 1]]);
+        let mut users = vec![0usize; old.len()];
+        for &i in refs.keys() {
+            if let Some(u) = usize::try_from(named(&igr, i)).ok().and_then(|o| users.get_mut(o)) {
+                *u += 1;
+            }
+        }
+        // The object each instance gets.
+        let mut object_of: BTreeMap<usize, usize> = BTreeMap::new();
+        let mut added = 0;
+        for (&i, r) in &refs {
+            let reuse = usize::try_from(named(&igr, i))
+                .ok()
+                .filter(|&o| o < old.len() && users[o] == 1 && old[o].plain && old[o].bsps == [r.len()]);
+            object_of.insert(i, reuse.unwrap_or_else(|| {
+                added += 1;
+                old.len() + added - 1
+            }));
+        }
+        let objects_path = format!("{pfp}.object refs");
+        if added > 0 {
+            let donor = (0..old.len())
+                .find(|&o| old[o].plain && old[o].bsps.len() == 1)
+                .context("pathfinding: the scenario has no instanced-geometry object ref to clone new ones from")?;
+            let (donor_element, donor_wrapper) = element_with_wrapper(&self.file, &objects_path, donor)?;
+            let (mut elements, mut wrappers) = (Vec::new(), Vec::new());
+            for o in 0..old.len() {
+                let (e, w) = element_with_wrapper(&self.file, &objects_path, o)?;
+                elements.extend(e);
+                wrappers.push(w);
+            }
+            for _ in 0..added {
+                elements.extend(&donor_element);
+                wrappers.push(donor_wrapper.clone());
+            }
+            if old.len() + added > 8192 {
+                bail!("pathfinding: {} object refs; a BSP holds 8192", old.len() + added);
+            }
+            self.file = blockedit::replace_nested(
+                &self.file,
+                &[NestedReplace {
+                    path: objects_path.clone(),
+                    count: (old.len() + added) as u32,
+                    elements,
+                    wrappers: Some(wrappers),
+                }],
+            )?;
+        }
+        // Each object's refs: an instance's own, or none.
+        let leaf = |path: String, values: &[i32]| NestedReplace {
+            path,
+            count: values.len() as u32,
+            elements: values.iter().flat_map(|v| v.to_le_bytes()).collect(),
+            wrappers: None,
+        };
+        let instance_of: BTreeMap<usize, usize> = object_of.iter().map(|(&i, &o)| (o, i)).collect();
+        for o in 0..old.len() + added {
+            match instance_of.get(&o) {
+                Some(i) => {
+                    let path = format!("{objects_path}[{o}].bsps[0].bsp2d refs");
+                    self.file = blockedit::replace_nested(&self.file, &[leaf(path, &refs[i])])?;
+                    if o >= old.len() {
+                        // A clone: the entry's own fields are the donor's;
+                        // `vertex offset`, which the simulation never reads,
+                        // is cleared.
+                        let entries = format!("{objects_path}[{o}].bsps");
+                        let (mut element, wrapper) = element_with_wrapper(&self.file, &entries, 0)?;
+                        let n = element.len();
+                        element[n - 4..].fill(0);
+                        self.file = blockedit::replace_nested(
+                            &self.file,
+                            &[NestedReplace { path: entries, count: 1, elements: element, wrappers: Some(vec![wrapper]) }],
+                        )?;
+                    }
+                }
+                None => {
+                    for (k, &count) in old[o].bsps.iter().enumerate() {
+                        let path = format!("{objects_path}[{o}].bsps[{k}].bsp2d refs");
+                        self.file = blockedit::replace_nested(&self.file, &[leaf(path, &vec![-1; count])])?;
+                    }
+                }
+            }
+        }
+        for (&i, &o) in &object_of {
+            igr[i * 4..i * 4 + 2].copy_from_slice(&(o as i16).to_le_bytes());
+        }
+        let table = |name: &str, count: usize, elements: Vec<u8>| NestedReplace {
+            path: format!("{pfp}.{name}"),
+            count: count as u32,
+            elements,
+            wrappers: None,
+        };
+        let mut edits = vec![
+            table("sectors", pf.sectors.len(), pf.sectors_bytes()),
+            table("links", pf.links.len(), pf.links_bytes()),
+            table("bsp2d refs", shell_refs, (-1i32).to_le_bytes().repeat(shell_refs)),
+            table("bsp2d nodes", 0, Vec::new()),
+            table("vertices", pf.vertices.len(), pf.vertices_bytes()),
+            table("pathfinding hints", pf.hints.len(), pf.hints_bytes()),
+            table("instanced geometry refs", instances.len(), igr),
+        ];
+        // These name links and sectors that are gone.
+        for name in ["giant pathfinding data", "seams", "jump seams", "doors"] {
+            edits.push(table(name, 0, Vec::new()));
+        }
+        self.file = blockedit::replace_nested(&self.file, &edits)?;
+
+        // Every firing position on this BSP stores the sector it stands on,
+        // and an AI plans its way to a position through that sector: the old
+        // indices now name other sectors, or none. Look each one up again.
+        // A position in a moving object's frame keeps no sector.
+        let zones = block_count(&self.file, "zones")?;
+        let (mut placed, mut lost) = (0, 0);
+        for z in 0..zones {
+            let fpp = format!("zones[{z}].firing positions");
+            let (count, size, mut elements) = {
+                let tag = TagFile::parse(&self.file, Some(self.file.len()))?;
+                let l = tag.layout()?;
+                let root = tag.read_data(&l)?;
+                let b = blockedit::find_block(&l, &self.file, &root, &fpp)?.block;
+                (b.count as usize, b.element_size as usize, b.elements.to_vec())
+            };
+            if count == 0 {
+                continue;
+            }
+            let off = field_offsets(
+                &self.file,
+                &format!("{fpp}[0]"),
+                &["position (local)", "reference frame", "structure bsp", "bsp index", "sector index"],
+            )?;
+            let mut changed = false;
+            for e in elements.chunks_exact_mut(size) {
+                let short = |e: &[u8], o: usize| i16::from_le_bytes([e[o], e[o + 1]]);
+                if short(e, off[2]) != bsp as i16 && short(e, off[3]) != bsp as i16 {
+                    continue;
+                }
+                let sector = if short(e, off[1]) >= 0 {
+                    None
+                } else {
+                    let p = [0, 4, 8].map(|k| f32::from_le_bytes(e[off[0] + k..off[0] + k + 4].try_into().unwrap()));
+                    // The floor at or just under the point, no further down
+                    // than an AI stands tall.
+                    pf.sector_at(&mesh.collision, p).filter(|&(_, floor)| p[2] - floor < 1.0).map(|(s, _)| s)
+                };
+                match sector {
+                    Some(_) => placed += 1,
+                    None => lost += 1,
+                }
+                put_i16(e, off[4], sector.map_or(-1, |s| s as u16 as i16));
+                changed = true;
+            }
+            if changed {
+                self.file = blockedit::replace_nested(
+                    &self.file,
+                    &[NestedReplace { path: fpp, count: count as u32, elements, wrappers: None }],
+                )?;
+            }
+        }
+        println!("  path    firing positions on BSP {bsp}: {placed} on a sector, {lost} on none");
+        println!(
+            "  path    pathfinding[{bsp}]: {} static instance(s) of {}, {} polygon(s) -> {} sector(s) ({} step(s)), {} link(s) ({} seam(s)), {} vertices; {} object ref(s) reused, {} added, {} emptied",
+            refs.len(),
+            instances.len(),
+            polygons.len(),
+            pf.sectors.len(),
+            pf.sectors.iter().filter(|s| !s.is_floor()).count(),
+            pf.links.len(),
+            pf.hints.len() / 2,
+            pf.vertices.len(),
+            refs.len() - added,
+            added,
+            old.len() + added - refs.len()
+        );
+        Ok(())
+    }
+
     /// Point the cloned squads, zone and objective at each other and at the
     /// map, and write the BSP's generated pathfinding. Runs after
     /// `single_bsp`, with `bsp` the BSP's final index and `sbsp` its payload.
@@ -3176,6 +3487,29 @@ fn bake(a: BakeArgs) -> Result<()> {
 
     if let Some(keep) = level.blam.single_bsp {
         baker.single_bsp(keep)?;
+    }
+    if let Some(cfg) = &level.blam.pathfinding {
+        if level.blam.bots.is_some() {
+            bail!("pathfinding: blam.bots writes the BSP's pathfinding from its shell; use one or the other");
+        }
+        let canvas_bsp = level
+            .blam
+            .single_bsp
+            .or_else(|| level.blam.active_bsps.first().copied())
+            .context("pathfinding: name the level's BSP with single_bsp or active_bsps")?;
+        let payload = match &a.pathfinding_bsp {
+            Some(p) => p.clone(),
+            None => a
+                .bsps
+                .iter()
+                .filter_map(|s| s.split_once('='))
+                .find(|(i, _)| i.parse::<usize>().ok() == Some(canvas_bsp))
+                .map(|(_, p)| PathBuf::from(p))
+                .with_context(|| format!("pathfinding: --bsp {canvas_bsp}=<payload> or --pathfinding-bsp <payload> is needed"))?,
+        };
+        let sbsp = std::fs::read(&payload).with_context(|| format!("cannot read BSP payload {}", payload.display()))?;
+        let bsp = if level.blam.single_bsp.is_some() { 0 } else { canvas_bsp };
+        baker.instance_pathfinding(cfg, bsp, &sbsp)?;
     }
     if let (Some(b), Some(ix)) = (&level.blam.bots, &bots) {
         // The bots walk the BSP the level plays on: its `--bsp` payload.
