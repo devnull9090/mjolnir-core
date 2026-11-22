@@ -646,6 +646,9 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
     let mut roles: BTreeMap<&str, Option<String>> = BTreeMap::new();
     let mut tags: BTreeMap<&str, Tag<'_>> = BTreeMap::new();
     let mut cube_faces: Option<Vec<String>> = None;
+    // A placeholder in the base slot of a template that cuts out on another
+    // map's alpha, kept for when nothing better turns up (below).
+    let mut placeholder_base: Option<Tag<'_>> = None;
     let mut constants: Vec<[f32; 4]> = Vec::new();
     // Pixel constants: D3DCOLOR (B, G, R, A) each, here as RGBA in 0..1.
     let mut pixel: Vec<[f32; 4]> = Vec::new();
@@ -656,10 +659,16 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
                 continue;
             }
             let Some(t) = cache.tag(shader.file, b.u32(0)) else { continue };
-            // A placeholder is left out, except the base of a template that
-            // cuts out on another map's alpha: Backwash's canopy is
-            // color_black with the leaves' outline in its bump map.
-            if is_placeholder(t.name()) && !(role == "base" && tpl.alpha_tested && tpl.alpha_from != "base") {
+            // A placeholder is left out. The base of a template that cuts out
+            // on another map's alpha falls back to it when the runtime
+            // properties name no diffuse map either: Backwash's canopy is
+            // color_black with the leaves' outline in its bump map, while
+            // Warlock's tower vines (default_detail in the slot) take their
+            // colour from the runtime diffuse map, dt_vines_dif.
+            if is_placeholder(t.name()) {
+                if role == "base" && tpl.alpha_tested && tpl.alpha_from != "base" {
+                    placeholder_base = Some(t);
+                }
                 continue;
             }
             if role == "env" {
@@ -690,7 +699,18 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
         if let Some(t) = root.block(0x0C, 0x50).get(0).and_then(|rp| rp.tagref(0x00)).and_then(|r| cache.follow(r)) {
             if !is_placeholder(t.name()) {
                 roles.insert("base", tex.stage(cache, &t, 0, dir, notes));
+                // Only a cut needs its tag (below); tinting and tiling, which
+                // also read `tags`, keep drawing this map as they did.
+                if tpl.alpha_tested && tpl.alpha_from != "base" {
+                    tags.insert("base", t);
+                }
             }
+        }
+    }
+    if roles.get("base").cloned().flatten().is_none() {
+        if let Some(t) = placeholder_base {
+            roles.insert("base", tex.stage(cache, &t, 0, dir, notes));
+            tags.insert("base", t);
         }
     }
     if tpl.alpha_tested && tpl.alpha_from != "base" {
