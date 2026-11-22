@@ -23,6 +23,13 @@ That is exactly what the install stage puts in the game, so the pack plays
 as the tested install does. The shared parts (the trial masters, chunk 983,
 and the water masters, 982) are not a map's: they go in the runtime pack,
 which --runtime makes the maps need. Writes <out>/packs/<slug>-<version>.mjolnir.
+
+A pack that has none of something the release it replaces has is refused and
+removed (release_loss.py: a game type, a lane of the bake, machines, a
+labelled kind of object, a custom vehicle, a `map/` file, a family of
+containers). The release it replaces is the one installed from the hub, or
+--against a pack file when the installed one is itself the faulty one.
+--allow-loss names what is meant to go.
 """
 import argparse
 import glob
@@ -37,6 +44,7 @@ sys.path.insert(0, HERE)
 from machine_containers import map_tag_containers, pack_path  # noqa: E402
 from owned_map_cook import verified_owned_cook  # noqa: E402
 from cooked_map_container import cooked_map_container  # noqa: E402
+import release_loss  # noqa: E402
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CONFIG = os.path.join(HERE, "ce_upgrade_maps.json")
 LAUNCHER = os.path.join(os.environ.get("APPDATA", ""), "com.devnull9090.mjolnir-launcher")
@@ -162,6 +170,35 @@ def stage(code, m, work, out):
     return inst, dst
 
 
+def replaced(cache, against):
+    """The release a new pack replaces, as its member names and level file:
+    the pack `against`, else the installed hub release in the launcher's
+    cache, whose folder holds the containers and `map/` as the pack does."""
+    if against:
+        return release_loss.pack(against)
+    names = []
+    for root, _, files in os.walk(cache):
+        rel = os.path.relpath(root, cache).replace(os.sep, "/")
+        names += [f if rel == "." else f"{rel}/{f}" for f in files]
+    with open(os.path.join(cache, "map", "level.json"), encoding="utf-8") as f:
+        return names, json.load(f)
+
+
+def refuse_losses(code, archive, old, allowed):
+    """Stop, and remove the archive, when the pack has none of something
+    the release it replaces has and --allow-loss does not name it."""
+    missing = release_loss.lost(*old, *release_loss.pack(archive))
+    meant = [line for line in missing if any(a in line for a in allowed)]
+    for line in meant:
+        print(f"  allowed to go: {line}")
+    missing = [line for line in missing if line not in meant]
+    if missing:
+        os.remove(archive)
+        sys.exit(f"{code}: the pack has none of these, which the release it replaces has:\n  "
+                 + "\n  ".join(missing)
+                 + "\nNothing was packed. Build them into the map, or name each with --allow-loss.")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("maps", nargs="+")
@@ -171,17 +208,23 @@ def main():
     ap.add_argument("--out", default="C:/haloce/ce_conversions/remastered")
     ap.add_argument("--sign", action="store_true", help="sign with this machine's device key")
     ap.add_argument("--summary", default="", help="the hub card line, for every map")
+    ap.add_argument("--against", help="the pack this release replaces (one map), when the installed one is not it")
+    ap.add_argument("--allow-loss", action="append", default=[], metavar="TEXT",
+                    help="a loss that is meant: a refused line holding this text is let through (repeatable)")
     a = ap.parse_args()
     config = json.load(open(CONFIG, encoding="utf-8"))
     bad = [c for c in a.maps if c not in config]
     if bad:
         sys.exit(f"unknown: {bad}")
+    if a.against and len(a.maps) != 1:
+        sys.exit("--against takes one map")
     if not os.path.exists(CLI):
         sys.exit(f"build the CLI first: cargo build --release -p blam-cli ({CLI})")
     os.makedirs(os.path.join(a.out, "packs"), exist_ok=True)
     for code in a.maps:
         m = config[code]
         inst, dst = stage(code, m, a.work, a.out)
+        old = replaced(os.path.join(LAUNCHER, "hub-cache", inst["release_id"]), a.against)
         archive = os.path.join(a.out, "packs", f"{m['hub']}-{a.version}.mjolnir")
         cmd = [CLI, "map", "pack", dst, "--code", code, "--version", a.version, "--slug", m["hub"],
                "--name", inst.get("name") or m["hub"], "--runtime", a.runtime, "--out", archive]
@@ -194,6 +237,7 @@ def main():
         print(r.stdout.strip())
         if r.returncode:
             sys.exit(f"{code}: map pack failed\n{r.stderr}")
+        refuse_losses(code, archive, old, a.allow_loss)
         print(f"  {archive}: {os.path.getsize(archive) / 2 ** 20:.1f} MiB")
 
 
