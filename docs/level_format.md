@@ -101,7 +101,7 @@ map). Author around your own origin in Blender; move the whole level by editing 
       "materials": ["", "/Game/.../MI_Ground.MI_Ground"] }   // slot 0, slot 1, ...
   ],
 
-  "markers": [                       // named points for future game modes; spawns nothing today
+  "markers": [                       // named points; ce_objectives.py turns some into objectives
     { "name": "flag_red", "pos": [0, 0, 0] }
   ]
 }
@@ -425,7 +425,10 @@ and the loader's comments beside each are the reference.
   stands), `health_pack` (the CE health pack's look), `koth_hills` (King's hills in rotation order, for
   the HUD's hill line: x, y, z and radius in cm, from `tools/level/ce_objectives.py`), `race_flags`
   (Race's checkpoints by rank, in the same form) and
-  `foliage` (the game's grass, tufts and stones, from a file beside the level).
+  `foliage` (the game's grass, tufts and stones, from a file beside the level). Also `game`
+  (`halo1` or `halo2`: the map select's game filter), `warfare` (`{protocol, layout_revision}`,
+  Pelican Warfare's layout contract), `lifts`, `doors` and `gears` (Halo 2's lifts, part-moving
+  machines and turning parts, from `gen_ce_level.py`), `author` and `description`.
 - Written by `tools/level/upgrade_ce_map.py` for a remastered map, and unknown to
   `level validate` and `level bake`: `landscape` (an Unreal Landscape for the ground), `flux`
   (Fluid Flux over rivers and the sea), `decals` (the game's decal materials), `lights` (CE's
@@ -477,9 +480,7 @@ world's clock); see the loader's `spawnDecorItem`.
 
 ### `markers`
 
-Inert points, carried so game-mode work (see
-[multiplayer_ctf_plan.md](multiplayer_ctf_plan.md)) can consume them later without a format
-change. An authored level names them, following the MapKit convention (`flag_red`, `hill_1`,
+Named points the bake does not place. An authored level names them, following the MapKit convention (`flag_red`, `hill_1`,
 ...); a converted CE map lists its netgame flags as `{ "type", "team", "pos", "yaw" }`
 (`ctf_flag`, `hill`, `oddball`, ..., from `defs/level/ce-tag-map.json`).
 `tools/level/ce_objectives.py` turns `hill`, `oddball` and `race_track` markers into labelled
@@ -529,7 +530,8 @@ Blender (+ addon)                        tools/blender/mjolnir_level
 A map installed from a map pack lives at `ue4ss/MJOLNIRMaps/<CODE>/level.json`, which the loader
 reads in preference to `levels/` ([map_distribution.md](map_distribution.md)).
 
-Launch the canvas mission through the game's own menu (CAMPAIGN → mission select, or the debug
+A standalone map is hosted from MJOLNIRLobby's MULTIPLAYER menu (or `mjolnir_auto host <CODE>
+<mode> private`). Launch a canvas mission through the game's own menu (CAMPAIGN → mission select, or the debug
 map menu — `mjolnir_mission` does not cold-start the simulation on current builds; see the
 2026-08-19 investigation notes). The loader detects the world, spawns decor, reports via
 `mjolnir_level_status`.

@@ -603,9 +603,11 @@ stubs, and with no entries the seed hashes nothing. `ue_iostore::pak::write_stub
 identical. `mjolnir new-tag`, `texture swap`, the `ue` commands and `level bake --install-test`,
 the tag editor's test install, and the launcher's profile materialization all write it. The tag
 editor's exported `.mjolnir` carries only the `.utoc`/`.ucas` pair, and the launcher adds the stub
-when it installs it. `mjolnir pack` writes only the `.utoc`/`.ucas` pair. Three pipeline
-scripts still copy `pakchunk115-Windows.pak` instead: `tools/level/bake_editor_world.sh`, the install step of `tools/level/upgrade_ce_map.py`
-(for a container with no `.pak` of its own), and `unreal/MJOLNIRMapKit/scripts/package.ps1`.
+when it installs it. `mjolnir pack` writes only the `.utoc`/`.ucas` pair. Some pipeline
+scripts still copy `pakchunk115-Windows.pak` instead: `tools/level/bake_editor_world.sh`,
+`unreal/MJOLNIRMapKit/scripts/package.ps1`, and the Python tools that patch a map's pack
+(`add_bots.py`, `add_objectives.py`, `fix_teleporter_teams.py` and the `ce_vehicle*.py` family
+under `tools/level/`).
 
 ## New packages register and resolve by name
 

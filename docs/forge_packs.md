@@ -191,7 +191,7 @@ changes remove their attached lights. See [Forge utilities](forge.md#pack-lights
 Optional `lift`, `door` and `surfaces` fields provide the additional bounded
 features used by Wide 0.2. See the [utility contract](forge_pack_utilities.md)
 for their schemas and runtime limits, and [material authoring](forge_pack_materials.md)
-for pack-owned glass/portal assets and shader-chunk reservations. A portal
+for pack-owned glass/portal assets and the shader chunk a pack's material container is cooked under. A portal
 surface is visual; native teleporter markers still perform travel.
 
 The archive contains `mjolnir.json`, cooked `.utoc`/`.ucas` pairs under

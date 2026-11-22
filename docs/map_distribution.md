@@ -8,7 +8,8 @@ launcher installs them with their dependencies and registers them
 (`apps/launcher/src-tauri/src/maps.rs`), and the 19 classic maps and the CE
 runtime pack are published, the remastered maps as 2.x releases of the same
 listings. The tag editor's map publishing and the Rust cook (Phase 5)
-remain: see [Phases](#phases).
+remain: see [Phases](#phases). **Update 2026-11-21:** Halo 2 maps, Custom Edition
+conversions, Forge maps and Pelican Warfare are published the same way.
 
 Converted Halo CE maps ([ce_map_conversion.md](ce_map_conversion.md)) reach
 players the way texture swaps and tag edits do. Each map is baked ahead of
@@ -51,8 +52,8 @@ content/
   pakchunk986-MJOLNIRMESH-<CODE>_P.ucas
   pakchunk985-MJOLNIRCOOK-<CODE>_P.utoc   the map's cooked CE textures, lightmaps and
   pakchunk985-MJOLNIRCOOK-<CODE>_P.ucas   ambient sounds
-  pakchunk<N>-MJOLNIRLAND-<CODE>_P.utoc   a remastered map's landscape world; it has a
-  pakchunk<N>-MJOLNIRLAND-<CODE>_P.ucas   shader library, so it keeps its chunk number
+  pakchunk<N>-MJOLNIRLAND-<CODE>_P.utoc   a remastered map's landscape world, with a
+  pakchunk<N>-MJOLNIRLAND-<CODE>_P.ucas   shader library the launcher renumbers with it
   pakchunk996-MJOLNIRBANK-<CODE>_P/<id>.bnk   a vehicle's Wwise banks (below), beside
                                               that container's .utoc and .ucas
 map/
@@ -97,7 +98,7 @@ The manifest's map block:
     "vehicles": true,
     "game": "halo1"
   },
-  "compat": { "min_build": "2026.06.26.1097863.1" },
+  "compat": { "min_build": "2026.08.11.1121610.2" },
   "deps": [{ "slug": "mjolnir-ce-runtime", "range": "^1.0.0" }]
 }
 ```
@@ -182,8 +183,8 @@ no error.
 
 ### The CE runtime pack
 
-This pack is published once by us and updated rarely. It holds everything
-converted maps share. `tools/level/build_ce_runtime.sh` builds most of it:
+This pack is published by us and updated when a shared piece changes (1.19.0
+as of mods 0.46.1). It holds everything converted maps share. `tools/level/build_ce_runtime.sh` builds most of it:
 
 | Container | Holds |
 |---|---|
@@ -194,6 +195,9 @@ converted maps share. `tools/level/build_ce_runtime.sh` builds most of it:
 | `pakchunk990-MJOLNIRHPACK_P`, `-HPSPOT_P`, `-HPMESH_P` | the health pack, its spawn spot and its mesh |
 | `pakchunk990-MJOLNIRSPARTAN_P` | the Spartan model with its body material on the body damage section (shipped on the head section, every bullet hit was a headshot) |
 | `pakchunk990-MJOLNIRFLUX_P` | Fluid Flux's infinite sea (`NS_InfiniteSurfaceMesh`) with fixed bounds 10 km tall: the shipped ones are 50 m round Z 0, and a sea far below it (Yoyorast's, -256 m) was culled whole when the top of the view was level. Byte offsets, so it is rebuilt for every game update |
+| `pakchunk980-MJOLNIRFORGEUI-Windows` | the Forge HUD and its glyphs; MJOLNIRForge shows its text panel without it |
+| `pakchunk990-MJOLNIRFORGEMON_P` | Forge's monitor, the editor model the simulation creates; MJOLNIRLobby offers FORGE only with it installed |
+| `pakchunk995-MJOLNIRBOT-<kind>-<level>_P` (15) | the bots' characters, which every map with bots requires (from 1.16.0; [bots.md](bots.md)) |
 | `pakchunk984-MJOLNIRUI-Windows` | the multiplayer screens and HUD widgets ([custom_ui.md](custom_ui.md)) |
 | `pakchunk981-MJOLNIRH2-Windows` | the Halo 2 masters (`/Game/MJOLNIR/H2`, `Scripts/build_h2_materials.py`): `M_H2_PlasmaAlpha`, which converted Halo 2 maps' plasma draws with ([h2_map_conversion.md](h2_map_conversion.md)) |
 | `pakchunk966-MJOLNIRKOTH-Windows` | King's hill materials ([koth_visuals.md](koth_visuals.md)) and the CTF flag's cloth master (`/Game/MJOLNIR/Cloth/M_CE_FlagCloth`, `Scripts/build_flag_cloth.py`), with their shader library: the GPU waves the cloth from the material's Time, so the loader moves nothing per frame. Without it, the loader moves the cloth's strips from Lua |
@@ -309,8 +313,8 @@ edited it, and switched on in `mods.txt`. A map whose code another
 installed map holds is refused.
 
 **Install multiplayer** (the launcher's Multiplayer page,
-`hub::install_multiplayer`) runs this for every official map (`GET
-/maps?official=1`), then materializes and registers once. Maps already at
+`hub::install_multiplayer`) runs this for every official map of a game (`GET
+/maps?official=1&game=<game>`), then materializes and registers once. Maps already at
 their newest release are skipped, so running it again is an update. Since
 launcher 0.14.1 a map whose cache lacks a file its level names (its foliage
 file, `decals/`) is fetched again rather than skipped.
@@ -497,6 +501,7 @@ scheme, which launcher 0.13.0 and newer register:
    and the launcher show each map's hub cover image (`cover_url`; PR #165
    and #166), and nothing reads a `map/preview.png`.
 
-TST reserves shader chunk **968** for published-launcher compatibility. Older launchers
-classify only `pakchunk9NN-MJOLNIR...` as supported; other map texture-only cooks may
-retain the legacy 985 name, but an authored shader cook must preserve its actual chunk.
+**Before launcher 0.24.0:** TST reserved shader chunk **968**, because older launchers
+classify only `pakchunk9NN-MJOLNIR...` as supported and an authored shader cook had to keep
+its actual chunk. Launcher 0.24.0 and newer accept any number and renumber on install
+([chunk_numbering.md](chunk_numbering.md)).

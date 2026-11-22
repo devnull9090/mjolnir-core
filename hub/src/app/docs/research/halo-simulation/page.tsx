@@ -64,7 +64,11 @@ export default function HaloSimulationPage() {
           <span className="break-all font-mono text-xs">
             C8C144404ADF61A9DE821C996682A7E66ABADD7E530397D3BBDE31C123203BF7
           </span>
-          . The fingerprint above, the RVAs, and the host hash on this page are CU2&apos;s and were
+          , and its host executable&apos;s SHA-256 is{" "}
+          <span className="break-all font-mono text-xs">
+            EB1DACA659207F2B5C8A6FD922917195AE9C8AE19E771E396E08906282A4B152
+          </span>
+          . The fingerprint above, the RVAs, and the host hash further down are CU2&apos;s and were
           not re-recorded for CU4.
         </p>
       </section>

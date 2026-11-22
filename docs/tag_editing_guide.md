@@ -580,9 +580,10 @@ container the game loads in front of the shipped one; it reads the result back b
 writing. Paths index arrays with `[n]` and map keys with `{key}`. Numbers, bools, names,
 strings, enums (by name or number), soft object paths (`/Game/Pkg.Asset`) and vectors,
 colours and guids as comma lists can be set. Object references cannot: pointing a property
-at a different package needs import-map surgery, which is not done here. There is no
-editor surface for this yet; it is the foundation the mesh and material tooling will build
-on.
+at a different package needs import-map surgery, which `ue set` does not do. `mjolnir ue scan`
+lists matching properties across packages, and `mjolnir ue clone` copies a package under a new
+path and can repoint an import (CLI 0.9.0; no clone has been loaded in game yet). There is no
+editor surface for any of this yet.
 
 ### Audio
 

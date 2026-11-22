@@ -1,7 +1,7 @@
 # Blam Tag Data in Halo Campaign Evolved
 
 **Status:** Active research
-**Last verified:** 2026-09-06
+**Last verified:** 2026-10-21 (CU4 for sections dated 2026-08-19 and later; inventory counts are CU2's)
 **Game build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2`
 **Host SHA-256:** `0670FAA751E2553940B90DF6BE43D3B0FF59EA87F22155CF3C3FE9D439367F1D`
 
@@ -402,7 +402,9 @@ campaign flow still never selects the Megalo engine; MJOLNIRLevelLoader's native
 map-load handler to it just before a converted CE multiplayer map starts, and the map runs a
 `.mglo` variant from `mjolnir megalo write`, which writes Slayer and CTF
 (`mods/MJOLNIRLevelLoader/Scripts/main.lua`, `crates/blam-cli/src/megalo.rs`; PR #106,
-mods-v0.7.0).
+mods-v0.7.0). **Update 2026-11-21:** `megalo write` now also writes Team Slayer, Assault, Oddball,
+Team Oddball, Juggernaut, Stalker, Reverse Tag, King, Crazy King, Team King, Race, Team Race,
+Rally, Team Rally and Warfare (`crates/blam-cli/src/megalo.rs`, CLI 0.13.0).
 
 ## Reproduction
 
@@ -461,8 +463,10 @@ control, and do not redistribute it. The repository `.gitignore` blocks `tagdump
 5. Read `game_engine_settings-game_engine_settings_definition` and
    `globals-multiplayer_object_type_list` to enumerate which competitive variants the shipped data
    actually defines.
-6. Determine whether the tag-to-Blueprint binding in `BlamBipedTagDataAsset` is a hard reference or
-   a soft object path, which decides whether new objects can be added without a cook.
+6. ~~Determine whether the tag-to-Blueprint binding in `BlamBipedTagDataAsset` is a hard reference or
+   a soft object path, which decides whether new objects can be added without a cook.~~
+   **Answered:** a new object tag loads with a rebuilt wrapper naming any Blueprint, no cook needed;
+   see *The new-package matrix, measured* in [`iostore_packaging.md`](iostore_packaging.md).
 7. ~~Assemble the per-region rig statics onto the SK reference skeleton by bone name.~~
    **Done 2026-08-19** — see "a vehicle's hull is rig statics" above; the warthog assembles
    whole (60/60 pieces placed, 613×325×243 cm, matching its 1.92 wu collision shell).

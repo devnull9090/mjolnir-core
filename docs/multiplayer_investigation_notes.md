@@ -11,24 +11,11 @@
 
 The working log of the first multiplayer and custom-world investigation, in the order it was found.
 
+> **Superseded.** What shipped is documented in [`ce_map_conversion.md`](ce_map_conversion.md),
+> [`map_distribution.md`](map_distribution.md), [`level_format.md`](level_format.md) and
+> [`multiplayer_menu.md`](multiplayer_menu.md). Read this for how it was found, not for how it works now.
+
 ---
-
-## 🗂️ Key Paths
-
-| What | Path |
-|:-----|:-----|
-| Project repo | `C:\haloce` |
-| Game install | `C:\Program Files (x86)\Steam\steamapps\common\Halo Campaign Evolved` |
-| Game EXE | `...\Meteorite\Binaries\Win64\HaloCampaignEvolved.exe` (230 MB) |
-| Simulation DLL | `...\Meteorite\Binaries\Win64\HaloSimulation_tag_release.dll` (14.6 MB) |
-| PlayFab DLL | `...\Meteorite\Binaries\Win64\PlayFabMultiplayerWin.dll` (1.8 MB) |
-| Party DLL | `...\Meteorite\Binaries\Win64\PartyWin.dll` (4.0 MB) |
-| UE4SS install | `...\Meteorite\Binaries\Win64\ue4ss\` |
-| UE4SS log | `...\ue4ss\UE4SS.log` (255 KB, 3502 lines) |
-| Pak files | `...\Meteorite\Content\Paks\` (40+ GB main chunk) |
-| LogicMods | `...\Meteorite\Content\Paks\LogicMods\` (EMPTY — ready for BP mods) |
-| Ghidra | `C:\tools\ghidra_12.1.2_PUBLIC` |
-| Installed mods | `...\ue4ss\Mods\mods.txt` |
 
 > **NOTE**: Historical `PenguinHotel` references came from MECCHA Chameleon (a different game), NOT from Halo CE. The real game module name is `Meteorite`.
 
@@ -315,7 +302,7 @@ $strings | Where-Object { $_ -match 'Multiplayer|OnlineService|Matchmak|Lobby|Pl
 ```
 
 ### 2. 🔴 Ghidra Analysis of HaloSimulation DLL (HIGH PRIORITY)
-Use `C:\tools\ghidra_12.1.2_PUBLIC` to:
+Use Ghidra to:
 - Analyze `CreateBlamEngineShell` — what vtable/interface does it return?
 - Find multiplayer game engine initialization paths
 - Check if `game_engine_slayer` etc. are function tables or just data

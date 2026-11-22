@@ -3,7 +3,9 @@
 **Status:** 2026-10-21. The 19 stock maps and the Custom Edition maps
 Yoyorast Island and Coldsnap convert with the one command below. A converted
 map is hosted from the main menu's MULTIPLAYER entry (MJOLNIRLobby, "Playing
-it"), and kills score and are recorded (two PCs, 2026-10-03).
+it"), and kills score and are recorded (two PCs, 2026-10-03). **Update 2026-11-21:** the same
+script also converts MCC's Halo 2 maps, staged by `mjolnir cache stage` instead of halo2ue
+([h2_map_conversion.md](h2_map_conversion.md)).
 `tools/level/upgrade_ce_map.py` takes a converted map further ("Upgraded
 maps"). First verified in game on 2026-09-30, on Blood Gulch and Sidewinder,
 started from the menu with nothing done by hand: own collision at CE
@@ -22,7 +24,13 @@ tools/level/convert_ce_map.sh maps/bloodgulch.map BGL out/bgl --install
 
 `CODE` is the new scenario's three-character codename. `--install` writes the
 containers into the game and the level file into MJOLNIRLevelLoader; without
-it everything lands in the output folder.
+it everything lands in the output folder. Those containers are loose files: if
+the same map is also installed from the hub, the hub's copy wins (launcher
+0.24.0 and newer). Disable the hub map while testing, or install the build with
+`mjolnir dev install` ([chunk_numbering.md](chunk_numbering.md)).
+
+Step 1 needs `halo2ue-export`, from the separate HalcyonRing project; it is not
+part of this repository. The script finds it through `HALO2UE_EXPORT`.
 
 ### Custom Edition maps
 
@@ -48,7 +56,8 @@ menu name. Three things differ from the stock maps:
 - **Custom vehicles** the tag map does not list are placed by the CE vehicle
   type halo2ue stages (`vehicle_type`): jeep as warthog, tank as scorpion,
   scout as ghost, fighter as banshee, turret as shade (`vehicle_types` in
-  `defs/level/ce-tag-map.json`).
+  `defs/level/ce-tag-map.json`). A custom vehicle can also run as itself,
+  cloned from a shipped one: see [custom_vehicles.md](custom_vehicles.md).
 - **Big BSPs.** Coldsnap's BSP is 35,173 surfaces once its polygons are split
   into triangles, past a definition's 32,767. Where triangles do not fit, the
   split makes quads instead (32,257); see

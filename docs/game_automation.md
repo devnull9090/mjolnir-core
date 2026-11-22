@@ -308,7 +308,16 @@ event and waits for `MULTIPLAYER is on the main menu`. The two-PC test's
 [`tools/remote/remote.mjs`](../tools/remote/remote.mjs) drives a second PC's game through
 [`tools/remote/mjolnir-agent.ps1`](../tools/remote/mjolnir-agent.ps1) running there: status,
 Lua, console, input, `mjolnir_auto` and files, over the LAN with a token (`MJOLNIR_REMOTE` and
-`MJOLNIR_REMOTE_TOKEN`, or `%USERPROFILE%\.mjolnir-remote.json`).
+`MJOLNIR_REMOTE_TOKEN`, or `%USERPROFILE%\.mjolnir-remote.json`). It also drives the player from
+inside that game (`game-input`), reads its objects (`objects`), moves a player (`teleport`),
+signs in (`signin`) and installs or removes hub mods through the launcher
+(`launcher install|uninstall`); the script's header lists every command.
+
+Two more tools build on these. [`tools/remote/instances.mjs`](../tools/remote/instances.mjs)
+runs two to four copies of the game on one PC, each with its own saves (`game_launch`'s
+`save_suffix`; see [`multi_instance.md`](multi_instance.md) in the repository).
+[`tools/bot/`](../tools/bot/README.md) plays a match as a player, driving the in-game input
+route along the map's navigation mesh.
 
 The agent also brings that PC up to date through its own MJOLNIR launcher (agent 8). Run
 `remote.mjs launcher update` with the game closed. It starts the launcher with WebView2's
@@ -317,7 +326,9 @@ debugging port (bound to 127.0.0.1), opens Updates and presses **Update all**, u
 it updates itself, restarts, then installs the core, the code mods and the hub mods. Progress is
 read from the launcher's `--check-updates`. A launcher older than 0.17.0 can't answer that, so
 for one of those the Updates screen is read until it has updated itself. The script never
-presses Launch, because that moves the bridge and other hand-installed mods aside. Afterwards,
+presses Launch, because a launch puts back the released files of any code mod whose files
+were replaced by hand, undoing a test copy. (Folders whose names start with `MJOLNIR` are never
+set aside.) Afterwards,
 one-off test files go on with `put` and `sync-mods.mjs` as before, and stay until the next
 update. `launcher check` lists what is out of date without changing anything; `launcher status`
 shows the installed version and the last run.

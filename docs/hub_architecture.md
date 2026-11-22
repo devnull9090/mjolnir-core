@@ -187,7 +187,9 @@ Chunk IDs are **per-build**. HCE ships patches. When the game updates, a contain
 `2026.06.26.1097863.1` may target a chunk ID that has moved or vanished — and the failure mode is
 not a clean error, it is a wrong asset or a crash.
 
-The launcher must record the installed build, compare it against `compat`, and refuse to mount
+**Not built (2026-11-21).** The hub stores `build_min`/`build_max`, but no client enforces them;
+releases gate on launcher features through `requires` instead (`hub/src/lib/api/clients.ts`).
+The plan was: the launcher must record the installed build, compare it against `compat`, and refuse to mount
 mods that have not been verified against it. The hub should track build compatibility as a
 first-class field with community "works for me" signals per build, and mass-flag mods as
 `needs-revalidation` the day a patch lands. Getting this wrong turns every game update into a
@@ -435,7 +437,9 @@ and it is the reason to publish a spec at all. Make it good.
 - **Public reads:** no auth, IP rate-limited at the Cloudflare edge.
 
 Discord gives role sync for free — a `moderator` role in the guild can map to hub moderation
-rights, so there is no second permission system to maintain.
+rights, so there is no second permission system to maintain. **Not built:** roles are a column on
+`users` (`user`, `moderator`, `admin`), set by an admin; the super admin is seated from
+`SUPER_ADMIN_DISCORD_ID` at sign-in.
 
 #### Device pairing
 

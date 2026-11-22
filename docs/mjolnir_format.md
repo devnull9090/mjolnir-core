@@ -1,6 +1,7 @@
 # The `.mjolnir` Release Archive
 
-**Status:** v1, enforced by the hub's upload scanner (`hub/src/lib/api/scan.ts`).
+**Status:** v1, enforced by the hub's upload scanner (`hub/src/lib/api/scan.ts`; the manifest
+schema is `hub/src/lib/api/manifest.ts`, and the Forge pack checks run in `publish.ts`).
 
 A `.mjolnir` file is a plain zip with a manifest at the root and IoStore
 override containers under `content/`:

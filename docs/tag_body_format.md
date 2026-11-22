@@ -3,7 +3,7 @@
 **Build:** `2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam)
 **Artifacts:** `Meteorite/Content/Paks/*.utoc` + `*.ucas`, 28 containers
 **Tool:** `crates/blam-cli` (`mjolnir`)
-**Date:** 2026-07-26
+**Date:** 2026-07-26, updated 2026-10-21
 
 > **Build label:** this note is stamped CU2; the installed build is CU4
 > (`config/hce-build.lock.json`). The CU4 tag definitions are identical to CU2's: regenerating
