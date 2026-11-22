@@ -291,6 +291,21 @@ def apply(level, race=True):
     return level
 
 
+def settle(level, race=True):
+    """A level with its objectives as `apply` gives them, and whether that
+    changed anything. A level already right comes back as it is, its objects
+    in their own order: `apply` puts the objectives last, and a level
+    converted with them has its machines after them."""
+    new = apply(copy.deepcopy(level), race)
+
+    def placed(lv):
+        return sorted(json.dumps(o, sort_keys=True) for o in lv["blam"]["objects"])
+
+    same = (all(level.get(k) == new.get(k) for k in ("modes", "koth_hills", "race_flags"))
+            and placed(level) == placed(new))
+    return (level, False) if same else (new, True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("level", type=Path)

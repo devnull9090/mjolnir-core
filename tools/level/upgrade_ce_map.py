@@ -35,7 +35,7 @@ then rebuilds the shared registration and menu with `mjolnir level register`.
 Set MJOLNIR to the CLI executable when it is not in this checkout's target.
 """
 import argparse
-from ce_objectives import drop_teleporters, park
+from ce_objectives import drop_teleporters, park, settle
 from cooked_map_container import cooked_map_container
 import dev_paks
 from machine_containers import map_tag_containers
@@ -203,8 +203,16 @@ def moved_level(path, moves, extra=None, groups=None, bots=None, gone=None):
     and writes <CODE>.bots.json. `gone` (`remove_teleporters`, channel
     names) takes those teleporters out: a map's design dropped them after
     its conversion (Proving Ground's two ground pairs, 2026-11-17); the
-    pads' scenery goes with `remove_scenery`. The base level comes back as
-    it is when nothing changes."""
+    pads' scenery goes with `remove_scenery`.
+
+    King's hills, Oddball's ball spawns and Race's flags are placed from
+    the level's own CE netgame flags (its `markers`), with the modes they
+    allow and the lists MJOLNIRHud reads, and the health pack spots go on
+    the eighth team (ce_objectives.settle). gen_ce_level.py does this for a
+    map converted today; a conversion from before 2026-11-04 has the
+    markers and nothing placed from them, so every remaster built on one
+    shipped without the three game types on 2026-11-18. The base level
+    comes back as it is when nothing changes."""
     level, parked = park(json.load(open(path, encoding="utf-8")))
     dropped = 0
     if gone:
@@ -213,10 +221,16 @@ def moved_level(path, moves, extra=None, groups=None, bots=None, gone=None):
         except ValueError as e:
             sys.exit(f"remove_teleporters: {e} in {path}")
     blam = level.setdefault("blam", {})
+    blam.setdefault("objects", [])
+    try:
+        level, placed = settle(level)
+    except ValueError as e:
+        sys.exit(f"objectives: {e} in {path}")
+    blam = level["blam"]
     botted = bool(bots) and "bots" not in blam
     if botted:
         blam["bots"] = bots
-    if not (moves or extra or groups or parked or botted or dropped):
+    if not (moves or extra or groups or parked or botted or dropped or placed):
         return path
     found = set()
     for v in (level.get("blam") or {}).get("vehicles") or []:
