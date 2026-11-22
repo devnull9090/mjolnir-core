@@ -477,6 +477,53 @@ export function registerCommunityRoutes(app: OpenAPIHono<ApiEnv>) {
 
   app.openapi(
     createRoute({
+      method: "post",
+      path: "/media/{id}/cover",
+      tags: ["media"],
+      summary: "Make a screenshot the mod's cover",
+      description:
+        "Moves the screenshot to the front of its mod's gallery, so it becomes " +
+        "the cover (`cover_url`) the hub, launcher and game show. The mod's " +
+        "owner or a moderator. A new upload otherwise goes to the back.",
+      request: { params: z.object({ id: z.string() }) },
+      responses: {
+        200: { description: "Now first.", content: { "application/json": { schema: z.object({ ok: z.boolean() }) } } },
+        400: { description: "A video, or a tool preview.", content: { "application/json": { schema: ErrorSchema } } },
+        401: { description: "Not signed in.", content: { "application/json": { schema: ErrorSchema } } },
+        403: { description: "Not yours.", content: { "application/json": { schema: ErrorSchema } } },
+        404: { description: "No such item.", content: { "application/json": { schema: ErrorSchema } } },
+      },
+    }),
+    async (c) => {
+      const { user } = await requireScoped(c, "mods:write", "media", 60);
+      const { id } = c.req.valid("param");
+      const row = await c.env.DB.prepare(
+        `SELECT media.id, media.mod_id, media.kind, mods.owner_id FROM media
+         LEFT JOIN mods ON mods.id = media.mod_id WHERE media.id = ?1`,
+      )
+        .bind(id)
+        .first<{ id: string; mod_id: string | null; kind: string; owner_id: string | null }>();
+      if (!row) return c.json({ error: "not_found" }, 404);
+      if (!row.mod_id || row.kind === "video") {
+        return c.json({ error: "not_a_cover", message: "Only a mod's screenshot can be its cover." }, 400);
+      }
+      if (row.owner_id !== user.id && user.role === "user") {
+        return c.json({ error: "forbidden" }, 403);
+      }
+      // One below the gallery's lowest: the cover query orders by position.
+      await c.env.DB.prepare(
+        `UPDATE media SET position =
+           (SELECT COALESCE(MIN(position), 0) - 1 FROM media WHERE mod_id = ?2)
+         WHERE id = ?1`,
+      )
+        .bind(id, row.mod_id)
+        .run();
+      return c.json({ ok: true }, 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
       method: "get",
       path: "/media/{id}",
       tags: ["media"],

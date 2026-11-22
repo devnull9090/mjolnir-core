@@ -729,6 +729,8 @@ local function shown(code)
 end
 Live.title = function(code) return (shown(code)) end
 
+local coverTried = {}
+
 --- The screenshot of `code` on `screen` (its MapImage), the note in its place
 --- until it arrives. Screens from an older UI container have no MapImage.
 --- `field`: the Image (default MapImage; the vote rows' VoteImage0..3), its
@@ -746,6 +748,23 @@ function Live.showCover(screen, code, field)
             image:SetVisibility(VIS_SHOWN)
         end)
         setText(note, "")
+        -- The cached file shows at once; if the hub has since replaced the
+        -- screenshot, fetch the new one and draw it when it lands. The
+        -- listing is re-read at most every CATALOG_SECONDS.
+        local function recheck()
+            if not MapLive.coverStale(code) then return end
+            -- One attempt per new cover: a failed download is not retried
+            -- on every redraw of the same screen.
+            local id = MapLive.coverId(code)
+            if coverTried[code] == id then return end
+            coverTried[code] = id
+            MapLive.cover(code, function(path)
+                if path and UI.valid(screen) and not MapLive.coverStale(code) then
+                    Live.showCover(screen, code, field)
+                end
+            end)
+        end
+        MapLive.refresh(recheck)
         return
     end
     pcall(function() image:SetVisibility(VIS_HIDDEN) end)
