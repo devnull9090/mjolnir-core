@@ -41,6 +41,8 @@
 //                                                          (itself first), and wait for the end
 //   node tools/remote/remote.mjs launcher uninstall <slug> take a hub mod off through the launcher (agent 10), to test
 //                                                          an install from the game's map menu
+//   node tools/remote/remote.mjs launcher install <slug>   install a hub mod through the launcher, as its Install
+//                                                          button does (a map the game cannot take while it runs)
 //   node tools/remote/remote.mjs launcher quit             close it
 //
 // The agent's address and token come from MJOLNIR_REMOTE / MJOLNIR_REMOTE_TOKEN,
@@ -376,13 +378,14 @@ export const commands = {
       }
       case "quit":
         return JSON.stringify(await json("POST", "/launcher/quit"));
+      case "install":
       case "uninstall":
       case "update": {
-        const uninstall = verb === "uninstall";
+        const uninstall = verb === "uninstall" || verb === "install";
         const started = await json("POST", `/launcher/${verb}`, uninstall ? { slug: minutes } : {});
         if (!started.ok) throw new Error(started.error);
         console.log(started.note);
-        const deadline = Date.now() + (uninstall ? 5 : Number(minutes)) * 60000;
+        const deadline = Date.now() + (verb === "uninstall" ? 5 : verb === "install" ? 30 : Number(minutes)) * 60000;
         let last = "";
         while (Date.now() < deadline) {
           await sleep(10000);

@@ -26,12 +26,17 @@
     With -Uninstall <slug> it takes that hub mod off through the launcher's own
     command instead, which leaves the PC as one that never had it: the way to
     test an install from the game's map menu (docs/live_map_install.md).
+
+    With -Install <slug> it installs that hub mod through the launcher's own
+    command, as its Install button does: the way a player gets a map the game
+    cannot take while it runs (one with its own shader library).
 #>
 param(
     [Parameter(Mandatory)][string]$Exe,
     [int]$Port = 9333,
     [int]$Minutes = 90,
-    [ValidatePattern('^[a-z0-9-]*$')][string]$Uninstall = ""
+    [ValidatePattern('^[a-z0-9-]*$')][string]$Uninstall = "",
+    [ValidatePattern('^[a-z0-9-]*$')][string]$Install = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -225,6 +230,22 @@ try {
         $left = Invoke-Page "window.__TAURI_INTERNALS__.invoke('hub_uninstall', { slug: '$Uninstall' }).then((s) => s.installed.length)"
         Stop-Launcher
         Set-State "done" "uninstalled $Uninstall; $left hub mods installed"
+        exit 0
+    }
+    if ($Install) {
+        Set-State "running" "installing $Install"
+        Start-Debuggable
+        # Started, then polled: a large download outlasts one page call.
+        Invoke-Page "window.__mjInstall = 'running'; window.__TAURI_INTERNALS__.invoke('hub_install', { slug: '$Install' }).then((s) => { window.__mjInstall = 'ok ' + s.installed.length; }, (e) => { window.__mjInstall = 'error ' + e; }); 'started'" | Out-Null
+        $deadline = (Get-Date).AddMinutes($Minutes)
+        $result = "running"
+        while ($result -eq "running" -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 5
+            $result = Invoke-Page "window.__mjInstall"
+        }
+        Stop-Launcher
+        if ($result -notmatch "^ok ") { throw "installing ${Install}: $result" }
+        Set-State "done" "installed $Install; $($result.Substring(3)) hub mods installed"
         exit 0
     }
     Set-State "running" "asking what is out of date"
