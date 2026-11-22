@@ -775,6 +775,41 @@ pub const INSTANCE_POLICY: usize = 0x7c;
 pub const POLICY_STATIC: u8 = 1;
 pub const POLICY_NONE: u8 = 2;
 
+/// Set the pathfinding policy of the given instances in a structure BSP's
+/// payload, in place. Returns how many changed.
+pub fn set_instance_policy(sbsp: &mut [u8], instances: &[usize], policy: u8) -> Result<usize, String> {
+    use blam_tag::blockedit::find_block;
+    let at: Vec<usize> = {
+        let tag = blam_tag::TagFile::parse(sbsp, None).map_err(|e| e.to_string())?;
+        let layout = tag.layout().map_err(|e| e.to_string())?;
+        let root = tag.read_data(&layout).map_err(|e| e.to_string())?;
+        let block = find_block(&layout, sbsp, &root, "instanced geometry instances").map_err(|e| format!("{e:?}"))?.block;
+        let size = block.element_size as usize;
+        if size <= INSTANCE_POLICY {
+            return Err(format!("instance elements are {size} bytes: no pathfinding policy"));
+        }
+        let base = block.elements.as_ptr() as usize - sbsp.as_ptr() as usize;
+        instances
+            .iter()
+            .map(|&i| {
+                if i < block.count as usize {
+                    Ok(base + i * size + INSTANCE_POLICY)
+                } else {
+                    Err(format!("instance {i} of {}", block.count))
+                }
+            })
+            .collect::<Result<_, _>>()?
+    };
+    let mut changed = 0;
+    for o in at {
+        if sbsp[o] != policy {
+            sbsp[o] = policy;
+            changed += 1;
+        }
+    }
+    Ok(changed)
+}
+
 /// Every instance of a structure BSP and, for those `take` accepts, its
 /// collision polygons placed in the world (`object` = the instance index).
 pub fn instance_polygons(

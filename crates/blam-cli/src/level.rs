@@ -430,7 +430,9 @@ pub struct BlamSection {
 pub struct InstancePathfinding {
     /// Which instances get sectors. `static`: those whose `pathfinding
     /// policy` in the BSP is already static, the only ones the simulation
-    /// reads.
+    /// reads. `ground`: every instance that carries walkable ground (after
+    /// `min_ground` has dropped what is too small to matter); the bake sets
+    /// their policy to static in the BSP's payload, so this needs `--bsp`.
     pub instances: PathfindingInstances,
     /// How far a sector's points may lie from its plane, wu.
     #[serde(default = "default_plane_tolerance")]
@@ -454,6 +456,66 @@ pub struct InstancePathfinding {
 #[serde(rename_all = "snake_case")]
 pub enum PathfindingInstances {
     Static,
+    Ground,
+}
+
+/// Pathfinding generated for a BSP's instanced geometry
+/// ([`generate_ground`]), before it is written into the scenario.
+struct Ground {
+    instances: Vec<blam_sbsp::navmesh::Instance>,
+    polygons: usize,
+    mesh: blam_sbsp::navmesh::Mesh,
+    pf: blam_sbsp::pathfinding::Pathfinding,
+    /// For each instance that gets a pathfinding object, one ref per
+    /// collision surface of its definition: a sector, or -1.
+    refs: BTreeMap<usize, Vec<i32>>,
+}
+
+/// Generate sectors over a BSP payload's instanced geometry
+/// (docs/engine_ai_pathfinding.md).
+fn generate_ground(cfg: &InstancePathfinding, sbsp: &[u8]) -> Result<Ground> {
+    use blam_sbsp::navmesh::{self, Options, POLICY_STATIC};
+    use blam_sbsp::pathfinding;
+    // An instance that copies the shell is not ground of its own.
+    let copies = pathfinding::shell_collision(sbsp)
+        .and_then(|shell| pathfinding::shell_copies(sbsp, &shell))
+        .unwrap_or_default();
+    let (instances, polygons) = navmesh::instance_polygons(sbsp, &|i, inst| {
+        (cfg.instances == PathfindingInstances::Ground || inst.policy == POLICY_STATIC)
+            && !copies.get(i).copied().unwrap_or(false)
+    })
+    .map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+    let options = Options {
+        plane_tolerance: cfg.plane_tolerance,
+        max_ring: cfg.max_corners,
+        dent: cfg.dent,
+        border: cfg.border,
+        ..Options::default()
+    };
+    let (mesh, pf) = navmesh::generate(&polygons, &|_, _| true, &options, cfg.min_ground)
+        .map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+    pf.check_rings().map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+    pf.check_hints().map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+    let mut refs: BTreeMap<usize, Vec<i32>> = BTreeMap::new();
+    if cfg.instances == PathfindingInstances::Static {
+        // Every static instance is read, sectors or not.
+        for p in &polygons {
+            refs.entry(p.object as usize).or_insert_with(|| vec![-1; instances[p.object as usize].surfaces]);
+        }
+    }
+    for (n, p) in polygons.iter().enumerate() {
+        if let Some(sector) = mesh.surface_of[n].and_then(|s| pf.surface_sector[s as usize]) {
+            let i = p.object as usize;
+            refs.entry(i).or_insert_with(|| vec![-1; instances[i].surfaces])[p.surface as usize] = sector as i32;
+        }
+    }
+    if refs.is_empty() {
+        bail!(match cfg.instances {
+            PathfindingInstances::Static => "pathfinding: no instance of the BSP has a static pathfinding policy",
+            PathfindingInstances::Ground => "pathfinding: no instance of the BSP carries walkable ground",
+        });
+    }
+    Ok(Ground { instances, polygons: polygons.len(), mesh, pf, refs })
 }
 
 fn default_plane_tolerance() -> f32 {
@@ -2461,41 +2523,9 @@ impl Baker {
     /// cloned from such an object with its child blocks. Every other ref (the
     /// shell's, and objects that are not instances) becomes none: the sectors
     /// they named are gone.
-    fn instance_pathfinding(&mut self, cfg: &InstancePathfinding, bsp: usize, sbsp: &[u8]) -> Result<()> {
-        use blam_sbsp::navmesh::{self, Options, POLICY_STATIC};
-        use blam_sbsp::pathfinding;
+    fn instance_pathfinding(&mut self, bsp: usize, ground: &Ground) -> Result<()> {
         use blockedit::{element_with_wrapper, NestedReplace};
-        let copies = pathfinding::shell_collision(sbsp)
-            .and_then(|shell| pathfinding::shell_copies(sbsp, &shell))
-            .unwrap_or_default();
-        let PathfindingInstances::Static = cfg.instances;
-        let (instances, polygons) = navmesh::instance_polygons(sbsp, &|i, inst| {
-            inst.policy == POLICY_STATIC && !copies.get(i).copied().unwrap_or(false)
-        })
-        .map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
-        let mut refs: BTreeMap<usize, Vec<i32>> = BTreeMap::new();
-        for p in &polygons {
-            refs.entry(p.object as usize).or_insert_with(|| vec![-1; instances[p.object as usize].surfaces]);
-        }
-        if refs.is_empty() {
-            bail!("pathfinding: no instance of the BSP has a static pathfinding policy");
-        }
-        let options = Options {
-            plane_tolerance: cfg.plane_tolerance,
-            max_ring: cfg.max_corners,
-            dent: cfg.dent,
-            border: cfg.border,
-            ..Options::default()
-        };
-        let (mesh, pf) = navmesh::generate(&polygons, &|_, _| true, &options, cfg.min_ground)
-            .map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
-        pf.check_rings().map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
-        pf.check_hints().map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
-        for (n, p) in polygons.iter().enumerate() {
-            if let Some(sector) = mesh.surface_of[n].and_then(|s| pf.surface_sector[s as usize]) {
-                refs.get_mut(&(p.object as usize)).expect("taken")[p.surface as usize] = sector as i32;
-            }
-        }
+        let Ground { instances, mesh, pf, refs, .. } = ground;
 
         // What the scenario has now.
         let pfp = format!("ai pathfinding data[{bsp}]");
@@ -2522,15 +2552,17 @@ impl Baker {
                 old.push(Old { plain: e[16..].iter().all(|&b| b == 0xff), bsps });
             }
             let igr = block(&format!("{pfp}.instanced geometry refs"))?;
-            if igr.count as usize != instances.len() || igr.element_size != 4 {
-                bail!(
-                    "pathfinding: the scenario has {} instanced geometry ref(s) of {} bytes; the BSP has {} instance(s)",
-                    igr.count,
-                    igr.element_size,
-                    instances.len()
-                );
+            if igr.element_size != 4 {
+                bail!("pathfinding: instanced geometry refs are {} bytes each, not 4", igr.element_size);
             }
-            (old, igr.elements.to_vec(), block(&format!("{pfp}.bsp2d refs"))?.count as usize)
+            // A BSP of the map's own has its own instances: the canvas BSP's
+            // entries mean nothing for them, so every one starts as none.
+            let igr = if igr.count as usize == instances.len() {
+                igr.elements.to_vec()
+            } else {
+                [0xff, 0xff, 0, 0].repeat(instances.len())
+            };
+            (old, igr, block(&format!("{pfp}.bsp2d refs"))?.count as usize)
         };
         let named = |igr: &[u8], i: usize| i16::from_le_bytes([igr[i * 4], igr[i * 4 + 1]]);
         let mut users = vec![0usize; old.len()];
@@ -2542,7 +2574,7 @@ impl Baker {
         // The object each instance gets.
         let mut object_of: BTreeMap<usize, usize> = BTreeMap::new();
         let mut added = 0;
-        for (&i, r) in &refs {
+        for (&i, r) in refs {
             let reuse = usize::try_from(named(&igr, i))
                 .ok()
                 .filter(|&o| o < old.len() && users[o] == 1 && old[o].plain && old[o].bsps == [r.len()]);
@@ -2692,10 +2724,10 @@ impl Baker {
         }
         println!("  path    firing positions on BSP {bsp}: {placed} on a sector, {lost} on none");
         println!(
-            "  path    pathfinding[{bsp}]: {} static instance(s) of {}, {} polygon(s) -> {} sector(s) ({} step(s)), {} link(s) ({} seam(s)), {} vertices; {} object ref(s) reused, {} added, {} emptied",
+            "  path    pathfinding[{bsp}]: {} instance(s) of {} with a pathfinding object, {} polygon(s) -> {} sector(s) ({} step(s)), {} link(s) ({} seam(s)), {} vertices; {} object ref(s) reused, {} added, {} emptied",
             refs.len(),
             instances.len(),
-            polygons.len(),
+            ground.polygons,
             pf.sectors.len(),
             pf.sectors.iter().filter(|s| !s.is_floor()).count(),
             pf.links.len(),
@@ -2711,12 +2743,25 @@ impl Baker {
     /// Point the cloned squads, zone and objective at each other and at the
     /// map, and write the BSP's generated pathfinding. Runs after
     /// `single_bsp`, with `bsp` the BSP's final index and `sbsp` its payload.
-    fn bots_finish(&mut self, bots: &Bots, ix: &BotIndices, bsp: usize, sbsp: &[u8]) -> Result<()> {
+    ///
+    /// With `ground` (the level's `blam.pathfinding`, already written by
+    /// [`Self::instance_pathfinding`]) the bots stand and fight on those
+    /// sectors, and the shell's are not built.
+    fn bots_finish(&mut self, bots: &Bots, ix: &BotIndices, bsp: usize, sbsp: &[u8], ground: Option<&Ground>) -> Result<()> {
         use blam_sbsp::pathfinding::{self, Pathfinding};
-        let shell = pathfinding::shell_collision(sbsp).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
-        let pf = Pathfinding::build(&shell).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
-        pf.check_rings().map_err(|e| anyhow::anyhow!("bots: pathfinding {e}"))?;
-        pf.check_hints().map_err(|e| anyhow::anyhow!("bots: pathfinding {e}"))?;
+        let built;
+        let (shell, pf): (&blam_sbsp::ce::Collision, &Pathfinding) = match ground {
+            Some(g) => (&g.mesh.collision, &g.pf),
+            None => {
+                let shell = pathfinding::shell_collision(sbsp).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
+                let pf = Pathfinding::build(&shell).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
+                pf.check_rings().map_err(|e| anyhow::anyhow!("bots: pathfinding {e}"))?;
+                pf.check_hints().map_err(|e| anyhow::anyhow!("bots: pathfinding {e}"))?;
+                built = (shell, pf);
+                (&built.0, &built.1)
+            }
+        };
+        if ground.is_none() {
         let instances = pathfinding::instance_count(sbsp).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
 
         // The tables. One `instanced geometry refs` entry per instance, none
@@ -2767,6 +2812,7 @@ impl Baker {
                 pf.cracks_dropped
             );
         }
+        }
 
         // Firing positions over the ground the spawns stand on.
         let spawn_wu: Vec<[f32; 3]> = ix
@@ -2782,7 +2828,7 @@ impl Baker {
         // Blood Gulch start is on one piece.)
         let spawn_components: Vec<Option<usize>> = spawn_wu
             .iter()
-            .map(|p| pf.sector_at(&shell, *p).map(|(s, _)| pf.component[s]))
+            .map(|p| pf.sector_at(shell, *p).map(|(s, _)| pf.component[s]))
             .collect();
         let mut tally: BTreeMap<usize, usize> = BTreeMap::new();
         for c in spawn_components.iter().flatten() {
@@ -2810,10 +2856,10 @@ impl Baker {
         let spawns: Vec<([f64; 3], f64)> = spread_order(&points).into_iter().map(|i| spawns[i]).collect();
         self.bot_starts = (0..ix.count).map(|i| abs_pos(self.origin, spawns[i % spawns.len()].0)).collect();
         let mut spacing = bots.spacing as f32;
-        let mut fps = pf.firing_positions(&shell, spacing, &components, 0.0);
+        let mut fps = pf.firing_positions(shell, spacing, &components, 0.0);
         while fps.len() > 2048 {
             spacing *= 1.15;
-            fps = pf.firing_positions(&shell, spacing, &components, 0.0);
+            fps = pf.firing_positions(shell, spacing, &components, 0.0);
         }
         // Narrow ground falls between the grid's points (Night Lockout's
         // walkways had 12 at 2.5 wu): a finer grid, down to 1 wu, while the
@@ -2821,7 +2867,7 @@ impl Baker {
         let want = bots.areas.clamp(1, 32) * BOT_POSITIONS_PER_AREA;
         while fps.len() < want && spacing > BOT_SPACING_MIN {
             let finer_spacing = (spacing / 1.25).max(BOT_SPACING_MIN);
-            let finer = pf.firing_positions(&shell, finer_spacing, &components, 0.0);
+            let finer = pf.firing_positions(shell, finer_spacing, &components, 0.0);
             if finer.len() > 2048 {
                 break;
             }
@@ -3369,6 +3415,10 @@ fn bake(a: BakeArgs) -> Result<()> {
     // but the map never starts. Ordinary new tags resolve by name the moment
     // a reference names them, so the scenario package needs no import.
     let mut extra_packages: Vec<blam_pack::NewPackage> = Vec::new();
+    // The level's BSP, by its canvas index, and the pathfinding generated
+    // for it once its payload is in hand.
+    let level_bsp = level.blam.single_bsp.or_else(|| level.blam.active_bsps.first().copied());
+    let mut ground: Option<Ground> = None;
     if !a.bsps.is_empty() {
         let code = a
             .standalone
@@ -3398,6 +3448,26 @@ fn bake(a: BakeArgs) -> Result<()> {
                 Ok(0) => {}
                 Ok(n) => println!("  bsp {index}: {n} copy of the shell lowered {COPY_DROP} wu"),
                 Err(e) => println!("  bsp {index}: no copy of the shell looked for ({e})"),
+            }
+            if let Some(cfg) = level.blam.pathfinding.as_ref().filter(|_| Some(index) == level_bsp) {
+                let g = generate_ground(cfg, &new_body)?;
+                if cfg.instances == PathfindingInstances::Ground {
+                    // The simulation reads an instance's sectors only when
+                    // its policy is not none.
+                    let chosen: Vec<usize> = g.refs.keys().copied().collect();
+                    let set = blam_sbsp::navmesh::set_instance_policy(
+                        &mut new_body,
+                        &chosen,
+                        blam_sbsp::navmesh::POLICY_STATIC,
+                    )
+                    .map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+                    println!(
+                        "  bsp {index}: {} of {} instance(s) carry walkable ground; {set} set to a static pathfinding policy",
+                        chosen.len(),
+                        g.instances.len()
+                    );
+                }
+                ground = Some(g);
             }
             // (field, group directory, four-CC, replacement body)
             let parts: [(String, &str, &str, Option<&[u8]>); 2] = [
@@ -3489,27 +3559,22 @@ fn bake(a: BakeArgs) -> Result<()> {
         baker.single_bsp(keep)?;
     }
     if let Some(cfg) = &level.blam.pathfinding {
-        if level.blam.bots.is_some() {
-            bail!("pathfinding: blam.bots writes the BSP's pathfinding from its shell; use one or the other");
+        let canvas_bsp = level_bsp.context("pathfinding: name the level's BSP with single_bsp or active_bsps")?;
+        if ground.is_none() {
+            // A level on a canvas BSP as it ships: nothing to change in the
+            // BSP, so only instances that are static already.
+            if cfg.instances == PathfindingInstances::Ground {
+                bail!("pathfinding: instances \"ground\" changes the BSP, so it needs --bsp {canvas_bsp}=<payload>");
+            }
+            let payload = a
+                .pathfinding_bsp
+                .as_ref()
+                .with_context(|| format!("pathfinding: --bsp {canvas_bsp}=<payload> or --pathfinding-bsp <payload> is needed"))?;
+            let sbsp = std::fs::read(payload).with_context(|| format!("cannot read BSP payload {}", payload.display()))?;
+            ground = Some(generate_ground(cfg, &sbsp)?);
         }
-        let canvas_bsp = level
-            .blam
-            .single_bsp
-            .or_else(|| level.blam.active_bsps.first().copied())
-            .context("pathfinding: name the level's BSP with single_bsp or active_bsps")?;
-        let payload = match &a.pathfinding_bsp {
-            Some(p) => p.clone(),
-            None => a
-                .bsps
-                .iter()
-                .filter_map(|s| s.split_once('='))
-                .find(|(i, _)| i.parse::<usize>().ok() == Some(canvas_bsp))
-                .map(|(_, p)| PathBuf::from(p))
-                .with_context(|| format!("pathfinding: --bsp {canvas_bsp}=<payload> or --pathfinding-bsp <payload> is needed"))?,
-        };
-        let sbsp = std::fs::read(&payload).with_context(|| format!("cannot read BSP payload {}", payload.display()))?;
         let bsp = if level.blam.single_bsp.is_some() { 0 } else { canvas_bsp };
-        baker.instance_pathfinding(cfg, bsp, &sbsp)?;
+        baker.instance_pathfinding(bsp, ground.as_ref().expect("generated"))?;
     }
     if let (Some(b), Some(ix)) = (&level.blam.bots, &bots) {
         // The bots walk the BSP the level plays on: its `--bsp` payload.
@@ -3527,7 +3592,7 @@ fn bake(a: BakeArgs) -> Result<()> {
             .with_context(|| format!("bots: --bsp {canvas_bsp}=<payload> is needed to generate pathfinding"))?;
         let sbsp = std::fs::read(payload).with_context(|| format!("cannot read BSP payload {payload}"))?;
         let bsp = if level.blam.single_bsp.is_some() { 0 } else { canvas_bsp };
-        baker.bots_finish(b, ix, bsp, &sbsp)?;
+        baker.bots_finish(b, ix, bsp, &sbsp, ground.as_ref())?;
     }
 
     // The map's own Unreal world, when one is given: the bare level renamed

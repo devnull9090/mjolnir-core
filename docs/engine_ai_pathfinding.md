@@ -11,7 +11,7 @@ reads it, and the generator that writes it for maps that ship without any.
 | Simulation code | `HaloSimulation_tag_release.dll`, CU4 (build pin below) |
 | Our code | `crates/blam-sbsp/src/pathfinding.rs`, `crates/blam-sbsp/src/navmesh.rs` |
 | Tools | `pf_stats`, `pf_objects`, `pf_roundtrip`, `pf_generate`, `pf_dump`, `pf_where` (`crates/blam-sbsp/examples/`) |
-| Status | Lookup traced and matched to shipped data. Generator built, wired into `level bake`, and **run in the game on B40's BSP 8** (2026-11-22): AI stand on generated sectors, cross from instance to instance and hunt the player. Not yet run on a converted map or at Pelican Warfare's size. |
+| Status | Lookup traced and matched to shipped data. Generator built, wired into `level bake`, and **run in the game** (2026-11-22, one PC, solo): on B40's BSP 8 an Elite hunted the player across instances, and on Pelican Warfare four AI walked up to 1.1 km across terrain tiles on 15,197 generated sectors. Not yet run with a second player, or in a real match. |
 
 Every claim carries one of four labels, defined in
 [how to research and verify](engine_research_method.md):
@@ -431,13 +431,26 @@ BSP's pathfinding from its instances (`Baker::instance_pathfinding` in
 }
 ```
 
-`instances: "static"` takes the instances whose policy is already `static`. The
-BSP's payload comes from `--bsp <index>=<payload>` or, for a level that plays
-on a canvas BSP as shipped, `--pathfinding-bsp <payload>`. An instance reuses
-the object ref it already has when that object is its alone and the right
-size; otherwise a new one is cloned from an existing instance object. Refs of
-the shell and of objects that are not instances become none. It cannot be
-combined with `blam.bots`, which writes the shell's pathfinding.
+`instances` says which instances get sectors:
+
+- `"static"`: those whose policy is already `static`. The BSP is not changed,
+  so its payload may come from `--pathfinding-bsp <payload>` for a level that
+  plays on a canvas BSP as shipped.
+- `"ground"`: every instance that carries walkable ground once `min_ground`
+  has dropped what is too small to matter. The bake sets those instances'
+  policy byte to `static` in the BSP's payload before packing it, so this
+  needs `--bsp <index>=<payload>`. No instance is ever named: the choice
+  follows from the collision.
+
+An instance reuses the object ref it already has when that object is its alone
+and the right size; otherwise a new one is cloned from an existing instance
+object. When the BSP is the map's own, the canvas BSP's `instanced geometry
+refs` are replaced by one entry per instance of the new BSP. Refs of the shell
+and of objects that are not instances become none.
+
+With `blam.bots` in the same level, the bots lane does not build sectors from
+the shell: its spawns, firing positions and areas go on the generated ground
+([bots.md](bots.md)).
 
 **The live gate** is `examples/levels/bot_b40_pathfinding.level.json`: Slayer
 on Silent Cartographer's stock BSP 8 with B40's own squads, and the BSP's
@@ -463,11 +476,36 @@ Read with `mjolnir live objects --group bipd` for positions and the object
 address, then the ground record at the address `+0x9e4` (surface), `+0x9e8`
 (`sector << 16 | bsp`) and `+0x9ec` (instance).
 
-What this does not show: new object refs being added (all 16 were reused, so
-the clone path is only proved offline by `pf_roundtrip`), the policy byte
-being changed by us, looser `dent` and `border` settings, or anything at
-Pelican Warfare's size. The Grunts of the other two squads stood still in both
-runs.
+That run reused all 16 object refs and changed no policy byte. The Grunts of
+the other two squads stood still in both runs.
+
+**Pelican Warfare**, the same day **[live]**. The level's own bake plus
+`blam.bots` (spawns at six capture sites) and
+
+```json
+"pathfinding": { "instances": "ground", "plane_tolerance": 0.5, "dent": 1.0, "border": 1.0, "max_corners": 24, "min_ground": 1000 }
+```
+
+| | |
+|---|---|
+| Instances chosen | 24 of 151 carry ground; all 24 set from `none` to `static` |
+| Object refs | 0 reused, **24 added** (cloned from B40's), 30 of the canvas BSP's emptied |
+| Tables | 15,197 sectors, 51,844 links, 3,126 seams, 33,890 vertices |
+| Read back | rings all close; 24 static instances, each with its own object and one ref per surface (8,192 on a terrain tile) |
+| Bots lane | 6 of 6 spawns on the main ground; 1,854 firing positions in 16 areas |
+| Ground records | AI on three different terrain tiles each named a generated sector |
+| Movement | four AI ordered to distant areas all arrived: an Elite went 365 wu (1.1 km) in about three and a half minutes, others 285, 220 and 155 wu |
+| Crash | none in about six minutes |
+
+So new object refs, a policy byte we changed, and borders loosened to 1 wu all
+run. What it does not show: a second player (AI far from a joiner are known to
+lag), AI fighting on this ground, a route into a base, or a match under the
+Warfare rules (the test sat in warm-up with one player).
+
+One AI was placed on the platform at capture site B, which is a small
+structure of its own and got no sectors (`min_ground` dropped it). It had no
+sector while it stood there, and still walked off onto the terrain when
+ordered. Sites that stand on such platforms need them kept.
 
 A level baked `--standalone` on a canvas world ships no world of its own, and
 the lobby refuses to host such a map (it checks that a world named after the
@@ -495,7 +533,8 @@ cargo run --release -p blam-sbsp --example pf_roundtrip -- <scenario> <bsp index
 |---|---|---|
 | How does the planner use a sector's shape? | Decides how loose `dent` and `border` may be. | Trace the callers that read `links` and `vertices` through the accessor at `0x16d960`. |
 | What do `threshold` and the unflagged outer links mean? | We write neither as Bungie does. | Same trace; then compare AI behaviour on a link with and without the flag. |
-| Do generated object refs run at size, with new objects and a changed policy byte? | B40 ran with 16 reused objects and Bungie's own `static` instances. | A converted map whose ground is instanced geometry, then PWR. |
+| How loose may borders be before the AI misbehaves? | PWR ran at 1 wu with AI walking in straight lines over open ground. Nothing was watched near obstacles or in a fight. | Watch AI around rocks and at tile seams at 0.6 and 1.0 wu; the tighter setting fits too (62,109 links). |
+| How should a structure that sits on the terrain (a base, a capture platform) join it? | They are separate pieces, and small ones are dropped. | See how shipped data does it (`pf_objects` on A30), or generate a seam where a floor ends over another floor within a step's height. |
 | What else stores a sector index? | Firing positions did, and stale ones stopped the AI. | Search the scenario's AI blocks (zones' areas, squads' starting locations, user hints) for sector fields, and watch an AI that uses each. |
 | Does an overlapping floor (a base on terrain) need a seam of its own? | PWR's bases are separate pieces. | Read how shipped data joins a building's floor to terrain it overlaps (`pf_objects` on A30). |
 | Does generated output look like shipped output? | Only rings and hints are checked today. | Run `pf_stats`' measures (winding, flatness, dent depth) on generated tables, and add a check that every source triangle's centre lies within `border` of its sector's polygon. |
@@ -513,3 +552,5 @@ cargo run --release -p blam-sbsp --example pf_roundtrip -- <scenario> <bsp index
   ([pwr_ai_feasibility.md](pwr_ai_feasibility.md)).
 - 2026-11-22: the generator wired into `level bake` and run live on B40 BSP 8.
   Stale firing-position sector indices found and fixed.
+- 2026-11-22: `instances: "ground"` and the bots lane on generated ground; run
+  live on Pelican Warfare.

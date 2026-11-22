@@ -357,7 +357,9 @@ or use `null` to leave the loader's per-map default in effect.
 
 ```jsonc
 "pathfinding": {
-  "instances": "static",    // which instances get sectors: those whose policy in the BSP is static
+  "instances": "static",    // which instances get sectors: "static", those whose policy in the BSP is
+                            // static already; "ground", every instance that carries walkable ground
+                            // (the bake sets their policy to static in the --bsp payload)
   "plane_tolerance": 0.2,   // how far a sector's points may lie from its plane, wu
   "dent": 0,                // how far a sector's corner may lie inside its convex hull, wu
   "border": 0,              // how far a border between two sectors may move when straightened, wu
@@ -370,8 +372,9 @@ Replaces the AI pathfinding of the level's BSP (`single_bsp`, or the first of
 `active_bsps`) with sectors generated from its instanced geometry, for ground
 that lives in instances: a campaign BSP, or a converted terrain. The BSP's
 payload comes from `--bsp <index>=<payload>` or `--pathfinding-bsp <payload>`.
-Firing positions on that BSP are looked up again on the new sectors. Not with
-`blam.bots`, which builds the pathfinding from the BSP's shell.
+Firing positions on that BSP are looked up again on the new sectors. With
+`blam.bots` too, the bots stand and fight on this ground instead of the
+shell's.
 
 ### `blam.bots` — AI bots ([bots.md](bots.md))
 

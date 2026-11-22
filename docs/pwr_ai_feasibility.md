@@ -506,16 +506,22 @@ control with Bungie's data behaved the same way. One thing the first run
 taught: firing positions store the sector they stand on, and must be looked up
 again when sectors change. Details in the engine article.
 
-Nothing has run on PWR. The remaining steps, in order:
+**Run live on PWR (same day).** With `instances: "ground"` the bake picks the
+24 instances that carry ground, sets them `static` in the BSP, adds their 24
+object refs, and the bots lane puts its spawns and 1,854 firing positions on
+the generated sectors. Four AI placed at the capture sites and ordered to
+distant areas all arrived, the furthest after 365 wu (1.1 km), with no crash
+in about six minutes. One PC, one player, in warm-up.
 
-1. **Choose instances by rule and set their policy.** The bake so far takes
-   instances that are already `static`. PWR needs the terrain tiles chosen by a
-   rule on the data (ground of at least a set area), their policy byte set to
-   `static` in the BSP, and new object refs added for them (PWR's scenario has
-   none to reuse).
-2. **Firing positions for PWR.** Generate them on the new sectors, per capture
-   candidate (section 4).
-3. **Live gate on PWR.** One placed squad walking 300 wu across tiles, with the
+The remaining steps, in order:
+
+1. **Capture platforms and bases.** An AI placed on site B's platform had no
+   sector: small structures are dropped, and the bases are pieces of their
+   own. Keep them and join them to the terrain.
+2. **Water.** Deep water is still walkable ground in this bake.
+3. **Zones and tasks per capture candidate** in place of the bots lane's one
+   map-wide zone (section 4), so squads assault and hold the site in play.
+4. **A second player, and a fight.** One placed squad walking 300 wu across tiles, with the
    looser and the tighter border setting, to choose between them.
 4. Steps 6 to 10 of the list above (proxy budget, zones and objectives, the
    Spirit, the wave director, tuning).
