@@ -125,7 +125,16 @@ local function solve(rig, side, toggle, chute, mathLib, ik)
     assert(length(sub(point(bone("MiddleFinger1")),knuckles)) < 3)
 end
 
-local function bind(owner, role, chute, mathLib, ik, rigs)
+-- The first-person arms hang off the camera, so their place at the moment
+-- the canopy opens depends on where the rider is looking and how fast they
+-- are falling: opened while looking down after a long freefall, the frozen
+-- arms sat 30 cm in front of the visor. The rig is seated on the harness
+-- instead: at the eye, level, facing the way the body faces. Centimetres
+-- from the feet; the grips are 16 below it (warfare_canopy's gripHeight).
+local EYE = { X = 0, Y = 0, Z = 189 }
+local LEVEL = { Pitch = 0, Yaw = 0, Roll = 0 }
+
+local function bind(owner, role, chute, mathLib, ik, rigs, seat)
     if not valid(owner) then return end
     local skeletal = StaticFindObject("/Script/Engine.SkeletalMeshComponent")
     for _, entry in ipairs(owner:K2_GetComponentsByClass(skeletal) or {}) do
@@ -151,6 +160,7 @@ local function bind(owner, role, chute, mathLib, ik, rigs)
                 -- Keep the visual rooted to the handle assembly as the
                 -- player's camera turns independently of the body.
                 assert(pose:K2_AttachToComponent(chute,FName("None"),1,1,1,false) ~= false)
+                if seat then pose:K2_SetRelativeLocationAndRotation(seat,LEVEL,false,{},false) end
                 pose:CopyPoseFromSkeletalComponent(source)
                 for _, side in ipairs({"L","R"}) do
                     local names = {"Shoulder","Elbow","Wrist"}
@@ -213,7 +223,7 @@ function Grips.start(body, pc, user, actor, now)
         local gameplay = StaticFindObject("/Script/Engine.Default__GameplayStatics")
         local controller = gameplay:GetPlayerController(body,user)
         if valid(controller) and controller:IsLocalController()
-            and bind(controller.Pawn,"BPC_FP_SkeletalMesh_C",chute,mathLib,ik,rigs) then
+            and bind(controller.Pawn,"BPC_FP_SkeletalMesh_C",chute,mathLib,ik,rigs,EYE) then
             local measured, reason = pcall(reportGripProjection, controller, chute)
             if not measured then print("[MJOLNIR PWR] FP grip projection unavailable: " .. tostring(reason)) end
         end

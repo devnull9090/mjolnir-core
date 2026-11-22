@@ -41,6 +41,8 @@
                                               background; poll GET /launcher)
         POST /launcher/uninstall?slug=S       take a hub mod off through the launcher
                                               (launcher.ps1; poll GET /launcher)
+        POST /launcher/install?slug=S         install a hub mod through the launcher
+                                              (launcher.ps1; poll GET /launcher)
         POST /launcher/quit                   close the launcher
         GET  /objects?group=G                 the running game's objects as `mjolnir live
                                               objects --tsv` writes them (mjolnir.exe
@@ -70,7 +72,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "11"
+$AgentVersion = "12"
 
 # --- Where things are --------------------------------------------------------
 
@@ -622,6 +624,16 @@ function Handle($request, $stream) {
             $script:LauncherRun = Start-Process powershell -PassThru -WindowStyle Minimized -ArgumentList @(
                 "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$script`"", "-Exe", "`"$exe`"", "-Uninstall", $p["slug"])
             Send-Json $stream 200 @{ ok = $true; note = "uninstalling $($p["slug"]) through $exe" }
+        }
+        "POST /launcher/install" {
+            if ($script:LauncherRun -and -not $script:LauncherRun.HasExited) { Send-Json $stream 200 @{ ok = $false; error = "a launcher run is already going" }; return }
+            if (Get-Game) { Send-Json $stream 200 @{ ok = $false; error = "the game is running; quit it first" }; return }
+            if ($p["slug"] -notmatch '^[a-z0-9-]+$') { Send-Json $stream 200 @{ ok = $false; error = "bad slug" }; return }
+            $script = Join-Path $PSScriptRoot "launcher.ps1"
+            $exe = Get-LauncherExe
+            $script:LauncherRun = Start-Process powershell -PassThru -WindowStyle Minimized -ArgumentList @(
+                "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$script`"", "-Exe", "`"$exe`"", "-Install", $p["slug"])
+            Send-Json $stream 200 @{ ok = $true; note = "installing $($p["slug"]) through $exe" }
         }
         "POST /launcher/update" {
             if ($script:LauncherRun -and -not $script:LauncherRun.HasExited) { Send-Json $stream 200 @{ ok = $false; error = "an update is already running" }; return }

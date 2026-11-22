@@ -398,7 +398,10 @@ async function up(count, ...extra) {
     // mods (copies 1 and 2 ran MJOLNIRLobby 0.22.0 after the install had
     // 0.23.0, 2026-11-07). About a second; only changed files are copied.
     lines.push(mirror(n));
-    lines.push(deploy(n));
+    // MJ_NO_DEPLOY=1: the copies keep the install's own (released) mods, so
+    // a release can be tried as players have it, with no build in this checkout.
+    if (process.env.MJ_NO_DEPLOY) lines.push(`instance ${n}: the install's mods (no deploy)`);
+    else lines.push(deploy(n));
     const window = extra.some((a) => a.startsWith("-Res") || a === "-windowed") ? [] : ["-windowed", "-ResX=1280", "-ResY=720"];
     lines.push(launch(n, [...window, ...extra]));
     // One copy's startup (asset load, shader cache) at a time: four at once

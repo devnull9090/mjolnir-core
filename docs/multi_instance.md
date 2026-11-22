@@ -71,6 +71,10 @@ teleporter-team packs (#346): a hub map's containers sit in the install as
 `pakchunk9xx-MJOLNIRHUB-<slug>-<i>_P`, so the patched map container went over
 the installed file holding the shipped one, found by hash.
 
+To try a release as players have it, with no build in this checkout,
+`MJ_NO_DEPLOY=1 node tools/remote/instances.mjs up 2` leaves every copy on the
+install's own mods (used 2026-11-21 for mods 0.54.0 and Pelican Warfare).
+
 Rebuild the lobby DLL before `up` when it changes (`native/lobby/build.ps1`).
 The test-only behaviour below runs only in copies the tool starts, because
 the tool sets `MJOLNIR_INSTANCE`. The Steam game, and every player's game,
