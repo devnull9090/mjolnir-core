@@ -4788,12 +4788,15 @@ mod tests {
         let stale = format!("pakchunk10003-{MARKER}-stale-map-0_1012_P");
         mounted(&stale, Some(10003));
         let before = listing(&paks);
-        for _ in 0..2 {
-            let error = install_live("OTH", None, &|_, _| {}).unwrap_err();
+        // The first try downloads the map; the second finds it installed.
+        for downloads in [true, false] {
+            let reads = std::cell::Cell::new(0);
+            let error = install_live("OTH", None, &|_, _| reads.set(reads.get() + 1)).unwrap_err();
             assert!(error.starts_with("other-map is installed, but cannot load while the game is running"), "{error}");
             assert!(error.ends_with(RELAUNCH), "{error}");
             assert_eq!(listing(&paks), before, "a refusal changed Paks");
             assert!(enabled("other-map"), "the refused map was forgotten");
+            assert_eq!(reads.get() > 0, downloads, "{} download reads", reads.get());
         }
         // The launch the message asks for writes Paks from the profile's
         // plan, which now holds the map, and clears every hub container
