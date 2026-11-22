@@ -494,6 +494,52 @@ class LocalInstallTest(unittest.TestCase):
         self.assertEqual(names, ["MJOLNIRMAP-TST", "MJOLNIRLAND-TST", "MJOLNIRMESH-TST", "MJOLNIRCOOK-TST",
                                  "MJOLNIRROCK-TST"])
 
+    def test_hub_install_carries_scripted_devices_and_a_custom_vehicle(self):
+        # What neither the conversion nor the bake makes (Yoyorast's gates
+        # and Mongooses): the map's config lists it, the install takes it.
+        extra = self.root / "inputs"
+        for stem in ("machines/pakchunk986-MJOLNIRMACH-TST-0C_P", "machines/pakchunk986-MJOLNIRMACH-TST-0H_P",
+                     "pakchunk996-MJOLNIRVVEHI-TST_P"):
+            for ext in ("utoc", "ucas"):
+                self.write(extra / f"{stem}.{ext}")
+        self.write(extra / "vehicle_sounds.json", {"vehicles": []})
+        m = dict(self.map, vehicle_sounds=str(extra / "vehicle_sounds.json"),
+                 extra_containers=[str(extra / "machines/pakchunk986-MJOLNIRMACH-TST-*_P"),
+                                   str(extra / "pakchunk*-MJOLNIRV*-TST_P")])
+        self.assertEqual(self.hub_install(m), ["MJOLNIRMAP-TST", "MJOLNIRLAND-TST", "MJOLNIRMACH-TST-0C",
+                                               "MJOLNIRMACH-TST-0H", "MJOLNIRVVEHI-TST"])
+        self.assertEqual(json.loads((self.ue4ss / "MJOLNIRMaps/TST/vehicle_sounds.json").read_text()),
+                         {"vehicles": []})
+        # One of them missing stops the install before anything is written.
+        (extra / "pakchunk996-MJOLNIRVVEHI-TST_P.ucas").unlink()
+        with self.assertRaisesRegex(SystemExit, "install is incomplete"):
+            self.hub_install(m)
+        with self.assertRaisesRegex(SystemExit, "vehicle_sounds"):
+            self.hub_install(dict(self.map, vehicle_sounds=str(extra / "none.json")))
+
+    def test_local_install_puts_vehicle_sounds_beside_the_level(self):
+        sounds = self.root / "inputs/vehicle_sounds.json"
+        self.write(sounds, {"vehicles": []})
+        self.map["vehicle_sounds"] = str(sounds)
+        plan = upgrade.local_install_plan("TST", self.map, self.paths, shared=False)
+        with patch.object(upgrade, "run", return_value="installed"):
+            upgrade.install_local("TST", plan)
+        self.assertTrue((self.ue4ss / "MJOLNIRMaps/TST/vehicle_sounds.json").is_file())
+
+    def test_a_levels_script_is_put_beside_the_level_the_bake_reads(self):
+        data = self.root / "tools/level/data"
+        self.write(data / "tst.hsc", b"(script static void go (print 1))")
+        base = self.root / "base/tst.level.json"
+        self.write(base, {"blam": {"script": "tst.hsc", "objects": []}, "modes": ["slayer"]})
+        with patch.object(upgrade, "HERE", str(self.root / "tools/level")):
+            p = upgrade.paths("TST", dict(self.map, base_level=str(base), bots=False), str(self.work))
+            self.assertEqual((Path(p["level"]).parent / "tst.hsc").read_bytes(), b"(script static void go (print 1))")
+            # A script this repository does not hold stops the build: a bake
+            # without it would drop every device the script drives.
+            self.write(base, {"blam": {"script": "gone.hsc", "objects": []}, "modes": ["slayer"]})
+            with self.assertRaisesRegex(SystemExit, "gone.hsc"):
+                upgrade.paths("TST", dict(self.map, base_level=str(base), bots=False), str(self.work))
+
     def test_swap_forwards_explicit_tree_variant_only_when_configured(self):
         self.write(self.paths["level"], {})
         with patch.object(upgrade, "run", return_value="swapped") as run:
