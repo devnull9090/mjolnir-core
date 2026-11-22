@@ -247,7 +247,16 @@ Launcher (`apps/launcher/src-tauri/src`):
 - Live updates (`patch_name`): a container the game holds open is replaced by
   `…_<v + n>_P`, n from 1, above the old one and below the next container. A
   library written while the game runs is refused when another mod's
-  container in Paks already has its number (`forge_shaders::library_free`).
+  container in Paks carries a shader library under its number
+  (`forge_shaders::library_free`). The engine opens one library per number
+  and skips a number only once a library has opened under it
+  (`FNamedShaderLibrary::OnPakFileMounted`, `PresentChunks`), so a container
+  that shares the number and has no library takes nothing: the runtime's
+  `pakchunk985-MJOLNIRMENU_P` beside a map's `pakchunk985-MJOLNIRCOOK-<CODE>_P`
+  is the everyday case. A library not named for the number in its file name
+  is never opened and is not checked. Every check runs before the first
+  container is written, and a refused map stays installed and enabled, so
+  the next launch from the launcher writes it (`hub::write_live`).
 - `forge_shaders.rs`: the Forge material check runs on the numbers assigned
   in Paks. Two packs cooked under the same number now install side by side;
   the 900 to 999 requirement is gone.
