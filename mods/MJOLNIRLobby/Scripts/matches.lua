@@ -130,7 +130,12 @@ local function tick()
     if busy or os.time() < nextLook then return end
     nextLook = os.time() + INTERVAL
     for _, entry in ipairs(pending()) do
-        if os.time() >= (waitUntil[entry.key] or 0) then
+        if Games.dev and entry.kind ~= "bench" then
+            -- A development PC's matches, seats and chat stay off the hub
+            -- (games.lua, Games.dev); the next look drops it from the outbox.
+            os.remove(fileOf(entry))
+            log(string.format("matches: %s %s kept off the hub (development PC)", entry.kind, entry.id))
+        elseif os.time() >= (waitUntil[entry.key] or 0) then
             send(entry)
             return
         end

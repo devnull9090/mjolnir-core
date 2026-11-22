@@ -157,7 +157,7 @@ async function main() {
   }, 90000, 2000);
   say("PC 2: its lobby is up");
 
-  const hosting = await pc1.auto("host", MAP, MODE);
+  const hosting = await pc1.auto("host", MAP, MODE, "public");
   say(`PC 1: ${hosting.result}`);
   if (!hosting.result?.startsWith("hosting")) throw new Error("PC 1 did not start hosting");
   // While a map loads, ask the game nothing: polling mjolnir_auto through the
