@@ -98,15 +98,20 @@ impl Sector {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Link {
-    pub v1: i16,
-    pub v2: i16,
+    pub v1: i32,
+    pub v2: i32,
     pub flags: u16,
     pub hint: i16,
-    pub forward: i16,
-    pub reverse: i16,
-    pub left: i16,
-    pub right: i16,
+    pub forward: i32,
+    pub reverse: i32,
+    pub left: i32,
+    pub right: i32,
 }
+
+/// The most links or vertices a BSP's pathfinding holds: the simulation reads
+/// their indices as unsigned 16-bit numbers with 0xFFFF for none (A30's largest
+/// BSP ships 59,826 links).
+pub const INDEX_LIMIT: usize = 65535;
 
 /// A `pathfinding hints` element.
 #[derive(Debug, Clone, Copy)]
@@ -271,6 +276,32 @@ impl Pathfinding {
     /// Build the tables from a shell. Errors when the shell is too large for
     /// the 16-bit link and vertex indices.
     pub fn build(c: &Collision) -> Result<Self, String> {
+        Self::build_sized(c, true)
+    }
+
+    /// [`Self::build`] without the size limits: for looking at ground that
+    /// is still too large to write (which of it is connected, say) before
+    /// cutting it down. [`Self::check_limits`] says whether it would fit.
+    pub fn build_oversize(c: &Collision) -> Result<Self, String> {
+        Self::build_sized(c, false)
+    }
+
+    /// Whether the tables fit the engine's blocks and 16-bit indices.
+    pub fn check_limits(&self) -> Result<(), String> {
+        for (what, count, limit) in [
+            ("sectors", self.sectors.len(), 65534),
+            ("links", self.links.len(), INDEX_LIMIT),
+            ("vertices", self.vertices.len(), INDEX_LIMIT),
+            ("hints", self.hints.len(), 32767),
+        ] {
+            if count > limit {
+                return Err(format!("{count} {what}; a BSP's pathfinding holds {limit}"));
+            }
+        }
+        Ok(())
+    }
+
+    fn build_sized(c: &Collision, limited: bool) -> Result<Self, String> {
         let n = c.surfaces.len();
         let floor: Vec<bool> = (0..n).map(|s| walkable(c, s)).collect();
         let step = steps(c, &floor);
@@ -296,7 +327,7 @@ impl Pathfinding {
                 first_link: -1,
             });
         }
-        if pf.sectors.len() > 65534 {
+        if limited && pf.sectors.len() > 65534 {
             return Err(format!(
                 "{} walkable surfaces; a BSP holds at most 65534 sectors",
                 pf.sectors.len()
@@ -339,19 +370,19 @@ impl Pathfinding {
                 plan.push((e, Carries::Right));
             }
         }
-        if plan.len() > 32767 {
+        if limited && plan.len() > INDEX_LIMIT {
             return Err(format!(
-                "{} links; the 16-bit link indices hold 32767",
+                "{} links; the 16-bit link indices hold {INDEX_LIMIT}",
                 plan.len()
             ));
         }
         // The link that carries `surface`'s ring through edge `e`.
-        let next = |e: i32, surface: i32| -> i16 {
+        let next = |e: i32, surface: i32| -> i32 {
             if e < 0 {
                 return -1;
             }
             let side = usize::from(c.edges[e as usize].left != surface);
-            ring[e as usize][side] as i16
+            ring[e as usize][side]
         };
         // The flags of a link with nothing to its right: `far` is the
         // surface across the edge.
@@ -363,14 +394,16 @@ impl Pathfinding {
             }
         };
         let mut vertex_of = vec![-1i32; c.vertices.len()];
-        let mut vertex = |v: i32, verts: &mut Vec<[f32; 3]>| -> Result<i16, String> {
+        let mut vertex = |v: i32, verts: &mut Vec<[f32; 3]>| -> Result<i32, String> {
             let v = v as usize;
             if vertex_of[v] < 0 {
                 vertex_of[v] = verts.len() as i32;
                 verts.push(c.vertices[v].point);
             }
-            i16::try_from(vertex_of[v])
-                .map_err(|_| "more than 32767 pathfinding vertices".to_string())
+            if limited && vertex_of[v] as usize >= INDEX_LIMIT {
+                return Err(format!("more than {INDEX_LIMIT} pathfinding vertices"));
+            }
+            Ok(vertex_of[v])
         };
         let mut verts = Vec::new();
         // The surface across each link with nothing to its right (-1: none).
@@ -422,8 +455,8 @@ impl Pathfinding {
                 hint: -1,
                 forward: next(lnext, ls),
                 reverse: next(rnext, rs),
-                left: left as i16,
-                right: right.map_or(-1, |r| r as i16),
+                left: left as i32,
+                right: right.map_or(-1, |r| r as i32),
             };
             let id = pf.links.len() as i32;
             for s in [Some(left), right].into_iter().flatten() {
@@ -434,7 +467,7 @@ impl Pathfinding {
             pf.links.push(link);
         }
         pf.vertices = verts;
-        pf.join_cracks(c, &far)?;
+        pf.join_cracks(c, &far, limited)?;
 
         // Components over sector-to-sector links.
         let mut parent: Vec<usize> = (0..pf.sectors.len()).collect();
@@ -458,7 +491,12 @@ impl Pathfinding {
     /// Join floors across cracks with intersection links (the module docs
     /// say how). `far[k]` is the surface across link `k`'s edge (-1: none)
     /// for each link with nothing to its right.
-    fn join_cracks(&mut self, c: &Collision, far: &[Option<i32>]) -> Result<(), String> {
+    fn join_cracks(
+        &mut self,
+        c: &Collision,
+        far: &[Option<i32>],
+        limited: bool,
+    ) -> Result<(), String> {
         /// A floor link whose edge drops away, as a 2D segment.
         struct Seg {
             link: usize,
@@ -614,11 +652,16 @@ impl Pathfinding {
             }
             cuts
         };
-        // The 16-bit link and vertex indices: past them, the shortest seams
-        // go first.
+        // The 16-bit link and vertex indices, and two hints a seam: past
+        // them, the shortest seams go first.
         loop {
             let n: usize = cuts(&seams).iter().map(Vec::len).sum();
-            if self.links.len() + n + seams.len() <= 32767 && self.vertices.len() + n <= 32767 {
+            if !limited
+                || seams.is_empty()
+                || self.links.len() + n + seams.len() <= INDEX_LIMIT
+                    && self.vertices.len() + n <= INDEX_LIMIT
+                    && seams.len() * 2 <= 32767
+            {
                 break;
             }
             seams.sort_by(|a, b| (b.ti[1] - b.ti[0]).total_cmp(&(a.ti[1] - a.ti[0])));
@@ -639,7 +682,7 @@ impl Pathfinding {
             ts.push(s.len);
             let mut verts = vec![link.v1];
             for &t in &cuts[k] {
-                verts.push(self.vertices.len() as i16);
+                verts.push(self.vertices.len() as i32);
                 self.vertices.push(at(s, t));
             }
             verts.push(link.v2);
@@ -652,7 +695,7 @@ impl Pathfinding {
                 let piece = &mut self.links[ids[m]];
                 piece.v1 = verts[m];
                 piece.v2 = verts[m + 1];
-                piece.forward = ids.get(m + 1).map_or(link.forward, |&id| id as i16);
+                piece.forward = ids.get(m + 1).map_or(link.forward, |&id| id as i32);
                 pieces[k].push(([ts[m], ts[m + 1]], ids[m]));
             }
         }
@@ -707,7 +750,7 @@ impl Pathfinding {
                 } else {
                     link.reverse
                 };
-                l = next as i32;
+                l = next;
                 if l == first {
                     break;
                 }
@@ -762,7 +805,7 @@ impl Pathfinding {
                 } else {
                     link.reverse
                 };
-                l = next as i32;
+                l = next;
                 if l < 0 || l == sector.first_link {
                     break;
                 }
@@ -924,12 +967,14 @@ impl Pathfinding {
     pub fn links_bytes(&self) -> Vec<u8> {
         let mut b = Vec::with_capacity(self.links.len() * 16);
         for l in &self.links {
+            // Indices go out as 16 bits; -1 becomes 0xFFFF, the engine's none.
             for v in [l.v1, l.v2] {
-                b.extend_from_slice(&v.to_le_bytes());
+                b.extend_from_slice(&(v as u16).to_le_bytes());
             }
             b.extend_from_slice(&l.flags.to_le_bytes());
-            for v in [l.hint, l.forward, l.reverse, l.left, l.right] {
-                b.extend_from_slice(&v.to_le_bytes());
+            b.extend_from_slice(&l.hint.to_le_bytes());
+            for v in [l.forward, l.reverse, l.left, l.right] {
+                b.extend_from_slice(&(v as u16).to_le_bytes());
             }
         }
         b
