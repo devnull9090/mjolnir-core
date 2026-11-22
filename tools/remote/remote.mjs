@@ -45,9 +45,20 @@
 //                                                          button does (a map the game cannot take while it runs)
 //   node tools/remote/remote.mjs launcher quit             close it
 //
+//   node tools/remote/remote.mjs desktop [file] [max]      every monitor as a PNG, game or not (agent 13)
+//   node tools/remote/remote.mjs run '<powershell>' [waitMs]
+//                                                          a PowerShell command in the signed-in desktop session
+//                                                          (Steam, launcher windows); waitMs 0 = detached (agent 13)
+//
+// Several PCs: `--pc <name>` (anywhere on the line) or MJOLNIR_PC picks a
+// named target. Without one, the default (PC 2, as before).
+//
 // The agent's address and token come from MJOLNIR_REMOTE / MJOLNIR_REMOTE_TOKEN,
-// or from %USERPROFILE%\.mjolnir-remote.json: {"url": "http://host:47820", "token": "..."}.
+// or from %USERPROFILE%\.mjolnir-remote.json:
+//   {"url": "http://host:47820", "token": "...",               <- the default target
+//    "targets": {"pc3": {"url": "http://host:47820", "token": "..."}}}
 // Kept out of the repository: the token lets its holder run Lua in that game.
+// Setting up a new PC: tools/remote/README.md.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -56,15 +67,22 @@ import process from "node:process";
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..", "..");
 
+let target = process.env.MJOLNIR_PC || null;
+/** Point this module's commands at a named PC from .mjolnir-remote.json's targets. */
+export function useTarget(name) {
+  target = name || null;
+}
+
 function config() {
-  let url = process.env.MJOLNIR_REMOTE;
-  let token = process.env.MJOLNIR_REMOTE_TOKEN;
   const file = path.join(os.homedir(), ".mjolnir-remote.json");
-  if ((!url || !token) && fs.existsSync(file)) {
-    const saved = JSON.parse(fs.readFileSync(file, "utf8"));
-    url ??= saved.url;
-    token ??= saved.token;
+  const saved = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+  if (target) {
+    const named = saved.targets?.[target] ?? (target === "pc2" && saved.url ? saved : null);
+    if (!named?.url || !named?.token) throw new Error(`no target '${target}' in ${file} (targets: ${Object.keys(saved.targets ?? {}).join(", ") || "none"})`);
+    return { url: named.url.replace(/\/$/, ""), token: named.token };
   }
+  const url = process.env.MJOLNIR_REMOTE ?? saved.url;
+  const token = process.env.MJOLNIR_REMOTE_TOKEN ?? saved.token;
   if (!url || !token) throw new Error(`no agent configured: set MJOLNIR_REMOTE and MJOLNIR_REMOTE_TOKEN, or write ${file}`);
   return { url: url.replace(/\/$/, ""), token };
 }
@@ -101,6 +119,7 @@ const AGENT_FILES = [
   [path.join(REPO, "tools", "mcp", "game", "input.ps1"), "input.ps1"],
   [path.join(REPO, "tools", "mcp", "game", "capture.ps1"), "capture.ps1"],
   [path.join(REPO, "tools", "remote", "launcher.ps1"), "launcher.ps1"],
+  [path.join(REPO, "tools", "remote", "register-agent-task.ps1"), "register-agent-task.ps1"],
   // The bridge mod beside the agent, so `install-bridge` has something to install.
   [path.join(REPO, "mods", "MJOLNIRBridge", "Scripts", "main.lua"), "MJOLNIRBridge/Scripts/main.lua"],
   [path.join(REPO, "mods", "MJOLNIRBridge", "mod.json"), "MJOLNIRBridge/mod.json"],
@@ -325,13 +344,29 @@ export const commands = {
       await bridge("lua", SIGN_IN_LUA).catch(() => null);
       await sleep(3000);
     }
-    throw new Error("PC 2 did not reach the main menu");
+    throw new Error(`${target ?? "PC 2"} did not reach the main menu`);
   },
   /** The game window as a PNG (agent 4). */
   async shot(local = "pc2.png", max = "1280") {
     const bytes = await call("GET", "/screenshot", { max });
     fs.writeFileSync(local, bytes);
     return `${local}: ${bytes.length} bytes`;
+  },
+  /** Every monitor as a PNG, game running or not (agent 13). */
+  async desktop(local = `${target ?? "pc2"}-desktop.png`, max = "1920") {
+    const bytes = await call("GET", "/screenshot", { max, desktop: "1" });
+    if (bytes[0] !== 0x89) throw new Error(bytes.toString("utf8"));
+    fs.writeFileSync(local, bytes);
+    return `${local}: ${bytes.length} bytes`;
+  },
+  /** A PowerShell command in the agent's desktop session (agent 13). */
+  async run(command, wait = "60000") {
+    if (command?.startsWith("@")) command = fs.readFileSync(command.slice(1), "utf8");
+    const result = await json("POST", "/run", { wait }, command);
+    if (result.timedOut) throw new Error(`timed out after ${wait} ms\n${result.output ?? ""}`);
+    if (result.pid) return `started pid ${result.pid}`;
+    if (!result.ok) throw new Error(`exit ${result.exit}\n${result.output}`);
+    return result.output;
   },
   async "stage-agent"() {
     const out = [];
@@ -420,7 +455,10 @@ export const commands = {
 
 // Run as a command unless imported (tools/remote/jip-test.mjs).
 if (path.resolve(process.argv[1] ?? "") === path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))) {
-  const [name, ...args] = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  const pcFlag = argv.indexOf("--pc");
+  if (pcFlag >= 0) useTarget(argv.splice(pcFlag, 2)[1]);
+  const [name, ...args] = argv;
   if (!commands[name]) {
     console.error(`usage: remote.mjs <${Object.keys(commands).join("|")}> ...`);
     process.exit(2);

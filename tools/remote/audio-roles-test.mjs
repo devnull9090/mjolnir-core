@@ -263,11 +263,11 @@ async function main() {
       return Number(state.players) >= 2 ? state : null;
     }, 90000, 3000);
     say("PC 1: fireteam of two");
-    const hosting = await pc1.auto("host", MAP, MODE);
+    const hosting = await pc1.auto("host", MAP, MODE, "public");
     say(`PC 1: ${hosting.result}`);
     if (!hosting.result?.startsWith("hosting")) throw new Error("PC 1 did not start hosting");
   } else {
-    const hosting = await pc1.auto("host", MAP, MODE);
+    const hosting = await pc1.auto("host", MAP, MODE, "public");
     say(`PC 1: ${hosting.result}`);
     if (!hosting.result?.startsWith("hosting")) throw new Error("PC 1 did not start hosting");
   }

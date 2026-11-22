@@ -4820,10 +4820,12 @@ end
 -- the console, answered in native\auto_state.txt as key=value lines, so a
 -- script can host, list, start and join without anyone at the menus.
 --   mjolnir_auto state                 where this game is
---   mjolnir_auto host <CODE> <mode> [private]
+--   mjolnir_auto host <CODE> <mode> [private|public]
 --                                      start the map, listed publicly unless
 --                                      `private` (solo testing: a listed test
---                                      game is joinable by anyone on the hub)
+--                                      game is joinable by anyone on the hub).
+--                                      A development PC (games.lua, Games.dev)
+--                                      hosts private unless given `public`
 --   mjolnir_auto public on|off         list or unlist
 --   mjolnir_auto join [host name]      join a listed game (the first, or the host's),
 --                                      downloading its map first when it is not here
@@ -4932,7 +4934,8 @@ local AUTO = {
         if not mode then return autoState({ result = "error no mode for " .. map.code }) end
         Game.map, Game.mode = map, mode
         saveGame()
-        local private = args[3] == "private"
+        -- A development PC hosts private unless told `public` (games.lua, Games.dev).
+        local private = args[3] == "private" or (Games.dev and args[3] ~= "public")
         Live.quitAt = nil
         Games.setPublic(not private)
         local ok, why = startGame(map, mode)
@@ -5145,6 +5148,7 @@ local function initialize()
     end)
     -- Public match history: MJOLNIRHud's records and seat claims, to the hub.
     Matches.init({ modDir = MOD_DIR, games = Games, log = log })
+    if Games.dev then log("development PC (Saved\\mjolnir_dev.txt): lobby opens private, no match history") end
     -- Hub accounts in place of in-game names, proven to the host by tickets
     -- (docs/player_identity.md); a public game sends a player banned from
     -- matchmaking back to their menu.

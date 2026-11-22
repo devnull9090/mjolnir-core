@@ -41,12 +41,12 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
-      "version": "0.56.0",
-      "tag": "mods-v0.56.0",
+      "version": "0.57.0",
+      "tag": "mods-v0.57.0",
       "title": "Pelican Warfare: a warmup countdown and reinforcement waves",
       "date": "2026-11-22",
       "summary": "Pelican Warfare counts the warmup down in big numbers, the dead come back together on a Pelican every minute while watching a teammate, and the capture zones can move from match to match.",
-      "body": "### Added\n\nIn MJOLNIRHud 0.24.0, MJOLNIRLobby 0.30.0 and MJOLNIRLevelLoader 0.21.1. All three, and the Pelican Warfare game type they ship, belong together: an older HUD or game type does not run the new mode, and the reverse.\n\n- **A warmup countdown.** The line under the score says how long until\n  deployment (\"DEPLOYMENT IN 0:23\"), or that the match is waiting for players.\n  The last ten seconds count down in large numbers in the middle of the\n  screen, in the game's own countdown style, gold for the last three, then\n  \"DEPLOY\" as the Pelicans board. Everyone in the match sees the same number.\n- **Reinforcement waves.** When you die you respawn at your base as before.\n  Your team's Pelican waits in the air near the base for half of each minute;\n  if you respawn then, you are put aboard straight away, and otherwise as\n  soon as it is back. On the minute it flies the route toward the middle of\n  the map with everyone aboard. Jump when you like, or it puts you out near\n  the centre, between A, B and C. The line under the score counts down to the\n  next departure (\"REINFORCEMENTS DEPART IN 0:23\").\n- **Watch a teammate while you wait.** While your Pelican waits, the view\n  follows a teammate on the ground from behind, and the line says whom. It\n  comes back to your seat a few seconds before the wave leaves.\n- **Staying at base.** Press jump while the Pelican waits and you leave at\n  once and parachute down near your base, to take a vehicle or go on foot.\n  Once you have walked or driven away from where you spawned, the Pelican\n  leaves you alone.\n- **Zones that move.** With the next Pelican Warfare map, each match picks\n  where A, B and C are from several spots per zone, all on open ground. A and\n  C always move together as mirror images, so neither team gets the nearer\n  zones. The new places show from the moment the Pelicans launch, so you can\n  steer your parachute to them.\n\n### Changed\n\nIn MJOLNIRLobby 0.30.0.\n\n- **The multiplayer lobby opens public by default** (#431).",
+      "body": "### Added\n\nIn MJOLNIRHud 0.24.0, MJOLNIRLobby 0.32.0 and MJOLNIRLevelLoader 0.21.1. All three, and the Pelican Warfare game type they ship, belong together: an older HUD or game type does not run the new mode, and the reverse.\n\n- **A warmup countdown.** The line under the score says how long until\n  deployment (\"DEPLOYMENT IN 0:23\"), or that the match is waiting for players.\n  The last ten seconds count down in large numbers in the middle of the\n  screen, in the game's own countdown style, gold for the last three, then\n  \"DEPLOY\" as the Pelicans board. Everyone in the match sees the same number.\n- **Reinforcement waves.** When you die you respawn at your base as before.\n  Your team's Pelican waits in the air near the base for half of each minute;\n  if you respawn then, you are put aboard straight away, and otherwise as\n  soon as it is back. On the minute it flies the route toward the middle of\n  the map with everyone aboard. Jump when you like, or it puts you out near\n  the centre, between A, B and C. The line under the score counts down to the\n  next departure (\"REINFORCEMENTS DEPART IN 0:23\").\n- **Watch a teammate while you wait.** While your Pelican waits, the view\n  follows a teammate on the ground from behind, and the line says whom. It\n  comes back to your seat a few seconds before the wave leaves.\n- **Staying at base.** Press jump while the Pelican waits and you leave at\n  once and parachute down near your base, to take a vehicle or go on foot.\n  Once you have walked or driven away from where you spawned, the Pelican\n  leaves you alone.\n- **Zones that move.** With the next Pelican Warfare map, each match picks\n  where A, B and C are from several spots per zone, all on open ground. A and\n  C always move together as mirror images, so neither team gets the nearer\n  zones. The new places show from the moment the Pelicans launch, so you can\n  steer your parachute to them.",
       "sections": [
         {
           "heading": "Added",
@@ -57,11 +57,34 @@
             "Staying at base. Press jump while the Pelican waits and you leave at once and parachute down near your base, to take a vehicle or go on foot. Once you have walked or driven away from where you spawned, the Pelican leaves you alone.",
             "Zones that move. With the next Pelican Warfare map, each match picks where A, B and C are from several spots per zone, all on open ground. A and C always move together as mirror images, so neither team gets the nearer zones. The new places show from the moment the Pelicans launch, so you can steer your parachute to them."
           ]
-        },
+        }
+      ],
+      "path": "/changelog/mods/0.57.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.57.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.57.0"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.56.0",
+      "tag": "mods-v0.56.0",
+      "title": "Multiplayer games open public",
+      "date": "2026-11-22",
+      "summary": "MULTIPLAYER now lists your game in FIND GAMES by default, and a PRIVATE choice holds for the rest of the session.",
+      "body": "### Changed\n\nIn MJOLNIRLobby 0.30.0.\n\n- **Your lobby opens public.** Opening MULTIPLAYER as the host lists the game\n  in FIND GAMES, so players on the hub can find and join it without an\n  invite. Press **PRIVATE GAME** to take it off the list.\n- **A private choice sticks.** Once you pick PUBLIC or PRIVATE, the game keeps\n  it until you quit, through matches and back to the lobby, instead of\n  opening public again.\n- **FORGE still starts private,** and starting it does not count as your\n  choice, so the next lobby opens public again.\n\n### Notes\n\nIn MJOLNIRLobby 0.31.0.\n\n- **Test machines stay off the hub.** A PC marked as a development machine\n  (a `mjolnir_dev.txt` file in the game's Saved folder) opens its lobby\n  private and sends no match history to the hub, so test matches don't show\n  up in public history. Players never have this file, so nothing changes for\n  you.",
+      "sections": [
         {
           "heading": "Changed",
           "items": [
-            "The multiplayer lobby opens public by default (#431)."
+            "Your lobby opens public. Opening MULTIPLAYER as the host lists the game in FIND GAMES, so players on the hub can find and join it without an invite. Press PRIVATE GAME to take it off the list.",
+            "A private choice sticks. Once you pick PUBLIC or PRIVATE, the game keeps it until you quit, through matches and back to the lobby, instead of opening public again.",
+            "FORGE still starts private, and starting it does not count as your choice, so the next lobby opens public again."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "Test machines stay off the hub. A PC marked as a development machine (a mjolnirdev.txt file in the game's Saved folder) opens its lobby private and sends no match history to the hub, so test matches don't show up in public history. Players never have this file, so nothing changes for you."
           ]
         }
       ],
