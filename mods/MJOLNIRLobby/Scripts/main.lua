@@ -4916,7 +4916,8 @@ local AUTO = {
             Games.notice("FORGE games stay private.")
             return autoState({ result = "error FORGE games stay private" })
         end
-        Games.setPublic(on)
+        local refused, why = Games.setPublic(on)
+        if refused == false then return autoState({ result = "error " .. tostring(why) }) end
         autoState({ result = "public " .. tostring(on) })
     end,
     host = function(args)
