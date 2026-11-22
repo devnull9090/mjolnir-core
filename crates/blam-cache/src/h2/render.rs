@@ -491,14 +491,22 @@ impl Textures {
         cache: &Cache,
         base: &Tag<'_>,
         alpha: &Tag<'_>,
+        also: Option<&Tag<'_>>,
         combine: bool,
         dir: &Path,
         notes: &mut Vec<String>,
     ) -> Option<String> {
         let mode = if combine { "x" } else { "" };
-        let key = format!("__cut{mode}{:x}_{:x}", alpha.file as *const CacheFile as usize, alpha.entry.datum);
+        let mut key = format!("__cut{mode}{:x}_{:x}", alpha.file as *const CacheFile as usize, alpha.entry.datum);
+        if let Some(b) = also {
+            key += &format!("_{:x}_{:x}", b.file as *const CacheFile as usize, b.entry.datum);
+        }
         self.stage_mapped(cache, base, 0, dir, notes, "__cut", &key, &mut |mips| {
             let a = decode_bitmap(cache, alpha, 0)?.into_iter().next().ok_or_else(|| Error::Format("no image".into()))?;
+            let b = match also {
+                Some(t) => decode_bitmap(cache, t, 0)?.into_iter().next(),
+                None => None,
+            };
             // A base smaller than the cut-out (a placeholder colour) is
             // taken to the cut-out's size first, as one level.
             if let Some(m0) = mips.first() {
@@ -520,7 +528,10 @@ impl Textures {
                         let u = (x as f32 + 0.5) / m.width as f32;
                         let v = (y as f32 + 0.5) / m.height as f32;
                         let at = ((y * m.width + x) * 4 + 3) as usize;
-                        let cut = sample_alpha(&a, u, v);
+                        let mut cut = sample_alpha(&a, u, v);
+                        if let Some(b) = &b {
+                            cut = ((cut as u32 * sample_alpha(b, u, v) as u32 + 127) / 255) as u8;
+                        }
                         m.rgba[at] = if combine { ((m.rgba[at] as u32 * cut as u32 + 127) / 255) as u8 } else { cut };
                     }
                 }
@@ -683,8 +694,18 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
         }
     }
     if tpl.alpha_tested && tpl.alpha_from != "base" {
-        if let (Some(b), Some(a)) = (tags.get("base"), tags.get(tpl.alpha_from)) {
-            let cut = tex.stage_cutout(cache, b, a, tpl.alpha_combined, dir, notes);
+        // A combined template whose own alpha map is not the bump map cuts on
+        // the bump map's alpha as well: Elongation's rebar keeps its outline
+        // only there (solid base, alpha_white in its alpha slot, which is a
+        // placeholder and so never staged); the chainlink fence has the same
+        // holes in base and bump.
+        let bump = if tpl.alpha_combined && tpl.alpha_from != "bump" { tags.get("bump") } else { None };
+        let (alpha, also) = match tags.get(tpl.alpha_from) {
+            Some(a) => (Some(a), bump),
+            None => (bump, None),
+        };
+        if let (Some(b), Some(a)) = (tags.get("base"), alpha) {
+            let cut = tex.stage_cutout(cache, b, a, also, tpl.alpha_combined, dir, notes);
             roles.insert("base", cut);
         }
     }
