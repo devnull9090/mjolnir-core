@@ -49,7 +49,7 @@ const hs = async line => {
   return call('game_lua', { code: `local f=assert(io.open(${script},'wb')); f:write(${body}); f:close(); local run,e=package.loadlib(${dll},'mjolnir_sim_script'); assert(run,e); run()` });
 };
 const parse = raw => {
-  const start = raw.indexOf('warfare-state 2');
+  const start = raw.indexOf('warfare-state 3');
   if (start < 0) throw new Error(`No warfare snapshot in bridge reply: ${raw.slice(0, 300)}`);
   const snapshot = { players: [], ordinals: {}, raw: raw.slice(start) };
   for (const line of snapshot.raw.split(/\r?\n/)) {
@@ -142,7 +142,7 @@ while (Date.now() < until) {
   const local = s.players.find(p => p.localUser === 0);
   const summary = `ready=${s.ready} status=${s.status} phase=${s.phase} tick=${s.tick} score=${s.score} local=${local?.stage} xyz=${local ? `${local.x},${local.y},${local.z}` : 'none'}`;
   if (summary !== last) { console.log(summary); last = summary; }
-  if (s.ready === 1 && s.status === 2 && s.layout === 3 && s.globals?.[2] === 20569) {
+  if (s.ready === 1 && s.status === 2 && s.layout === 3 && s.globals?.[2] === 20570) {
     sawReady = true;
     if (local?.stage === 2) sawSeated = true;
     if (local?.stage === 4) sawCanopy = true;

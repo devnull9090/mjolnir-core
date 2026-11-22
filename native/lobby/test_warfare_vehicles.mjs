@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parseObjects, parsePlayers, parseSnapshot, guardSnapshot, guardOccupant, guardVehicleVacant, insideVolume, main } from './smoke-warfare-vehicles.mjs';
 
 const unit = 0xe2b70039, vehicle = 0xe2870018;
-const source = `warfare-state 2
+const source = `warfare-state 3
 ready 1
 status 2
 host 1
@@ -14,7 +14,7 @@ layout 3
 phase 2
 rate 30
 connected 1
-globals 2 100 20569 3 1 0 0 0 0 0 0 0
+globals 2 100 20570 3 1 0 0 0 0 0 0 0
 player 7 0 5 0 -760 0 36 ${unit}
 ordinal 7 0
 `;

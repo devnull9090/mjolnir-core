@@ -191,6 +191,10 @@
   "insertion_seconds": 60.0,
   "forced_exit_seconds": 54.0,
   "descent_timeout_seconds": 120.0,
+  "reinforcement": {
+    "interval_seconds": 60,
+    "flight_seconds": 30
+  },
   "flight_envelope_status": "derived from final master and reserved structure envelope; requires live physics validation",
   "provenance": {
     "master_manifest_sha256": "dbf21bef91497c28405c5f7c0826d0f0ac1a06c64472176ae693e9a9b2f93d1e",

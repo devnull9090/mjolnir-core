@@ -4,12 +4,15 @@ local Board = dofile("mods/MJOLNIRHud/Scripts/scoreboard.lua")
 Board.registerModes(dofile("mods/MJOLNIRLevelLoader/Scripts/mode_descriptors.lua"))
 local function eq(a, b, what) assert(a == b, (what or "value") .. ": " .. tostring(a) .. " ~= " .. tostring(b)) end
 local function sample(tick, phase, red, blue, instance, stage)
-    return string.format("warfare-state 2\nready 1\nstatus 2\nhost 1\ninstance %s\ntick %d\nsampled_ms %d\nlayout 3\ninsertion_seconds 60\nphase %d\nelapsed_ticks 60\nrate 60\nconnected 2\nscore %d %d\nowner 1 0 2\nglobals %d 60 20569 %d 2 100 0 %d %d 1 0 2\nplayer 0 0 %d 0 -10.500 20.250 100.000 305397761\n",
+    return string.format("warfare-state 3\nreinforcement 60 30\nready 1\nstatus 2\nhost 1\ninstance %s\ntick %d\nsampled_ms %d\nlayout 3\ninsertion_seconds 60\nphase %d\nelapsed_ticks 60\nrate 60\nconnected 2\nscore %d %d\nowner 1 0 2\nglobals %d 60 20570 %d 2 100 0 %d %d 1 0 2\nplayer 0 0 %d 0 -10.500 20.250 100.000 305397761\n",
         instance or "18446744073709551614", tick, 10000 + tick * 16, phase or 2, red or 17, blue or 9,
-        phase or 2, (phase or 2) < 2 and 60 or 10, red or 17, blue or 9, stage or 0)
+        phase or 2, (phase or 2) == 1 and 60 or 10, red or 17, blue or 9, stage or 0)
 end
 
 local parsed = assert(Warfare.parse(sample(100)))
+eq(parsed.reinforcement.interval, 60, "wave timing parsed"); eq(parsed.reinforcement.flight, 30)
+eq(Warfare.parse(sample(100):gsub("reinforcement 60 30", "reinforcement 30 60")), nil, "a flight longer than its interval")
+eq(Warfare.parse(sample(100):gsub("reinforcement 60 30", "reinforcement 60")), nil, "torn wave timing")
 local Flight=dofile("mods/MJOLNIRHud/Scripts/warfare_instruments.lua")
 local airborneSample=sample(100,1,0,0,"123",4).."flight 0 -3 4 -12 1 -0.53\nclearance 0 82.37\n"
 local airborne=assert(Warfare.parse(airborneSample))
@@ -30,9 +33,9 @@ eq(parsed.score[1], 17); eq(parsed.players[0].x, -10.5)
 eq(assert(Warfare.parse(sample(100) .. "ordinal 0 0\n")).ordinals[0], 0, "optional HS ordinal metadata")
 eq(Warfare.parse(sample(100):sub(1, -2)), nil, "partial last line")
 eq(Warfare.parse(sample(100):gsub("owner 1 0 2", "owner 2 0 2")), nil, "torn score/owner mirrors")
-eq(Warfare.parse(sample(100):gsub("20569", "20568")), nil, "old variant")
+eq(Warfare.parse(sample(100):gsub("20570", "20569")), nil, "old variant")
 eq(Warfare.parse(sample(100):gsub("layout 3", "layout 2")), nil, "old map layout")
-eq(Warfare.parse(sample(100):gsub("warfare%-state 2", "warfare-state 1")), nil, "old snapshot format")
+eq(Warfare.parse(sample(100):gsub("warfare%-state 3", "warfare-state 2")), nil, "old snapshot format")
 eq(Warfare.parse(sample(100):gsub("phase 2", "phase 4")), nil, "invalid phase")
 eq(Warfare.parse(sample(100) .. "ready 1\n"), nil, "duplicate field")
 eq(Warfare.parse(sample(100):gsub("player 0 0 0", "player 16 0 0")), nil, "bounded player index")

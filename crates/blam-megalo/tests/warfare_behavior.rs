@@ -234,7 +234,7 @@ fn deployment_waits_for_players_then_enables_control_and_respawns() {
     w.at[0] = Some(0);
     w.ticks(100, &v);
     assert_eq!(w.globals[PHASE as usize], 0);
-    assert_eq!(w.globals[DEPLOYMENT_SECONDS as usize], 1, "custom insertion duration is replicated while waiting");
+    assert_eq!(w.globals[CLOCK as usize], i32::from(WAITING), "the clock says it is waiting for players");
     assert_eq!(w.score, [0, 0]);
     w.connected[1] = true;
     w.ticks(10, &v);
@@ -366,4 +366,41 @@ fn published_site_state_carries_owner_presence_and_stepped_progress() {
     assert_eq!((taken.owner, taken.progress), (2, Some(-(PROGRESS_STEPS as i32))));
     // Other sites stay neutral and empty.
     assert_eq!(SiteState::decode(w.globals[FIRST_OWNER as usize + 1]).progress, Some(0));
+}
+
+#[test]
+fn warmup_counts_down_whole_seconds_and_restarts_when_a_player_leaves() {
+    let v = Variant::warfare(Warfare {
+        tick_rate: 10,
+        warmup_seconds: 3,
+        insertion_seconds: 7,
+        ..Warfare::default()
+    })
+    .unwrap();
+    let mut w = World::new();
+    w.connected[1] = false;
+    w.ticks(5, &v);
+    assert_eq!(w.globals[MAGIC_SLOT as usize], i32::from(MAGIC));
+    assert_eq!(w.globals[CLOCK as usize], i32::from(WAITING));
+    w.connected[1] = true;
+    w.ticks(1, &v);
+    assert_eq!(w.globals[CLOCK as usize], 3, "the full warmup shows as soon as the count is met");
+    w.ticks(9, &v);
+    assert_eq!(w.globals[CLOCK as usize], 2, "one second after ten ticks");
+    w.ticks(5, &v);
+    assert_eq!(w.globals[CLOCK as usize], 2);
+    w.connected[1] = false;
+    w.ticks(1, &v);
+    assert_eq!(w.globals[CLOCK as usize], i32::from(WAITING), "a leaver stops the countdown");
+    w.connected[1] = true;
+    w.ticks(1, &v);
+    assert_eq!(w.globals[CLOCK as usize], 3, "and it starts again from the top");
+    w.ticks(29, &v);
+    assert_eq!(w.globals[PHASE as usize], 1, "three seconds of warmup is thirty ticks");
+    assert_eq!(w.globals[DEPLOYMENT_SECONDS as usize], 7, "insertion publishes its duration");
+    w.ticks(68, &v);
+    assert_eq!(w.globals[PHASE as usize], 1, "insertion's tick count starts on the launch tick");
+    w.ticks(1, &v);
+    assert_eq!(w.globals[PHASE as usize], 2);
+    assert_eq!(w.globals[ACTIVE_SECONDS as usize], 0);
 }

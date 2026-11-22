@@ -7,8 +7,20 @@ static warfare_sample sample(uint32_t unit) {
     s.carrier_clear = 1; s.velocity_valid = 1;
     s.parent = WARFARE_NONE; s.local_user = 0; s.position[2] = 150; return s;
 }
+/* The flight a player could ride before reinforcements existed: the
+ * insertion in phase 1, nothing otherwise. */
+static warfare_sortie insertion(int phase, float age, float duration) {
+    warfare_sortie f; memset(&f, 0, sizeof f);
+    if (phase == 1) { f.active = f.boarding = f.flying = 1; f.age = age; f.duration = duration; }
+    return f;
+}
+static void step_for(warfare_player *p, warfare_sample *s, int phase, float age, float duration, float dt,
+                     int key, warfare_output *o) {
+    warfare_sortie f = insertion(phase, age, duration);
+    warfare_step(p, s, phase, &f, dt, key, o);
+}
 static void step(warfare_player *p, warfare_sample *s, int phase, float age, int key, warfare_output *o) {
-    warfare_step(p, s, phase, age, WARFARE_INSERTION_SECONDS, 1.0f / 60.0f, key, o);
+    step_for(p, s, phase, age, WARFARE_INSERTION_SECONDS, 1.0f / 60.0f, key, o);
 }
 
 static void test_routes(void) {
@@ -84,8 +96,8 @@ static void test_nonflat_drop(void) {
     assert(p.stage == WF_FAILED && (o.flags & (WF_HOME | WF_UNPROTECT)) == (WF_HOME | WF_UNPROTECT));
     warfare_player_reset(&p); s = sample(43); p.unit = 43; p.stage = WF_SEATED; p.saw_insertion = 1;
     s.parent = 12; s.parent_is_transport = 1;
-    warfare_step(&p, &s, 1, 0.89f, 1, 1.0f / 60, 0, &o); assert(p.stage == WF_SEATED);
-    warfare_step(&p, &s, 1, 0.91f, 1, 1.0f / 60, 0, &o); assert(p.stage == WF_EXITING && (o.flags & WF_EXIT));
+    step_for(&p, &s, 1, 0.89f, 1, 1.0f / 60, 0, &o); assert(p.stage == WF_SEATED);
+    step_for(&p, &s, 1, 0.91f, 1, 1.0f / 60, 0, &o); assert(p.stage == WF_EXITING && (o.flags & WF_EXIT));
 }
 
 static void test_high_altitude_late_exit(void) {
@@ -222,7 +234,7 @@ static flight_result fly_course(int rate, float open_at, int brake) {
         float age = tick * dt;
         s.brake = brake;
         int key = open_at >= 0 && tick == (int)ceilf(open_at * rate);
-        warfare_step(&p, &s, 2, age, 60, dt, key, &o);
+        step_for(&p, &s, 2, age, 60, dt, key, &o);
         assert(p.stage != WF_FAILED);
         if (p.stage == WF_CANOPY && !result.opened) {
             result.opened = age;
@@ -361,8 +373,113 @@ static void test_remote_rider(void) {
     assert((o.flags & WF_EXIT) && (o.flags & WF_UNPROTECT));
 }
 
+
+/* Reinforcement waves: the schedule from the combat clock, a respawn boarding
+ * the parked Pelican, waiting seated, declining, and the wave's own exit. */
+static void at_home(warfare_sample *s) {
+    const float *home = warfare_layout_markers[4 + (s->team == 1)];
+    s->position[0] = home[0] + 10; s->position[1] = home[1] - 5; s->position[2] = home[2];
+}
+static void test_reinforcements(void) {
+    warfare_sortie f;
+    warfare_reinforcement_sortie(12, 60, 30, &f);
+    assert(f.active && f.boarding && !f.flying && f.id == 1);          /* parked before wave 1 */
+    warfare_reinforcement_sortie(60.5f, 60, 30, &f);
+    assert(f.active && !f.boarding && f.flying && f.id == 1 && fabsf(f.age - 0.5f) < 1e-4f);
+    warfare_reinforcement_sortie(95, 60, 30, &f);
+    assert(f.boarding && !f.flying && f.id == 2);                        /* flight over, parked for wave 2 */
+    warfare_reinforcement_sortie(12, 0, 30, &f); assert(!f.active);     /* a map without waves */
+
+    const float dt = 1.0f / 60;
+    warfare_player p; warfare_player_reset(&p);
+    warfare_sample s = sample(70); s.team = 0; warfare_output o;
+    const float *home = warfare_layout_markers[4];
+    /* Away from home (walked off, or driving): never boarded. */
+    s.position[0] = home[0] + 60; s.position[1] = home[1];
+    warfare_sortie early; warfare_reinforcement_sortie(20, 60, 30, &early);
+    warfare_step(&p, &s, 2, &early, dt, 0, &o); assert(p.stage == WF_GROUND && !(o.flags & WF_BOARD));
+    warfare_player_reset(&p); at_home(&s);
+    warfare_sortie parked; warfare_reinforcement_sortie(20, 60, 30, &parked);
+    /* A fresh spawn in combat boards, protected. */
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o);
+    assert(p.stage == WF_BOARDING && (o.flags & WF_BOARD) && (o.flags & WF_PROTECT) && p.sortie == 1);
+    s.parent = 12; s.parent_is_transport = 1;
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_SEATED);
+    /* Waiting while parked: stays seated for as long as it takes. */
+    for (int n = 0; n < 600; n++) { warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_SEATED && !(o.flags & WF_EXIT)); }
+    /* The wave leaves: still seated; jump now leaves the cabin. */
+    warfare_sortie flying; warfare_reinforcement_sortie(61, 60, 30, &flying);
+    warfare_step(&p, &s, 2, &flying, dt, 0, &o); assert(p.stage == WF_SEATED);
+    warfare_step(&p, &s, 2, &flying, dt, 1, &o); assert(p.stage == WF_EXITING && (o.flags & WF_EXIT));
+
+    /* Without a jump the wave puts riders out at its forced exit (27 of 30 s). */
+    warfare_player_reset(&p); s = sample(71); s.team = 0; at_home(&s);
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o);
+    s.parent = 12; s.parent_is_transport = 1;
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_SEATED);
+    warfare_reinforcement_sortie(86.9f, 60, 30, &flying);
+    warfare_step(&p, &s, 2, &flying, dt, 0, &o); assert(p.stage == WF_SEATED);
+    warfare_reinforcement_sortie(87.1f, 60, 30, &flying);
+    warfare_step(&p, &s, 2, &flying, dt, 0, &o); assert(p.stage == WF_EXITING && (o.flags & WF_EXIT));
+
+    /* Jump while parked leaves at once, by the same exit as a flying jump
+     * (the Pelican waits over the team's base: that is how to stay home).
+     * After landing, this life is never boarded again; the next one is. */
+    warfare_player_reset(&p); s = sample(72); s.team = 1; at_home(&s);
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o);
+    s.parent = 12; s.parent_is_transport = 1;
+    for (int k = 0; k < 3; k++) s.position[k] = warfare_routes[1].start[k];  /* seated, parked aloft */
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_SEATED);
+    warfare_step(&p, &s, 2, &parked, dt, 1, &o);
+    assert(p.stage == WF_EXITING && (o.flags & WF_EXIT) && !(o.flags & WF_HOME) && p.protected_fall);
+    s.parent = WARFARE_NONE; s.parent_is_transport = 0;            /* the host detached */
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o);
+    assert(p.stage == WF_FALLING && (o.flags & WF_PROTECT) && (o.flags & WF_WAKE));
+    p.stage = WF_LANDED; p.protected_fall = 0; at_home(&s);         /* landed at base */
+    for (int n = 0; n < 120; n++) { warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_LANDED && !(o.flags & WF_BOARD)); }
+    /* The next life boards again. */
+    s.unit = 73; warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_BOARDING);
+
+    /* A boarding the host never completes (no seat, a full cabin) fails
+     * quietly in combat: no teleport, and only the next wave tries again. */
+    warfare_player_reset(&p); s = sample(76); at_home(&s);
+    warfare_reinforcement_sortie(31, 60, 30, &parked);
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_BOARDING && p.sortie == 1);
+    for (int n = 0; n < 400 && p.stage == WF_BOARDING; n++) warfare_step(&p, &s, 2, &parked, dt, 0, &o);
+    assert(p.stage == WF_GROUND && !(o.flags & (WF_HOME | WF_EXIT)) && (o.flags & WF_UNPROTECT) && p.next_sortie == 2);
+    for (int n = 0; n < 120; n++) { warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_GROUND && !(o.flags & WF_BOARD)); }
+    warfare_reinforcement_sortie(95, 60, 30, &parked);             /* parked for wave 2 */
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_BOARDING && p.sortie == 2);
+
+    /* A client that loses the race with its host's boarding still rides. */
+    warfare_player_reset(&p); s = sample(77); at_home(&s);
+    warfare_reinforcement_sortie(40, 60, 30, &parked); parked.boarding = 0; /* not yet seen parked here */
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_GROUND);
+    s.parent = 14; s.parent_is_transport = 1;
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o);
+    assert(p.stage == WF_SEATED && p.sortie == 1 && (o.flags & WF_PROTECT));
+    warfare_reinforcement_sortie(62, 60, 30, &flying);
+    warfare_step(&p, &s, 2, &flying, dt, 1, &o); assert(p.stage == WF_EXITING);
+    warfare_reinforcement_sortie(20, 60, 30, &parked);
+
+    /* A spawn during a flight waits at home until the Pelican parks again. */
+    warfare_player_reset(&p); s = sample(74); at_home(&s);
+    warfare_reinforcement_sortie(70, 60, 30, &flying);
+    warfare_step(&p, &s, 2, &flying, dt, 0, &o); assert(p.stage == WF_GROUND && !(o.flags & WF_BOARD));
+
+    /* An insertion rider still seated when combat starts leaves, even though
+     * a reinforcement Pelican is parked: it is not the flight they boarded. */
+    warfare_player_reset(&p); s = sample(75); at_home(&s);
+    warfare_sortie ins = insertion(1, 10, 60);
+    warfare_step(&p, &s, 1, &ins, dt, 0, &o);
+    s.parent = 12; s.parent_is_transport = 1;
+    warfare_step(&p, &s, 1, &ins, dt, 0, &o); assert(p.stage == WF_SEATED && p.sortie == 0);
+    warfare_reinforcement_sortie(0.5f, 60, 30, &parked);
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_EXITING && (o.flags & WF_EXIT));
+}
 int main(void) {
     test_remote_rider();
+    test_reinforcements();
     test_flight_controls();
     test_owned_inventory();
     test_routes(); test_nonflat_drop(); test_high_altitude_late_exit();
@@ -422,7 +539,7 @@ int main(void) {
     step(&p, &s, 1, 0, 1, &o); assert(o.flags == 0 && p.unit == WARFARE_NONE);
     s.local_user = 0; s.position[0] = NAN;
     step(&p, &s, 1, 0, 1, &o); assert(o.flags == 0);
-    s.position[0] = 0; warfare_step(&p, &s, 1, 0, WARFARE_INSERTION_SECONDS, 1, 1, &o); assert(o.flags == 0);
+    s.position[0] = 0; step_for(&p, &s, 1, 0, WARFARE_INSERTION_SECONDS, 1, 1, &o); assert(o.flags == 0);
     /* Ending during boarding cannot strand a passenger or leave fall immunity. */
     step(&p, &s, 1, 0, 0, &o); s.parent = 12; s.parent_is_transport = 1;
     step(&p, &s, 1, 1, 0, &o);

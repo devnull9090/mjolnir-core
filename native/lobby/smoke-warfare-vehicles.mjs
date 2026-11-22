@@ -60,7 +60,7 @@ export function parsePlayers(raw) {
 
 export function parseSnapshot(raw) {
   raw = raw.replaceAll('\r\n', '\n');
-  const start = raw.indexOf('warfare-state 2\n');
+  const start = raw.indexOf('warfare-state 3\n');
   check(start >= 0, 'No version-2 native snapshot');
   const result = { players: [], ordinals: {} };
   for (const line of raw.slice(start).split(/\r?\n/)) {
@@ -77,7 +77,7 @@ export function parseSnapshot(raw) {
 
 export function guardSnapshot(s, previous) {
   check(s.ready === 1 && s.status === 2 && s.host === 1 && s.layout === 3 && s.phase === 2
-    && s.globals?.length === 12 && s.globals[0] === 2 && s.globals[2] === 20569 && s.connected === 1
+    && s.globals?.length === 12 && s.globals[0] === 2 && s.globals[2] === 20570 && s.connected === 1
     && /^\d+$/.test(s.instance) && s.instance !== '0' && s.rate >= 10 && s.rate <= 240
     && Number.isInteger(s.tick) && Number.isSafeInteger(s.sampled_ms), 'Requires an active supported PWR/layout3 private host with one player');
   check(s.players.length === 1 && s.players[0].localUser === 0 && [0, 5].includes(s.players[0].stage),

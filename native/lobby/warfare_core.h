@@ -16,7 +16,10 @@ enum warfare_stage { WF_GROUND, WF_BOARDING, WF_SEATED, WF_FALLING, WF_CANOPY,
 enum warfare_command {
     WF_WARMUP = 1, WF_HOME = 2, WF_BOARD = 4, WF_EXIT = 8,
     WF_PROTECT = 16, WF_UNPROTECT = 32, WF_VELOCITY = 64, WF_CLEAR_CABIN = 128,
-    WF_LOWER_WEAPON = 256, WF_RAISE_WEAPON = 512
+    WF_LOWER_WEAPON = 256, WF_RAISE_WEAPON = 512,
+    /* Wake the biped's physics at the start of a fall: a body detached from
+     * a stationary (parked) Pelican sleeps and hung at 550 m for seconds. */
+    WF_WAKE = 1024
 };
 typedef struct {
     uint32_t unit, parent;
@@ -33,12 +36,38 @@ typedef struct {
 } warfare_sample;
 typedef struct {
     uint32_t unit, carrier;
-    int stage, protected_fall, last_phase, saw_insertion, weapon_lowered;
+    /* saw_insertion: this life has used (or declined) a flight already. */
+    int stage, protected_fall, last_phase, saw_insertion, weapon_lowered, sortie;
+    /* next_sortie: after a failed combat boarding, the first sortie id to try again. */
+    int next_sortie;
     float elapsed, retry, stable, departure_z;
     float carrier_velocity[2], air_velocity[3], steering;
     int air_initialized, braking, deploy_requested;
 } warfare_player;
 typedef struct { unsigned flags; float velocity[3]; } warfare_output;
+/* One Pelican flight a player can ride: the insertion (phase 1) or a team's
+ * reinforcement wave in combat. `active`: a transport for it exists (parked
+ * or flying), so a seated rider stays seated. `boarding`: a rider may board
+ * now (insertion, or a reinforcement Pelican parked at its flight start).
+ * `flying`: it is on its route, `age` seconds into a `duration`-second flight. */
+/* `id`: 0 for the insertion, k for reinforcement wave k (parked before it
+ * leaves, then flying); a rider stays only on the sortie they boarded. */
+typedef struct { int active, boarding, flying, id; float age, duration; } warfare_sortie;
+
+/* Reinforcement wave k (k >= 1) leaves at combat second k * interval and flies
+ * for `flight` seconds; between flights the team's Pelican waits, parked, for
+ * riders. Derived from the replicated combat clock alone, so the host and every
+ * client agree without another published value. `seconds` may carry a
+ * fraction of a second measured locally since the clock last advanced. */
+static void warfare_reinforcement_sortie(float seconds, int interval, float flight, warfare_sortie *out) {
+    memset(out, 0, sizeof *out);
+    if (interval <= 0 || !isfinite(seconds) || seconds < 0 || !isfinite(flight) || flight <= 0) return;
+    int wave = (int)(seconds / (float)interval);
+    float age = seconds - (float)wave * (float)interval;
+    out->active = 1; out->duration = flight;
+    if (wave >= 1 && age < flight) { out->flying = 1; out->age = age; out->id = wave; }
+    else { out->boarding = 1; out->id = wave + 1; }
+}
 
 static int warfare_inside(const float p[3], const float low[3], const float high[3]) {
     for (int k = 0; k < 3; k++) if (!isfinite(p[k]) || p[k] < low[k] || p[k] > high[k]) return 0;
@@ -145,6 +174,29 @@ static int warfare_flight_velocity(int team, float age, float duration, const fl
         out[k] += fmaxf(-WARFARE_ROUTE_CORRECTION_LIMIT, fminf(correction, WARFARE_ROUTE_CORRECTION_LIMIT));
     }
     warfare_limit_speed(out); return 1;
+}
+
+/* A parked reinforcement Pelican holds its flight start: bounded correction
+ * toward it, so gravity and drift between velocity writes never build up. */
+static int warfare_hold_velocity(int team, const float position[3], float out[3]) {
+    if (team < 0 || team > 1 || !warfare_inside(position, warfare_scenario_min, warfare_scenario_max)) return 0;
+    for (int k = 0; k < 3; k++) {
+        float correction = (warfare_routes[team].start[k] - position[k]) * WARFARE_ROUTE_CORRECTION_GAIN;
+        out[k] = fmaxf(-WARFARE_ROUTE_CORRECTION_LIMIT, fminf(correction, WARFARE_ROUTE_CORRECTION_LIMIT));
+    }
+    return 1;
+}
+
+/* Parked means at its flight start, give or take the hold's drift. */
+#define WARFARE_PARKED_RADIUS 30.0f
+static int warfare_at_flight_start(int team, const float position[3]) {
+    if (team < 0 || team > 1) return 0;
+    float d2 = 0;
+    for (int k = 0; k < 3; k++) {
+        if (!isfinite(position[k])) return 0;
+        float d = position[k] - warfare_routes[team].start[k]; d2 += d * d;
+    }
+    return d2 <= WARFARE_PARKED_RADIUS * WARFARE_PARKED_RADIUS;
 }
 
 static float warfare_route_distance2(int team, const float position[3]) {
@@ -304,19 +356,36 @@ static void warfare_air_motion(warfare_player *p, const warfare_sample *s, float
     memcpy(o->velocity, p->air_velocity, sizeof o->velocity);
 }
 
-/* Called once per unique simulation tick. A late join or respawn during
- * active play is an ordinary base spawn, never a second insertion. */
+/* A reinforcement takes only a player still waiting where they spawned: on
+ * foot within this distance of the team's home flag (spawns lie within 23 m).
+ * Someone who has walked off or taken a vehicle is playing; never yank them. */
+#define WARFARE_REINFORCE_HOME_RADIUS 40.0f
+static int warfare_waiting_at_home(const warfare_sample *s) {
+    if (s->parent != WARFARE_NONE || s->team < 0 || s->team > 1) return 0;
+    const float *home = warfare_layout_markers[4 + s->team]; /* red_home, blue_home */
+    return hypotf(s->position[0] - home[0], s->position[1] - home[1]) <= WARFARE_REINFORCE_HOME_RADIUS;
+}
+
+/* Called once per unique simulation tick. `sortie` is the flight this player
+ * may ride now: the insertion in phase 1, the team's reinforcement wave in
+ * combat (inactive when the map has none). A respawn or late join during
+ * combat boards the next reinforcement; with none it is an ordinary base spawn.
+ * Jump while parked leaves at once: the Pelican waits over the team's own
+ * base, so that is the way to stay home (a vehicle, a walk) instead of waiting. */
 static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
-                         float phase_seconds, float insertion_seconds, float dt, int action, warfare_output *o) {
+                         const warfare_sortie *sortie, float dt, int action, warfare_output *o) {
     memset(o, 0, sizeof *o);
-    if (!warfare_finite_sample(s) || !isfinite(dt) || dt <= 0 || dt > 0.1f
-        || !isfinite(phase_seconds) || phase_seconds < 0 || phase < 0 || phase > 3
-        || !isfinite(insertion_seconds) || insertion_seconds <= 0 || insertion_seconds > 32767) return;
-    float forced_exit = warfare_forced_exit(insertion_seconds);
+    if (!warfare_finite_sample(s) || !sortie || !isfinite(dt) || dt <= 0 || dt > 0.1f
+        || phase < 0 || phase > 3 || !isfinite(sortie->age) || sortie->age < 0
+        || (sortie->active && (!isfinite(sortie->duration) || sortie->duration <= 0 || sortie->duration > 32767))) return;
+    float forced_exit = sortie->active ? warfare_forced_exit(sortie->duration) : 0;
+    int flight_over = sortie->flying && sortie->age >= forced_exit;
     if (p->unit != s->unit) {
         warfare_player_reset(p); p->unit = s->unit;
         if (phase == 0) o->flags |= WF_WARMUP;
     }
+    /* Only the flight a rider boarded keeps them aboard. */
+    int mine = sortie->active && (p->stage == WF_GROUND || p->sortie == sortie->id);
     if (phase == 3) { warfare_stop(p, s, o); return; }
     if (phase == 0) {
         if (p->last_phase > 0) {
@@ -329,8 +398,15 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
     }
     int started_seated = p->stage == WF_SEATED;
     if (action && (p->stage == WF_EXITING || p->stage == WF_FALLING)) p->deploy_requested = 1;
-    if (phase == 1 && !p->saw_insertion && p->stage == WF_GROUND) {
-        p->saw_insertion = 1; p->stage = WF_BOARDING; p->elapsed = 0; p->retry = 0;
+    /* A client can lose the race with its host's boarding: a player already
+     * seen aboard their team's transport for this sortie rides it. */
+    if (p->stage == WF_GROUND && phase == 2 && sortie->active && s->parent_is_transport && !p->saw_insertion) {
+        p->saw_insertion = 1; p->stage = WF_SEATED; p->sortie = sortie->id;
+        p->carrier = s->parent; p->elapsed = 0; p->protected_fall = 1; o->flags |= WF_PROTECT;
+    }
+    if (sortie->boarding && !p->saw_insertion && p->stage == WF_GROUND && sortie->id >= p->next_sortie
+        && (sortie->id == 0 || warfare_waiting_at_home(s))) {
+        p->saw_insertion = 1; p->stage = WF_BOARDING; p->elapsed = 0; p->retry = 0; p->sortie = sortie->id;
         p->protected_fall = 1; o->flags |= WF_PROTECT;
     }
     p->last_phase = phase;
@@ -338,8 +414,17 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
     if (p->stage == WF_BOARDING) {
         if (s->parent != WARFARE_NONE && s->parent_is_transport) {
             p->carrier = s->parent; p->stage = WF_SEATED; p->elapsed = 0;
-        } else if (phase != 1 || p->elapsed > 5.0f || phase_seconds >= forced_exit) {
-            warfare_fail(p, o); return;
+        } else if (!sortie->boarding || !mine || p->elapsed > 5.0f || flight_over) {
+            if (phase == 2) {
+                /* On foot at home already: no teleport; try the next wave. */
+                warfare_ready_weapon(p, o);
+                if (p->protected_fall) o->flags |= WF_UNPROTECT;
+                p->protected_fall = 0; p->stage = WF_GROUND; p->saw_insertion = 0;
+                p->next_sortie = p->sortie + 1;
+                return;
+            }
+            warfare_fail(p, o);
+            return;
         } else {
             p->retry -= dt;
             if (p->retry <= 0) { o->flags |= WF_BOARD; p->retry = 0.5f; }
@@ -349,18 +434,21 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
         if (s->parent_is_transport && s->velocity_valid) {
             float speed = hypotf(s->velocity[0], s->velocity[1]);
             float fraction = speed > 0 ? fminf(0.6f, 16.0f / speed) : 0;
-            for (int k = 0; k < 2; k++) p->carrier_velocity[k] = phase == 1 ? s->velocity[k] * fraction : 0;
+            for (int k = 0; k < 2; k++) p->carrier_velocity[k] = sortie->flying ? s->velocity[k] * fraction : 0;
         }
         if (s->parent == WARFARE_NONE) {
             p->stage = WF_EXITING; p->elapsed = 0; p->retry = 0;
-        } else if (phase == 2 || phase_seconds >= forced_exit
-                   || (action && started_seated)) {
+        } else if (!mine || flight_over || (action && started_seated)) {
+            /* A parked jump uses the same verified exit as a flying one (host
+             * detach, cabin clearance, canopy): a separate detach-and-teleport
+             * home left a remote rider hanging at 550 m (three copies, 2026-11-22). */
             p->stage = WF_EXITING; p->elapsed = 0; p->retry = 0;
         }
     }
     if (p->stage == WF_EXITING) {
         if (s->parent == WARFARE_NONE && s->carrier_clear) {
             p->stage = WF_FALLING; p->elapsed = 0; p->departure_z = s->position[2];
+            o->flags |= WF_WAKE;
             p->air_initialized = 0;
             if (!p->weapon_lowered) {
                 p->weapon_lowered = 1;

@@ -37,8 +37,9 @@ MJOLNIR lobby, then start a private match. The installed preview starts with
 one player after a five-second warmup. Press **Space** to leave the Pelican
 and again to deploy the parachute; automatic exit and deployment are fallbacks.
 Stand on A, B or C on foot for eight seconds to capture a neutral site.
-Owned uncontested sites score once per second. Death returns you to your
-team base after five seconds; the target is 500 control points.
+Owned uncontested sites score once per second. After a death you respawn at
+your base and board your team's waiting Pelican, which leaves with everyone
+aboard on the next minute of combat; the target is 500 control points.
 
 ## Rules and build
 
@@ -61,7 +62,10 @@ eight more to capture. Extra teammates do not accelerate capture. Opposing
 presence stops capture and scoring. An owned empty site continues to earn
 one point per second. Kills do not score. Each death respawns the player at
 their permanent Red or Blue home after five seconds, with unlimited lives
-and no suicide/betrayal delay. These are individual respawns, not waves.
+and no suicide/betrayal delay; the native adapter then puts them aboard the
+next reinforcement wave (see [waves and reinforcements](pelican_warfare_waves.md)).
+A wave leaves every `reinforcement.interval_seconds` (60) of combat and flies
+`flight_seconds` (30) of the insertion route, both from `layout.json`.
 
 CLI flags allow explicit development variants: `--minimum-players`,
 `--warmup-seconds`, `--insertion-seconds`, `--capture-seconds`,
@@ -175,9 +179,11 @@ Banshee occupied, does not end the match, and makes no game calls without
 
 ## Native bridge and presentation
 
-The loader requires level metadata `warfare: {protocol: 20568, layout_revision: 2}`
+The loader requires level metadata `warfare: {protocol: 20569, layout_revision: 3}`
 and opens `MJOLNIRLobby/native/mjolnir_lobby.dll` with a configuration
-containing `warfare-config 2`, `map PWR`, `layout 2` and `protocol 20568`.
+containing `warfare-config 2`, `map PWR`, `layout 3` and `protocol 20569`.
+That number is the map's layout protocol; the Megalo rules publish their own
+revision in slot 2 (20570), so a rules change needs no new map.
 Its four exported Lua entrypoints
 are `mjolnir_warfare_open`, `close`, `action` and `pump` (all with the
 `mjolnir_warfare_` prefix). Space sends only a jump/deploy request. The native
@@ -185,20 +191,22 @@ adapter validates the simulation build, scenario, engine, instance,
 Megalo protocol and the four baked flight endpoint positions before acting.
 The endpoint check rejects an old PWR scenario even if its JSON was updated.
 Movement remains on the owning simulation
-peer; the host controls the named transports. Late joins and subsequent
-respawns use the home bases rather than repeating insertion.
+peer; the host controls the named transports. Late joins and later
+respawns board the next reinforcement wave from the home base.
 
-Global number slots are phase 0, phase age in ticks 1, protocol magic 20568
-at 2, deployment duration / combat elapsed seconds 3, connected count 4, scratch 5–6, Red/Blue
+Global number slots are phase 0, phase age in ticks 1, rules magic 20570
+at 2, the clock 3, connected count 4, scratch 5–6, Red/Blue
 score 7–8 and A/B/C site states 9–11. Phases are warmup 0, insertion 1, combat 2
 and complete 3. A site state packs `owner + 4 × (red present + 2 × blue present)
 + 16 × (progress + 17)`: owner neutral 0, Red 1, Blue 2 in the low two bits, and
 capture progress in sixteenths toward Red (+16) or Blue (−16), counted against
 thresholds fixed when the variant is built (`SiteState` in `warfare.rs`). Steps,
 not ticks, keep the replicated value from changing every tick. A value under 16
-is an owner alone (older variants, or before combat). Slot 3 publishes the
-configured insertion duration in phases 0–1, then resets to zero and counts
-combat seconds in phase 2. Phase, age, magic, duration/clock,
+is an owner alone (older variants, or before combat). Slot 3, the clock,
+counts the warmup down in whole seconds in phase 0 (-1 while fewer than the
+minimum players are connected), publishes the configured insertion duration
+in phase 1, then resets to zero and counts combat seconds in phase 2; the
+reinforcement schedule is derived from it. Phase, age, magic, clock,
 scores and owners have high replication priority, connected count low priority,
 and scratch remains local. Native code reads this state; Megalo owns it.
 An absent team's native score operand is -1 in the supported build; the
@@ -218,8 +226,9 @@ These expansion changes require live validation independently of the smaller
 prototype's successful insertion tests recorded below.
 
 The loader publishes `MJOLNIRLobby/native/warfare_state.txt` every 500 ms;
-the HUD reads at the same interval. The `warfare-state 2` format includes
-layout revision and configured insertion duration. The HUD checks the complete format,
+the HUD reads at the same interval. The `warfare-state 3` format includes
+the reinforcement timing, layout revision and configured insertion duration.
+The HUD checks the complete format,
 ready/status flags, mirrored globals, exact uint64 instance text and current
 PWR world. Two advancing tick/time samples are required before accepting
 a file or a new instance. Live samples expire after two seconds without
@@ -230,8 +239,11 @@ winner come from accepted native scores, never summed player incidents.
 Individual control cells show a dash; kills and deaths remain visible.
 Final standings allow 1.5 seconds for the final publication to arrive.
 
-The status line gives warmup, boarding, Space-to-jump, exiting, Space-to-deploy,
-canopy, landing/active and failed-deployment information. During combat it
+The status line gives the warmup countdown, boarding, Space-to-jump, exiting,
+Space-to-deploy, canopy, landing/active and failed-deployment information, and
+for a waiting reinforcement rider the time to departure and whom they watch.
+The last ten seconds of warmup also count down large in the middle of the
+screen (`warfare_countdown.lua`). During combat it
 gives way to three zone tiles under the score (`WBP_MJOLNIRWarfareZones`, chunk 958
 beside the tactical map, filled by `warfare_zones.lua`): owner colour, NEUTRAL /
 RED / BLUE / CAPTURING / NEUTRALIZING / CONTESTED, the capture bar, a pip for each

@@ -75,6 +75,15 @@ def validate(data):
             points.append(point)
         if timeout < (max(start[2], end[2]) - play[0][2]) / 6 + 10:
             raise ValueError("descent timeout lacks clearance for the lowest floor")
+    reinforcement = data.get("reinforcement")
+    if reinforcement is not None:
+        interval, flight = reinforcement.get("interval_seconds"), reinforcement.get("flight_seconds")
+        if set(reinforcement) != {"interval_seconds", "flight_seconds"} or any(
+                isinstance(v, bool) or not isinstance(v, int) for v in (interval, flight)):
+            raise ValueError("reinforcement needs whole interval_seconds and flight_seconds")
+        # A flight ends (and its transport can be recycled) before the next one leaves.
+        if not (10 <= flight <= duration and flight + 10 <= interval <= 600):
+            raise ValueError("invalid reinforcement timing")
     if len({tuple(v) for v in points}) != 4:
         raise ValueError("four distinct flight flags are required by the runtime map guard")
     markers = marker_points(data)
@@ -110,6 +119,12 @@ def generate(data):
         "#define WARFARE_ROUTE_CORRECTION_GAIN 0.5f",
         "#define WARFARE_ROUTE_CORRECTION_LIMIT 3.0f",
         "#define WARFARE_TRANSPORT_CLEANUP_SECONDS 5.0f",
+    ]
+    reinforcement = data.get("reinforcement") or {"interval_seconds": 0, "flight_seconds": 0}
+    lines += [
+        "/* Reinforcement waves: one leaves every interval of combat (0 = none). */",
+        f"#define WARFARE_REINFORCEMENT_INTERVAL {reinforcement['interval_seconds']}",
+        f"#define WARFARE_REINFORCEMENT_FLIGHT_SECONDS {number(reinforcement['flight_seconds'])}",
     ]
     extent = max(abs(v) for side in data["scenario_bounds_m"].values() for v in side)
     lines.append(f"#define WARFARE_POSITION_SANITY_M {number(extent + 1000)}")

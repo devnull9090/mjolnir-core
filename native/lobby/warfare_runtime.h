@@ -6,6 +6,12 @@
 #include "warfare_core.h"
 #include "lua_channel.h"
 
+/* Megalo rules revision in global slot 2 (blam-megalo warfare.rs MAGIC).
+ * WARFARE_MAGIC (generated from layout.json) is the map's layout protocol,
+ * carried by the published map; the two moved apart at 20570, when slot 3
+ * began counting the warmup down. */
+#define WARFARE_RULES_MAGIC 20570
+
 typedef struct {
     int ready, status, host, rate, tick, layout, insertion_seconds, globals[12];
     uint64_t sampled_ms;
@@ -41,6 +47,11 @@ static struct {
     uint16_t admitted[WARFARE_PLAYERS];
     int seat[WARFARE_PLAYERS];
     uint32_t carrier[2];
+    /* Reinforcements: the combat clock's last value and the tick it took it
+     * (for a fraction of a second between replicated whole seconds); each
+     * team's transport seen parked at its flight start (every machine looks,
+     * so a client never waits to board a Pelican that is not there). */
+    int clock_seconds, clock_tick, parked[2];
 } warfare;
 
 static int warfare_build(void) {
@@ -242,8 +253,23 @@ static warfare_inventory warfare_kits[WARFARE_PLAYERS];
 /* Cabin clearance is both: right after the host detaches a rider it still
  * places the biped, and a client's clearance alone snapped back five times in
  * two seconds until the host's state timed out (two copies, 2026-11-19). */
-#define WF_HOST_AUTHORITY (WF_BOARD | WF_EXIT | WF_CLEAR_CABIN | WF_PROTECT | WF_UNPROTECT | WF_LOWER_WEAPON | WF_RAISE_WEAPON)
-#define WF_OWNER_AUTHORITY (WF_VELOCITY | WF_HOME | WF_WARMUP | WF_CLEAR_CABIN)
+#define WF_HOST_AUTHORITY (WF_BOARD | WF_EXIT | WF_CLEAR_CABIN | WF_PROTECT | WF_UNPROTECT | WF_LOWER_WEAPON | WF_RAISE_WEAPON | WF_WAKE)
+#define WF_OWNER_AUTHORITY (WF_VELOCITY | WF_HOME | WF_WARMUP | WF_CLEAR_CABIN | WF_WAKE)
+
+/* A reinforcement rider's seat: their own (roster) seat unless a teammate
+ * riding now holds it; late joiners have none. The lowest free one otherwise. */
+static void warfare_reinforcement_seat(const warfare_snapshot *s, int i) {
+    int team = s->sample[i].team, held = 0;
+    if (team < 0 || team > 1) return;
+    for (int j = 0; j < WARFARE_PLAYERS; j++) {
+        if (j == i || !s->sample[j].valid || s->sample[j].team != team || warfare.seat[j] < 0 || warfare.seat[j] >= 10) continue;
+        int stage = warfare.player[j].stage;
+        if (stage == WF_BOARDING || stage == WF_SEATED || stage == WF_EXITING) held |= 1 << warfare.seat[j];
+    }
+    if (warfare.seat[i] >= 0 && warfare.seat[i] < 10 && !(held & (1 << warfare.seat[i]))) return;
+    warfare.seat[i] = -1;
+    for (int seat = 0; seat < 10; seat++) if (!(held & (1 << seat))) { warfare.seat[i] = seat; return; }
+}
 
 static void warfare_apply(unsigned char *tls, const warfare_sample all[WARFARE_PLAYERS], int i,
                           const warfare_output *requested, int host) {
@@ -275,6 +301,9 @@ static void warfare_apply(unsigned char *tls, const warfare_sample all[WARFARE_P
         int cleared = warfare_clear_cabin(tls, i, s);
         fireteam_log("warfare: player %d carrier %08x cabin clearance %s", i,
                      warfare.player[i].carrier, cleared ? "verified" : "rejected");
+    }
+    if (out->flags & WF_WAKE) {
+        snprintf(line, sizeof line, "(object_wake_physics (player_get %d))", hs_player); warfare_hs(line);
     }
     if (out->flags & WF_UNPROTECT) {
         snprintf(line, sizeof line, "(unit_falling_damage_disable (player_get %d) false)", hs_player); warfare_hs(line);
@@ -336,7 +365,76 @@ static void warfare_carriers(unsigned char *tls) {
     }
 }
 
-static void warfare_flight(unsigned char *tls, const warfare_snapshot *snapshot, int tick) {
+static unsigned char *warfare_carrier_position(unsigned char *tls, int team, float metres[3]) {
+    unsigned char *object = fd_object(tls, warfare.carrier[team]);
+    if (!object || !warfare_transport(object)) return NULL;
+    const float *p = (const float *)(object + 0x44);
+    for (int k = 0; k < 3; k++) metres[k] = p[k] * WARFARE_METRES_PER_WU;
+    return object;
+}
+
+static void warfare_set_velocity(int team, unsigned char *object, const float world[3]) {
+    float local[3];
+    if (!warfare_velocity_frame((const float *)(object + 0x50), (const float *)(object + 0x5c), world, local)) return;
+    char line[192];
+    snprintf(line, sizeof line, "(object_set_velocity pwr_pelican_%s %.5f %.5f %.5f)", team ? "blue" : "red",
+             local[0] / WARFARE_METRES_PER_WU, local[1] / WARFARE_METRES_PER_WU, local[2] / WARFARE_METRES_PER_WU);
+    warfare_hs(line);
+}
+
+/* A team's transport, made anew at its flight start, protected, parked. */
+static void warfare_park(int team) {
+    const char *name = team ? "blue" : "red";
+    char line[128];
+    snprintf(line, sizeof line, "(object_create_anew pwr_pelican_%s)", name); warfare_hs(line);
+    snprintf(line, sizeof line, "(object_teleport pwr_pelican_%s pwr_%s_flight_start)", name, name); warfare_hs(line);
+    snprintf(line, sizeof line, "(object_cannot_take_damage pwr_pelican_%s)", name); warfare_hs(line);
+}
+
+/* Anyone of this team aboard this team's transport, or still leaving it. */
+static int warfare_team_aboard(const warfare_snapshot *snapshot, int team) {
+    for (int i = 0; i < WARFARE_PLAYERS; i++) {
+        const warfare_sample *p = &snapshot->sample[i];
+        if (!p->valid || p->team != team) continue;
+        if (p->parent_is_transport && p->parent == warfare.carrier[team]) return 1;
+        if (warfare.carrier[team] != WARFARE_NONE && warfare.player[i].carrier == warfare.carrier[team]
+            && !p->carrier_clear) return 1;
+    }
+    return 0;
+}
+
+/* Combat with reinforcement waves, on the host: each team's Pelican flies its
+ * wave's route, then, once empty, is made anew at its flight start and held
+ * there for the next wave's riders. The first one replaces the insertion's. */
+static void warfare_reinforcement_flights(unsigned char *tls, const warfare_snapshot *snapshot,
+                                          const warfare_sortie sorties[2]) {
+    int age = snapshot->globals[1], rate = snapshot->rate;
+    warfare_carriers(tls);
+    for (int team = 0; team < 2; team++) {
+        float metres[3], world[3];
+        unsigned char *object = warfare_carrier_position(tls, team, metres);
+        if (sorties[team].flying) {
+            if (object && warfare_flight_velocity(team, sorties[team].age, sorties[team].duration, metres, world))
+                warfare_set_velocity(team, object, world);
+            continue;
+        }
+        if (object && warfare_at_flight_start(team, metres)) {
+            if (warfare_hold_velocity(team, metres, world)) warfare_set_velocity(team, object, world);
+            continue;
+        }
+        if (object) {
+            float stop[3] = {0, 0, 0};
+            warfare_set_velocity(team, object, stop);
+            /* Insertion riders get the usual moment to leave before it goes. */
+            if (age < 32760 && (float)age < WARFARE_TRANSPORT_CLEANUP_SECONDS * (float)rate) continue;
+            if (warfare_team_aboard(snapshot, team)) continue;
+        }
+        warfare_park(team);
+        fireteam_log("warfare: %s reinforcement Pelican parked at its flight start", team ? "blue" : "red");
+    }
+}
+
+static void warfare_flight(unsigned char *tls, const warfare_snapshot *snapshot, int tick, const warfare_sortie sorties[2]) {
     int phase = snapshot->globals[0], age = snapshot->globals[1], rate = snapshot->rate;
     if (!snapshot->host) return;
     if (phase == 1 && warfare.last_phase != 1) {
@@ -349,21 +447,20 @@ static void warfare_flight(unsigned char *tls, const warfare_snapshot *snapshot,
         warfare.transport_created = 1;
         fireteam_log("warfare: insertion started; native physics transports requested");
     }
-    if (!warfare.transport_created || tick % (rate / 10 ? rate / 10 : 1)) return;
+    if (tick % (rate / 10 ? rate / 10 : 1)) return;
+    if (phase == 2 && WARFARE_REINFORCEMENT_INTERVAL > 0) {
+        warfare.transport_created = 1;
+        warfare_reinforcement_flights(tls, snapshot, sorties);
+        return;
+    }
+    if (!warfare.transport_created) return;
     if (phase == 1) {
         warfare_carriers(tls);
         for (int team = 0; team < 2; team++) {
-            unsigned char *object = fd_object(tls, warfare.carrier[team]);
-            if (!object || !warfare_transport(object)) continue;
-            const float *p = (const float *)(object + 0x44);
-            float metres[3], world[3], local[3];
-            for (int k = 0; k < 3; k++) metres[k] = p[k] * WARFARE_METRES_PER_WU;
-            if (!warfare_flight_velocity(team, (float)age / (float)rate, warfare.insertion_seconds, metres, world)
-                || !warfare_velocity_frame((const float *)(object + 0x50), (const float *)(object + 0x5c), world, local)) continue;
-            char line[192];
-            snprintf(line, sizeof line, "(object_set_velocity pwr_pelican_%s %.5f %.5f %.5f)", team ? "blue" : "red",
-                     local[0] / WARFARE_METRES_PER_WU, local[1] / WARFARE_METRES_PER_WU, local[2] / WARFARE_METRES_PER_WU);
-            warfare_hs(line);
+            float metres[3], world[3];
+            unsigned char *object = warfare_carrier_position(tls, team, metres);
+            if (object && warfare_flight_velocity(team, (float)age / (float)rate, warfare.insertion_seconds, metres, world))
+                warfare_set_velocity(team, object, world);
         }
     } else {
         warfare_hs("(object_set_velocity pwr_pelican_red 0 0 0)");
@@ -378,6 +475,37 @@ static void warfare_flight(unsigned char *tls, const warfare_snapshot *snapshot,
             warfare_hs("(object_destroy pwr_pelican_red)"); warfare_hs("(object_destroy pwr_pelican_blue)");
             warfare.transport_created = 0;
         }
+    }
+}
+
+/* The flight a team's players may ride this tick. In combat the parked check
+ * is what every machine sees, refreshed ten times a second. */
+static void warfare_team_sorties(unsigned char *tls, const warfare_snapshot *s, int tick, warfare_sortie out[2]) {
+    memset(out, 0, sizeof(warfare_sortie) * 2);
+    int phase = s->globals[0];
+    if (phase == 1) {
+        for (int team = 0; team < 2; team++) {
+            out[team].active = out[team].boarding = out[team].flying = 1;
+            out[team].age = (float)s->globals[1] / (float)s->rate;
+            out[team].duration = warfare.insertion_seconds;
+        }
+        return;
+    }
+    if (phase != 2 || WARFARE_REINFORCEMENT_INTERVAL <= 0) return;
+    int seconds = s->globals[3];
+    if (seconds != warfare.clock_seconds) { warfare.clock_seconds = seconds; warfare.clock_tick = tick; }
+    float fraction = fminf(fmaxf((float)(tick - warfare.clock_tick) / (float)s->rate, 0), 0.999f);
+    if (!(tick % (s->rate / 10 ? s->rate / 10 : 1))) {
+        warfare_carriers(tls);
+        for (int team = 0; team < 2; team++) {
+            float metres[3];
+            warfare.parked[team] = warfare_carrier_position(tls, team, metres) && warfare_at_flight_start(team, metres);
+        }
+    }
+    for (int team = 0; team < 2; team++) {
+        warfare_reinforcement_sortie((float)seconds + fraction, WARFARE_REINFORCEMENT_INTERVAL,
+                                     WARFARE_REINFORCEMENT_FLIGHT_SECONDS, &out[team]);
+        if (out[team].boarding && !warfare.parked[team]) out[team].boarding = 0;
     }
 }
 
@@ -406,6 +534,7 @@ static void warfare_tick_inner(void) {
         warfare.hs_failures = 0;
         warfare.duration_valid = 0; warfare.insertion_seconds = WARFARE_INSERTION_SECONDS;
         warfare.transport_created = 0; warfare.was_client = g[0x11] == 4;
+        warfare.clock_seconds = -1; warfare.clock_tick = 0; warfare.parked[0] = warfare.parked[1] = 0;
         warfare.map_ok = warfare_enabled ? warfare_map() : 0;
         memset(warfare.previous_valid, 0, sizeof warfare.previous_valid);
         memset(warfare.admitted, 0, sizeof warfare.admitted);
@@ -429,17 +558,17 @@ static void warfare_tick_inner(void) {
     if (tick_delta != 1) memset(warfare.previous_valid, 0, sizeof warfare.previous_valid);
     s.instance = instance; s.rate = rate; s.tick = tick; s.sampled_ms = GetTickCount64(); s.host = g[0x11] != 4;
     memcpy(s.globals, engine + 0x234, sizeof s.globals);
-    /* Slot3 is the configured deployment duration before combat; the VM
-     * resets it to zero on phase2 and then uses it for combat elapsed time. */
-    if (s.globals[2] == WARFARE_MAGIC && s.globals[0] <= 1 && s.globals[3] > 0 && s.globals[3] <= 32767) {
+    /* Slot3 is the clock: warmup seconds left (-1 waiting) in phase0, the
+     * configured deployment duration in phase1, combat seconds in phase2. */
+    if (s.globals[2] == WARFARE_RULES_MAGIC && s.globals[0] == 1 && s.globals[3] > 0 && s.globals[3] <= 32767) {
         warfare.insertion_seconds = (float)s.globals[3]; warfare.duration_valid = 1;
     }
     s.insertion_seconds = (int)warfare.insertion_seconds;
     warfare_samples(tls, dt, s.host, s.sample);
     if (!s.host) warfare.was_client = 1;
     if (warfare.was_client && s.host) warfare.disabled = 1; /* explicit rehost required */
-    int valid_mode = s.globals[2] == WARFARE_MAGIC && s.globals[0] >= 0 && s.globals[0] <= 3
-        && s.globals[1] >= 0 && s.globals[1] <= 32767 && (warfare.duration_valid || s.globals[0] >= 2);
+    int valid_mode = s.globals[2] == WARFARE_RULES_MAGIC && s.globals[0] >= 0 && s.globals[0] <= 3
+        && s.globals[1] >= 0 && s.globals[1] <= 32767 && (warfare.duration_valid || s.globals[0] != 1);
     if (!warfare_enabled || warfare.disabled || !valid_mode) {
         for (int i = 0; i < WARFARE_PLAYERS; i++) {
             warfare_output out; warfare_stop(&warfare.player[i], &s.sample[i], &out);
@@ -447,14 +576,17 @@ static void warfare_tick_inner(void) {
         }
         if (warfare.transport_created) {
             warfare_snapshot stopping = s; stopping.globals[0] = 3; stopping.globals[1] = 0;
-            warfare_flight(tls, &stopping, tick);
+            warfare_sortie none[2]; memset(none, 0, sizeof none);
+            warfare_flight(tls, &stopping, tick, none);
         }
         s.status = warfare.disabled ? -4 : valid_mode ? 0 : -3;
         warfare_publish(&s); return;
     }
     s.ready = 1; s.status = 2;
     if (s.globals[0] == 0) warfare_lock_roster(s.sample, warfare.admitted, warfare.seat);
-    warfare_flight(tls, &s, tick);
+    warfare_sortie sorties[2];
+    warfare_team_sorties(tls, &s, tick, sorties);
+    warfare_flight(tls, &s, tick, sorties);
     LONG action = InterlockedExchange(&warfare_action, 0);
     warfare_controls controls[2];
     AcquireSRWLockExclusive(&warfare_controls_lock);
@@ -469,8 +601,13 @@ static void warfare_tick_inner(void) {
          * unit for an existing participant still uses that participant's
          * reserved seat; disconnected slot reuse cannot steal it. */
         int player_phase = s.globals[0];
-        if (player_phase == 1 && (!s.sample[i].participant_salt || warfare.admitted[i] != s.sample[i].participant_salt))
-            player_phase = 2;
+        warfare_sortie none, *sortie = &none;
+        memset(&none, 0, sizeof none);
+        if (s.sample[i].team >= 0 && s.sample[i].team < 2) sortie = &sorties[s.sample[i].team];
+        /* Not admitted at roster lock: waits at home for the first wave. */
+        if (player_phase == 1 && (!s.sample[i].participant_salt || warfare.admitted[i] != s.sample[i].participant_salt)) {
+            player_phase = 2; sortie = &none;
+        }
         warfare_sample *sample = &s.sample[i];
         int jump = action && sample->local_user == 0;
         if (sample->remote) {
@@ -490,8 +627,8 @@ static void warfare_tick_inner(void) {
                 }
             }
         }
-        warfare_step(&warfare.player[i], sample, player_phase, (float)s.globals[1] / (float)rate,
-                     warfare.insertion_seconds, dt, jump, &out);
+        warfare_step(&warfare.player[i], sample, player_phase, sortie, dt, jump, &out);
+        if ((out.flags & WF_BOARD) && player_phase == 2) warfare_reinforcement_seat(&s, i);
         warfare_apply(tls, s.sample, i, &out, s.host);
         s.stage[i] = warfare.player[i].stage;
         s.steering[i] = warfare.player[i].steering;
@@ -522,7 +659,7 @@ static int warfare_keep_playing(void) {
     __try {
         unsigned char *g = sim_game_globals(), *e = sim_tls_slot(0x38);
         return g && g[1] && !g[0] && g[0x10] == 3 && *(uint64_t *)(g + 0x18) == warfare.instance
-            && e && *(int *)(e + 0x846c) == 2 && *(int *)(e + 0x234 + 2 * 4) == WARFARE_MAGIC
+            && e && *(int *)(e + 0x846c) == 2 && *(int *)(e + 0x234 + 2 * 4) == WARFARE_RULES_MAGIC
             && *(int *)(e + 0x234) >= 0 && *(int *)(e + 0x234) < 3;
     } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
@@ -578,7 +715,9 @@ __declspec(dllexport) int mjolnir_warfare_remote_jump(void *L) {
     if (index >= 0 && index < WARFARE_PLAYERS) {
         AcquireSRWLockShared(&warfare_snapshot_lock);
         const warfare_sample *p = &warfare_published.sample[index];
-        queued = warfare_published.ready && warfare_published.host && warfare_published.globals[0] == 1
+        /* Insertion, or a reinforcement wave in combat (jump, or decline while parked). */
+        queued = warfare_published.ready && warfare_published.host
+            && (warfare_published.globals[0] == 1 || warfare_published.globals[0] == 2)
             && p->valid && p->remote && warfare_published.stage[index] == WF_SEATED;
         unit = p->unit;
         ReleaseSRWLockShared(&warfare_snapshot_lock);
@@ -642,7 +781,9 @@ __declspec(dllexport) int mjolnir_warfare_pump(void *L) {
     ReleaseSRWLockShared(&warfare_snapshot_lock);
     char path[MAX_PATH]; snprintf(path, sizeof path, "%swarfare_state.txt", dir);
     FILE *file = fopen(path, "w"); if (!file) return 0;
-    fprintf(file, "warfare-state 2\nready %d\nstatus %d\nhost %d\ninstance %llu\ntick %d\nsampled_ms %llu\nlayout %d\ninsertion_seconds %d\nphase %d\nelapsed_ticks %d\nrate %d\nconnected %d\nscore %d %d\nowner %d %d %d\nglobals",
+    fprintf(file, "warfare-state 3\nreinforcement %d %d\n", WARFARE_REINFORCEMENT_INTERVAL,
+            (int)WARFARE_REINFORCEMENT_FLIGHT_SECONDS);
+    fprintf(file, "ready %d\nstatus %d\nhost %d\ninstance %llu\ntick %d\nsampled_ms %llu\nlayout %d\ninsertion_seconds %d\nphase %d\nelapsed_ticks %d\nrate %d\nconnected %d\nscore %d %d\nowner %d %d %d\nglobals",
             s.ready, s.status, s.host, (unsigned long long)s.instance, s.tick, (unsigned long long)s.sampled_ms, s.layout,
             s.insertion_seconds, s.globals[0], s.globals[1], s.rate,
             s.globals[4], s.globals[7], s.globals[8], s.globals[9] & 3, s.globals[10] & 3, s.globals[11] & 3);

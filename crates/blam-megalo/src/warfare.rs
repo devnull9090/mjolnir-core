@@ -14,14 +14,21 @@ use crate::variant::{
 };
 use crate::Error;
 
-pub const MAGIC: i16 = 20569;
+/// The rules revision published in slot 2. 20570 moved the warmup countdown
+/// into slot 3 (see `CLOCK`). The map's own layout protocol stays 20569.
+pub const MAGIC: i16 = 20570;
 pub const PHASE: u8 = 0;
 pub const PHASE_TICKS: u8 = 1;
 pub const MAGIC_SLOT: u8 = 2;
 pub const ACTIVE_SECONDS: u8 = 3;
-/// Slot3 carries the configured insertion duration in phases0/1; phase2
-/// resets it and begins the existing combat-elapsed-seconds clock.
+/// Slot 3 is the match clock, by phase: warmup seconds left (`WAITING` until
+/// the minimum players are connected), the insertion duration, then combat
+/// seconds elapsed.
+pub const CLOCK: u8 = ACTIVE_SECONDS;
 pub const DEPLOYMENT_SECONDS: u8 = ACTIVE_SECONDS;
+pub const WARMUP_LEFT: u8 = ACTIVE_SECONDS;
+/// Slot 3 in warmup while fewer than the minimum players are connected.
+pub const WAITING: i16 = -1;
 pub const PLAYER_COUNT: u8 = 4;
 pub const HEALTH: u8 = 5;
 pub const SUBSECOND: u8 = 6;
@@ -123,7 +130,8 @@ impl Variant {
             i16::try_from(u32::from(seconds) * u32::from(c.tick_rate))
                 .map_err(|_| Error::Unsupported("warfare phase exceeds 32767 ticks".into()))
         };
-        let warmup = ticks(c.warmup_seconds)?;
+        ticks(c.warmup_seconds)?;
+        let warmup = c.warmup_seconds as i16;
         let insertion = ticks(c.insertion_seconds)?;
         let capture = ticks(c.capture_seconds)?;
         let mut b = Builder::new(Variant {
@@ -164,14 +172,8 @@ impl Variant {
             vec![
                 compare(number(MAGIC_SLOT), constant(MAGIC), Compare::NotEqual),
                 set(number(MAGIC_SLOT), constant(MAGIC)),
-            ],
-        );
-        b.trigger(
-            TriggerKind::Do,
-            ATTR_NORMAL,
-            vec![
-                compare(number(PHASE), constant(2), Compare::Less),
-                set(number(DEPLOYMENT_SECONDS), constant(c.insertion_seconds as i16)),
+                eq(number(PHASE), constant(0)),
+                set(number(CLOCK), constant(WAITING)),
             ],
         );
         b.trigger(
@@ -206,6 +208,36 @@ impl Variant {
                     Compare::Less,
                 ),
                 set(number(PHASE_TICKS), constant(0)),
+                set(number(SUBSECOND), constant(0)),
+                set(number(CLOCK), constant(WAITING)),
+            ],
+        );
+        // Warmup counts down whole seconds in the replicated clock slot, so
+        // every client can show the same countdown without knowing its length.
+        let start_countdown = b.sub(
+            TriggerKind::Do,
+            vec![
+                compare(number(CLOCK), constant(0), Compare::Less),
+                set(number(CLOCK), constant(warmup)),
+                set(number(SUBSECOND), constant(0)),
+            ],
+        );
+        let count_second = b.sub(
+            TriggerKind::Do,
+            vec![
+                compare(number(SUBSECOND), constant(c.tick_rate as i16), Compare::GreaterOrEqual),
+                set(number(SUBSECOND), constant(0)),
+                modify(number(CLOCK), 1, Op::Subtract),
+            ],
+        );
+        let launch = b.sub(
+            TriggerKind::Do,
+            vec![
+                compare(number(CLOCK), constant(0), Compare::LessOrEqual),
+                set(number(PHASE), constant(1)),
+                set(number(PHASE_TICKS), constant(0)),
+                set(number(SUBSECOND), constant(0)),
+                set(number(DEPLOYMENT_SECONDS), constant(c.insertion_seconds as i16)),
             ],
         );
         b.trigger(
@@ -218,14 +250,11 @@ impl Variant {
                     constant(i16::from(c.minimum_players)),
                     Compare::GreaterOrEqual,
                 ),
+                call(start_countdown),
                 modify(number(PHASE_TICKS), 1, Op::Add),
-                compare(
-                    number(PHASE_TICKS),
-                    constant(warmup),
-                    Compare::GreaterOrEqual,
-                ),
-                set(number(PHASE), constant(1)),
-                set(number(PHASE_TICKS), constant(0)),
+                modify(number(SUBSECOND), 1, Op::Add),
+                call(count_second),
+                call(launch),
             ],
         );
         b.trigger(
@@ -241,6 +270,7 @@ impl Variant {
                 ),
                 set(number(PHASE), constant(2)),
                 set(number(PHASE_TICKS), constant(0)),
+                set(number(SUBSECOND), constant(0)),
                 set(number(ACTIVE_SECONDS), constant(0)),
             ],
         );

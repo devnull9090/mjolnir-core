@@ -11,6 +11,20 @@ local COLOUR = { [0] = "empty", [1] = "Red", [2] = "Blue" }
 -- and its capture progress in steps of PROGRESS_STEPS toward Red (+) or Blue
 -- (-) above. Below 16 there is no progress (an older variant): owner only.
 Warfare.PROGRESS_STEPS = 16
+-- Megalo rules revision in slot 2 (warfare.rs MAGIC). The map's own layout
+-- protocol (20569) is checked by the loader, not here.
+Warfare.RULES = 20570
+
+--- Whole seconds of warmup left, -1 while waiting for the minimum players,
+--- or nil outside warmup (slot 3, warfare.rs CLOCK).
+function Warfare.warmupLeft(s)
+    if s and s.phase == 0 and s.globals then return s.globals[4] end
+    return nil
+end
+
+local function clock(seconds)
+    return string.format("%d:%02d", math.floor(seconds / 60), seconds % 60)
+end
 function Warfare.site(value)
     local k = math.floor(value / 16)
     return { owner = value % 4, red = math.floor(value / 4) % 2 == 1, blue = math.floor(value / 8) % 2 == 1,
@@ -30,7 +44,7 @@ end
 function Warfare.parse(text)
     if type(text) ~= "string" or #text > 16384 or text:sub(-1) ~= "\n" then return nil end
     text = text:gsub("\r\n", "\n")
-    if text:sub(1, 16) ~= "warfare-state 2\n" then return nil end
+    if text:sub(1, 16) ~= "warfare-state 3\n" then return nil end
     local s = { players = {}, ordinals = {}, flight = {}, clearance = {} }
     local limits = {
         ready = {0, 1}, status = {-16, 16}, host = {0, 1}, tick = {0, 2147483647},
@@ -59,6 +73,12 @@ function Warfare.parse(text)
                 if values[i] == nil then return nil end
             end
             s[key] = values
+        elseif key == "reinforcement" then
+            -- Wave timing from the map's layout (interval 0: no waves).
+            if #words ~= 2 then return nil end
+            local interval, flight = integer(words[1], 0, 600), integer(words[2], 0, 600)
+            if not interval or not flight or (interval > 0 and flight >= interval) then return nil end
+            s.reinforcement = { interval = interval, flight = flight }
         elseif key == "ordinal" then
             if #words ~= 2 then return nil end
             local index, rank = integer(words[1], 0, 15), integer(words[2], 0, 15)
@@ -108,8 +128,9 @@ function Warfare.parse(text)
         local g = s.globals
         if s.status ~= 2 or s.instance == "0" or s.sampled_ms == 0 or s.rate < 10
             or s.layout ~= 3 or s.insertion_seconds < 1
-            or g[1] ~= s.phase or g[2] ~= s.elapsed_ticks or g[3] ~= 20569
-            or (s.phase < 2 and g[4] ~= s.insertion_seconds)
+            or g[1] ~= s.phase or g[2] ~= s.elapsed_ticks or g[3] ~= Warfare.RULES
+            or (s.phase == 1 and g[4] ~= s.insertion_seconds)
+            or (s.phase == 0 and g[4] < -1)
             or g[5] ~= s.connected or g[8] ~= s.score[1] or g[9] ~= s.score[2]
             or g[10] % 4 ~= s.owner[1] or g[11] % 4 ~= s.owner[2] or g[12] % 4 ~= s.owner[3] then return nil end
     end
@@ -122,9 +143,39 @@ function Warfare.parse(text)
     return s
 end
 
-function Warfare.describe(s, me)
+--- The reinforcement wave in combat, from the combat clock and the map's
+--- timing (native warfare_reinforcement_sortie does the same sums): whether
+--- a wave is in the air, and whole seconds until the next one leaves. Nil
+--- outside combat or on a map without waves.
+function Warfare.wave(s)
+    local r = s and s.reinforcement
+    if not r or r.interval <= 0 or s.phase ~= 2 or not s.globals then return nil end
+    local seconds = math.max(0, s.globals[4])
+    local wave = math.floor(seconds / r.interval)
+    local age = seconds - wave * r.interval
+    return { flying = wave >= 1 and age < r.flight, departs = r.interval - age }
+end
+
+--- `jump` names the jump key (Space by default).
+function Warfare.describe(s, me, jump)
+    jump = jump or "SPACE"
     if not s then return "PELICAN WARFARE  /  WAITING FOR LIVE MATCH STATE" end
-    if s.phase == 0 then return "WARMUP  /  " .. s.connected .. " PLAYERS CONNECTED  /  ASSEMBLE FOR DEPLOYMENT" end
+    local wave = Warfare.wave(s)
+    if wave then
+        local player = s.players[me]
+        local stage = player and player.stage
+        if stage == 1 then return "REINFORCEMENTS  /  BOARDING YOUR TEAM'S PELICAN" end
+        if stage == 2 and not wave.flying then
+            return "REINFORCEMENTS DEPART IN " .. clock(wave.departs) .. "  /  " .. jump .. ": JUMP NOW"
+        end
+        if stage == 2 then return "REINFORCEMENTS  /  " .. jump .. " TO JUMP" end
+    end
+    if s.phase == 0 then
+        local left = Warfare.warmupLeft(s)
+        local players = s.connected .. (s.connected == 1 and " PLAYER" or " PLAYERS") .. " CONNECTED"
+        if not left or left < 0 then return "WARMUP  /  WAITING FOR PLAYERS  /  " .. players end
+        return "WARMUP  /  DEPLOYMENT IN " .. clock(left) .. "  /  " .. players
+    end
     if s.phase == 3 then return "OPERATION COMPLETE  /  RED " .. s.score[1] .. "  :  " .. s.score[2] .. " BLUE" end
     local player = s.players[me]
     local stage = player and player.stage
@@ -167,6 +218,8 @@ function Warfare.new(deps)
     -- or 4 canopy) once an insertion, for the feed (onJump).
     local seated, jumped = {}, {}
     if deps.Instruments then self.instruments = deps.Instruments.new() end
+    if deps.Countdown then self.countdown = deps.Countdown.new() end
+    if deps.Spectate and deps.bipedAt then self.spectate = deps.Spectate.new({ bipedAt = deps.bipedAt }) end
     local pending, refreshedAt, line
 
     function self.start(code)
@@ -183,6 +236,8 @@ function Warfare.new(deps)
     local function hideMarkers()
         if line then line.hide() end
         if self.instruments then self.instruments.hide() end
+        if self.countdown then self.countdown.hide() end
+        if self.spectate then pcall(self.spectate.restore) end
         for _, field in ipairs(self.fields) do field.hide() end
     end
 
@@ -283,6 +338,17 @@ function Warfare.new(deps)
             local player = s and s.players[me]
             local airborne = player and player.localUser >= 0 and (player.stage == 3 or player.stage == 4)
             local blocked = deps.blocked and deps.blocked()
+            if self.countdown then
+                local ok, err = pcall(self.countdown.update, pc, not match.over and s or nil, now)
+                if not ok and deps.log then deps.log("warfare countdown: " .. tostring(err)) end
+            end
+            if self.spectate then
+                local ok, err = pcall(self.spectate.update, pc, s, me, match.players, Warfare.wave(s), match.over)
+                if not ok then
+                    pcall(self.spectate.restore, pc)
+                    if deps.log then deps.log("warfare spectate: " .. tostring(err)) end
+                end
+            end
             local instrumentsShown = false
             if self.instruments then
                 if airborne and not blocked and not match.over and s.phase ~= 3 then
@@ -295,10 +361,15 @@ function Warfare.new(deps)
             if instrumentsShown or (airborne and blocked) then line.hideLine()
             else
                 line.ensureLine(pc)
-                local text = Warfare.describe(s, me)
-                if player and player.stage == 2 and self.input and self.input.labels then
-                    text = "INSERTION  /  " .. self.input.labels(player.localUser) .. " TO JUMP"
+                local jump
+                if player and self.input and self.input.labels then jump = self.input.labels(player.localUser) end
+                local text = Warfare.describe(s, me, jump)
+                if player and player.stage == 2 and jump and s.phase == 1 then
+                    text = "INSERTION  /  " .. jump .. " TO JUMP"
                 end
+                local watched = self.spectate and self.spectate.watching()
+                local who = watched and match.players[watched] and match.players[watched].name
+                if text and watched then text = text .. "  /  WATCHING " .. string.upper(who or "A TEAMMATE") end
                 if text then line.say(text .. "   /   M: MAP") else line.hideLine() end
             end
             for i, field in ipairs(self.fields) do
