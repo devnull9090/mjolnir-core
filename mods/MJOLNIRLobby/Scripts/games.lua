@@ -55,6 +55,19 @@ local function readFile(path)
     return data
 end
 
+--- A development PC keeps its games out of public view: its lobby opens
+--- private, `mjolnir_auto host` hosts private unless told `public`, and its
+--- matches never reach hub history (matches.lua), even when a test lists
+--- one to be joined. The mark is a file the launcher and the game never
+--- write, so updates leave it alone:
+---   %LOCALAPPDATA%\Meteorite\Saved\mjolnir_dev.txt   (any contents)
+--- Players never have it, so everyone else opens public as before.
+local function readDevMark()
+    local base = os.getenv("LOCALAPPDATA")
+    return base ~= nil and readFile(base .. "\\Meteorite\\Saved\\mjolnir_dev.txt") ~= nil
+end
+Games.dev = readDevMark()
+
 local function native(name)
     local fn = package and package.loadlib and package.loadlib(nativeDir .. "mjolnir_lobby.dll", name)
     if not fn then return false end
@@ -577,9 +590,10 @@ end
 --- unless the host has already picked PUBLIC or PRIVATE this launch (the
 --- lobby button, HOST MENU, /private, `mjolnir_auto host ... private`), so a
 --- private choice holds through matches and back to the lobby. The mod
---- check can refuse it; the next lobby asks again.
+--- check can refuse it; the next lobby asks again. A development PC
+--- (Games.dev) opens private.
 function Games.defaultPublic()
-    if not Host.chosen then Games.setPublic(true) end
+    if not Host.chosen and not Games.dev then Games.setPublic(true) end
 end
 
 --- The game changed (a new map, game type, or the end of a match): tell the

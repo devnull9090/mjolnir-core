@@ -43,7 +43,9 @@ param(
     [Parameter(Mandatory = $true)][string]$OutFile,
     [int]$MaxWidth = 800,
     [switch]$ForceForeground,
-    [switch]$BackgroundOnly
+    [switch]$BackgroundOnly,
+    # The whole desktop (every monitor) instead of the game window; needs no game.
+    [switch]$Desktop
 )
 
 $ErrorActionPreference = "Stop"
@@ -63,6 +65,7 @@ public class MjolnirWin {
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] public static extern int GetSystemMetrics(int nIndex);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
     [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
@@ -103,6 +106,41 @@ try {
 function Fail($message) {
     ConvertTo-Json -Compress @{ ok = $false; error = $message }
     exit 1
+}
+
+function Save-Scaled([System.Drawing.Bitmap]$bitmap) {
+    $out = $bitmap
+    if ($MaxWidth -gt 0 -and $bitmap.Width -gt $MaxWidth) {
+        $scaledHeight = [int][math]::Round($bitmap.Height * ($MaxWidth / $bitmap.Width))
+        $out = New-Object System.Drawing.Bitmap($MaxWidth, $scaledHeight)
+        $g = [System.Drawing.Graphics]::FromImage($out)
+        $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $g.DrawImage($bitmap, 0, 0, $MaxWidth, $scaledHeight)
+        $g.Dispose()
+    }
+    $directory = Split-Path -Parent $OutFile
+    if ($directory -and -not (Test-Path $directory)) { New-Item -ItemType Directory -Path $directory -Force | Out-Null }
+    $out.Save($OutFile, [System.Drawing.Imaging.ImageFormat]::Png)
+    return $out
+}
+
+if ($Desktop) {
+    # The virtual screen spans every monitor; with the DPI context above these
+    # are real pixels. Only works from the signed-in desktop session (an SSH
+    # session has no desktop to read).
+    $left = [MjolnirWin]::GetSystemMetrics(76); $top = [MjolnirWin]::GetSystemMetrics(77)
+    $width = [MjolnirWin]::GetSystemMetrics(78); $height = [MjolnirWin]::GetSystemMetrics(79)
+    if ($width -le 0 -or $height -le 0) { Fail "no desktop to capture (not the signed-in session?)" }
+    $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try { $graphics.CopyFromScreen($left, $top, 0, 0, (New-Object System.Drawing.Size($width, $height))) }
+    catch { Fail "CopyFromScreen failed (locked or disconnected session?): $($_.Exception.Message)" }
+    $graphics.Dispose()
+    $out = Save-Scaled $bitmap
+    ConvertTo-Json -Compress @{ ok = $true; method = "Desktop"; path = $OutFile; width = $out.Width; height = $out.Height; source = "$width x $height" }
+    if ($out -ne $bitmap) { $out.Dispose() }
+    $bitmap.Dispose()
+    exit 0
 }
 
 $process = if ($ProcessId) { Get-Process -Id $ProcessId -ErrorAction SilentlyContinue } else {

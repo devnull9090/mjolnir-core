@@ -30,7 +30,11 @@
         POST /input                          keyboard and mouse steps for the
                                               game window (input.ps1 beside this
                                               script; steals focus while it runs)
-        GET  /screenshot[?max=W]              the game window as a PNG (capture.ps1)
+        GET  /screenshot[?max=W][&desktop=1]  the game window as a PNG (capture.ps1);
+                                              desktop=1: every monitor, no game needed
+        POST /run[?wait=ms]                   a PowerShell command (the body) in this agent's
+                                              session, the signed-in desktop; its output.
+                                              wait=0 starts it detached (agent 13)
         POST /restart-agent                   start this script again (after its
                                               files were replaced) and exit
         GET  /launcher                        the MJOLNIR launcher's exe, version,
@@ -72,7 +76,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "12"
+$AgentVersion = "13"
 
 # --- Where things are --------------------------------------------------------
 
@@ -504,6 +508,17 @@ function Handle($request, $stream) {
                 if (Test-Path $aside) { Remove-Item $aside -Force }
                 Move-Item $movie $aside
             }
+            # The launcher raises UE4SS's scan time to at least 120 s before
+            # every launch (MIN_SECONDS_TO_SCAN, apps/launcher lib.rs); a start
+            # through Steam skips that, and on a slower PC the stock 60 s gives
+            # up before the engine's first tick: no Lua mod runs at all.
+            $ini = Join-Path $Ue4ss "UE4SS-settings.ini"
+            if (Test-Path $ini) {
+                $text = [System.IO.File]::ReadAllText($ini)
+                $raised = [regex]::Replace($text, '(?m)^(\s*SecondsToScanBeforeGivingUp\s*=\s*)(\d+)', {
+                    param($m) if ([int]$m.Groups[2].Value -lt 120) { $m.Groups[1].Value + "120" } else { $m.Value } })
+                if ($raised -ne $text) { [System.IO.File]::WriteAllText($ini, $raised) }
+            }
             Start-Process "steam://rungameid/2806050"
             $note = if ($reporters.Count) { "launched through Steam (closed the crash reporter first)" } else { "launched through Steam" }
             Send-Json $stream 200 @{ ok = $true; note = $note }
@@ -577,13 +592,43 @@ function Handle($request, $stream) {
         "GET /screenshot" {
             $script = Join-Path $PSScriptRoot "capture.ps1"
             if (-not (Test-Path $script)) { Send-Json $stream 404 @{ error = "capture.ps1 is not beside the agent (remote.mjs deploy-agent)" }; return }
-            if (-not (Get-Game)) { Send-Json $stream 200 @{ ok = $false; error = "the game is not running" }; return }
+            $desktop = $p["desktop"] -eq "1"
+            if (-not $desktop -and -not (Get-Game)) { Send-Json $stream 200 @{ ok = $false; error = "the game is not running (desktop=1 for the whole screen)" }; return }
             $max = if ($p["max"]) { [int]$p["max"] } else { 1280 }
             $file = Join-Path ([System.IO.Path]::GetTempPath()) "mjolnir-agent-shot.png"
-            $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $script -OutFile $file -MaxWidth $max 2>&1 | Out-String
+            Remove-Item $file -ErrorAction SilentlyContinue
+            $captureArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $script, "-OutFile", $file, "-MaxWidth", $max)
+            if ($desktop) { $captureArgs += "-Desktop" }
+            $out = & powershell @captureArgs 2>&1 | Out-String
             if (-not (Test-Path $file)) { Send-Json $stream 500 @{ error = "no capture: $($out.Trim())" }; return }
             Send-Response $stream 200 ([System.IO.File]::ReadAllBytes($file)) "image/png"
             Remove-Item $file -ErrorAction SilentlyContinue
+        }
+        "POST /run" {
+            # A PowerShell command in this agent's session: the signed-in
+            # desktop, which an SSH session cannot reach (start Steam, a
+            # launcher window, anything with a UI). wait=0 starts it detached.
+            # Progress records and errors would come back as CLIXML on stderr:
+            # silence the one and fold the other into the text output.
+            # An error written on the way makes the exit code 1; `exit N` still wins.
+            $command = "`$ProgressPreference = 'SilentlyContinue'`n`$mjFailed = `$false`n& {`n" + $Utf8.GetString($request.body) +
+                "`n} 2>&1 | ForEach-Object { if (`$_ -is [System.Management.Automation.ErrorRecord]) { `$mjFailed = `$true }; `$_ } | Out-String -Width 250 -Stream`n" +
+                "if (`$mjFailed) { exit 1 }"
+            $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($command))
+            $wait = if ($p["wait"]) { [int]$p["wait"] } else { 60000 }
+            if ($wait -le 0) {
+                $started = Start-Process powershell -PassThru -WindowStyle Minimized -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $encoded)
+                Send-Json $stream 200 @{ ok = $true; pid = $started.Id; note = "started detached" }; return
+            }
+            $outFile = Join-Path ([System.IO.Path]::GetTempPath()) "mjolnir-agent-run-$([guid]::NewGuid().ToString('N')).txt"
+            $run = Start-Process powershell -PassThru -WindowStyle Hidden -RedirectStandardOutput $outFile -RedirectStandardError "$outFile.err" `
+                -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $encoded)
+            $null = $run.Handle   # without a handle taken now, ExitCode reads empty after the exit
+            $finished = $run.WaitForExit($wait)
+            if (-not $finished) { $run | Stop-Process -Force -ErrorAction SilentlyContinue }
+            $text = ((Get-Content $outFile -Raw -ErrorAction SilentlyContinue) + (Get-Content "$outFile.err" -Raw -ErrorAction SilentlyContinue))
+            Remove-Item $outFile, "$outFile.err" -ErrorAction SilentlyContinue
+            Send-Json $stream 200 @{ ok = ($finished -and $run.ExitCode -eq 0); exit = $(if ($finished) { $run.ExitCode } else { $null }); timedOut = (-not $finished); output = "$text".TrimEnd() }
         }
         "POST /restart-agent" {
             Send-Json $stream 200 @{ ok = $true; note = "restarting" }
