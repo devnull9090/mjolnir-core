@@ -109,9 +109,13 @@ the game's respawns do for players, in order:
    otherwise one of what is left at random.
 
 In Free for All everyone is an enemy, so a bot comes in away from all of
-them. The first bots wait up to 5 s for the humans' first spawn. A bot's
-weapon is its squad's (`weapons[k % n]` of its kind), so it changes from life
-to life. On Blood Gulch Team Slayer (PC 1, 2026-10-31) the red host spawned
+them. The first bots wait up to 5 s for the humans' first spawn. A bot
+starts each life with what a player starts with: the hub's `bots.json` gives
+every Spartan squad the assault rifle (the default multiplayer loadout),
+elites the plasma rifle and grunts and jackals the plasma pistol. Anything
+better it picks up off the ground, as a player would. (Until 2026-11 a
+Spartan's squad carried one of a mixed list, so bots came in with snipers and
+rockets.) On Blood Gulch Team Slayer (PC 1, 2026-10-31) the red host spawned
 at the north base: the three red bots came in beside him and the five blue
 bots at the south base. A map without the file (every map published before
 it) keeps squad `k` for bot `k`, as before.
@@ -302,6 +306,20 @@ map baked before levels has `<kind>_<k>` squads, which a bot falls back to.
   Marine's (`trooper`: human weapons, grenades, cover) in the players' own
   body, `objects\characters\spartans\spartans`. Their squads are on the
   Covenant team, since a Marine's own team is the players'.
+- **Shields and health.** An AI unit's vitality comes from its character's
+  vitality block, not its body's model, and the Marine's has no shield (0)
+  and a body that heals itself. So `build_bot_characters.sh` reads the
+  players' model (`objects\characters\spartans\spartans`, `new damage
+  info`) and writes it into the Spartan bot characters: body 45, shield 70,
+  the shield back after 6 s over its recharge time (3 s), no body
+  regeneration, at every level. A Spartan bot takes the hits a player takes.
+  Checked in game 2026-11-21 (Blood Gulch, values poked into the running
+  game): bots had read 105 body and no shield; with these they read 45 and
+  70, and a bot and the player hit by the same `damage_object` for 40 lost
+  the same 57% and refilled frame for frame. The player's shield starts back
+  a second before the model's stun time (7 s) says, so the bots' delay is
+  the stun time less a second; at 7 a bot recharged a second late. The host's Shields setting is a player trait and does not
+  reach bots.
 
 Every machine in the match needs the characters' containers,
 `pakchunk995-MJOLNIRBOT-<kind>-<level>_P` (15). They ship in the CE runtime

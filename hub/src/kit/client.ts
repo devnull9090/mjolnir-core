@@ -367,6 +367,11 @@ export class HubClient {
     return this.call({ method: "DELETE", path: `/media/${encodeURIComponent(id)}` });
   }
 
+  /** Move a screenshot to the front of its mod's gallery: the new cover. */
+  makeCover(id: string): Promise<{ ok: boolean }> {
+    return this.call({ method: "POST", path: `/media/${encodeURIComponent(id)}/cover` });
+  }
+
   /** View beacons; the server folds repeats per viewer per hour. */
   recordMediaView(id: string): Promise<{ views: number }> {
     return this.call({ method: "POST", path: `/media/${encodeURIComponent(id)}/view` });

@@ -209,10 +209,14 @@ pub fn pak_file_unsupported(rel: &str) -> bool {
     let Some((stem, ext)) = split_ext(name) else {
         return false;
     };
-    if is_mjolnir_container(stem) {
-        return false;
+    // MJOLNIR installs and mounts its containers in Paks itself, as the game
+    // ships its own: one in a subfolder (`~mods`, `LogicMods`) is someone
+    // else's, named to pass. The game mounts those folders too, so before
+    // this a `pakchunk1-MJOLNIRx.pak` in `~mods` passed for ours.
+    if dir.is_some() {
+        return true;
     }
-    !(dir.is_none() && is_game_container(stem, &ext))
+    !(is_mjolnir_container(stem) || is_game_container(stem, &ext))
 }
 
 /// What a UE4SS mod folder needs to be left alone: `known` holds the runtime
@@ -528,6 +532,8 @@ mod tests {
             "pakchunk-MJOLNIRHUB_P.pak",
             "~mods/CoolMod.pak",
             "~mods/pakchunk0-Windows.pak",
+            "~mods/pakchunk1-MJOLNIRx_P.pak",
+            "LogicMods/pakchunk900-MJOLNIRHUB-fast-guns_P.utoc",
             "LogicMods/SomeBlueprint.pak",
             "global2.utoc",
             "global.pak",

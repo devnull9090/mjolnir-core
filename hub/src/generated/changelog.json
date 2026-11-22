@@ -62,6 +62,27 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.24.4",
+      "tag": "launcher-v0.24.4",
+      "title": "Renamed mod files in mod folders are found",
+      "date": "2026-11-21",
+      "summary": "The launcher no longer mistakes a mod for one of MJOLNIR's own files when it sits in the game's ~mods or LogicMods folder under a MJOLNIR-like name.",
+      "body": "### Fixed\n\n- **Mods named like MJOLNIR files are found.** Before each launch the\n  launcher moves aside mods it did not install. It recognised MJOLNIR's own\n  files by name in any folder under the game's Paks, so a mod renamed to look\n  like one (`pakchunk1-MJOLNIR...`) and dropped into `~mods` or `LogicMods`\n  was left in place, and the game loaded it. MJOLNIR installs its files in\n  the Paks folder itself and nowhere below it, so a file with that name in a\n  subfolder is now treated as a mod and moved aside with the rest.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Mods named like MJOLNIR files are found. Before each launch the launcher moves aside mods it did not install. It recognised MJOLNIR's own files by name in any folder under the game's Paks, so a mod renamed to look like one (pakchunk1-MJOLNIR...) and dropped into ~mods or LogicMods was left in place, and the game loaded it. MJOLNIR installs its files in the Paks folder itself and nowhere below it, so a file with that name in a subfolder is now treated as a mod and moved aside with the rest."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.24.4",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.24.4.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.24.4"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.24.3",
       "tag": "launcher-v0.24.3",
       "title": "Updated maps show their new game types",
@@ -123,6 +144,39 @@
       "path": "/changelog/launcher/0.24.1",
       "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.24.1.md",
       "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.24.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.55.0",
+      "tag": "mods-v0.55.0",
+      "title": "Multiplayer needs an unmodified game",
+      "date": "2026-11-21",
+      "summary": "Games with third-party mods can no longer join, host public or stay in multiplayer matches, and map screenshots in the game update when the hub's change.",
+      "body": "### Changed\n\nIn MJOLNIRLobby 0.29.0.\n\n- **No multiplayer with third-party mods.** In the 21 November playtest a\n  player with a modded magnum fired faster than everyone else, because a mod\n  in your game folder changes how your own game plays the match. MJOLNIR\n  already finds mods it did not install (the launcher moves them aside while\n  you play), but a game started from Steam kept them. Now, while the game\n  finds any:\n  - **JOIN and public hosting are refused**, with a line that names how many\n    mods it found and says to play from the MJOLNIR launcher, which moves\n    them aside.\n  - **The host sends you back** to your main menu if you get into its game\n    another way, such as a Steam invite.\n  - **You leave a host whose game has mods,** with a message saying why.\n\n  The check runs when the game starts. A join made right after starting waits\n  a moment for it. If the check cannot run at all, multiplayer stays closed\n  until you start the game from the launcher.\n\n### Fixed\n\nIn MJOLNIRLobby 0.29.0.\n\n- **Map screenshots update.** A map's screenshot was saved the first time the\n  game showed it and never fetched again, so a new screenshot on the hub\n  never reached the menus. The game now checks the hub's map list (at most\n  every ten minutes) and downloads a screenshot that has changed.\n\n### Notes\n\n- **Map authors choose the screenshot.** On the hub, a map's manage page now\n  has a star on each screenshot that makes it the one the game and launcher\n  show. A new upload used to go to the end of the gallery and never became\n  the cover.",
+      "sections": [
+        {
+          "heading": "Changed",
+          "items": [
+            "No multiplayer with third-party mods. In the 21 November playtest a player with a modded magnum fired faster than everyone else, because a mod in your game folder changes how your own game plays the match. MJOLNIR already finds mods it did not install (the launcher moves them aside while you play), but a game started from Steam kept them. Now, while the game finds any:"
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "Map screenshots update. A map's screenshot was saved the first time the game showed it and never fetched again, so a new screenshot on the hub never reached the menus. The game now checks the hub's map list (at most every ten minutes) and downloads a screenshot that has changed."
+          ]
+        },
+        {
+          "heading": "Notes",
+          "items": [
+            "Map authors choose the screenshot. On the hub, a map's manage page now has a star on each screenshot that makes it the one the game and launcher show. A new upload used to go to the end of the gallery and never became the cover."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.55.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.55.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.55.0"
     },
     {
       "product": "mods",

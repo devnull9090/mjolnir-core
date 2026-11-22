@@ -189,6 +189,20 @@ function MapLive.cover(code, done)
     end)
 end
 
+--- True when the hub's listing names a different cover than the file on
+--- disk: the screenshot was replaced on the hub after it was cached here.
+--- The media id of the cover the hub's listing names, or nil.
+function MapLive.coverId(code)
+    return code and mediaId(catalog.byCode[code]) or nil
+end
+
+function MapLive.coverStale(code)
+    local id = code and mediaId(catalog.byCode[code])
+    if not id then return false end
+    local current = (readFile(coverIdFile(code)) or ""):match("[%w%-]+")
+    return id ~= current
+end
+
 --- The map's screenshot as a texture, read from the cached file. Kept by
 --- name, never by reference: a transient texture no brush holds any more is
 --- collected, and a stale handle would be read after it is freed.

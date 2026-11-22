@@ -67,11 +67,14 @@ pub struct Template {
     pub alpha_tested: bool,
     /// The role whose alpha an alpha-tested template cuts out on.
     pub alpha_from: &'static str,
+    /// With `alpha_from` not the base: the cut is the base's own alpha times
+    /// that role's (both maps cut), not that role's alone.
+    pub alpha_combined: bool,
 }
 
 /// A shader template's slot layout, by its name (`tex_bump`, ...).
 pub fn template(name: &str) -> Template {
-    let t = |slots, tiling, transparent, alpha_tested| Template { slots, tiling, transparent, alpha_tested, alpha_from: "base" };
+    let t = |slots, tiling, transparent, alpha_tested| Template { slots, tiling, transparent, alpha_tested, alpha_from: "base", alpha_combined: false };
     const BUMP_FIRST: &[(&str, usize)] = &[("bump", 0), ("base", 1), ("detail", 2), ("detail2", 3)];
     // tex_bump_detail_blend alone keeps its details' constants first (25
     // shaders on the 24 maps, base always constant 2 at (1, 1)); its
@@ -87,9 +90,20 @@ pub fn template(name: &str) -> Template {
         n if n.starts_with("tex_bump_alpha_test") && n.contains("single_pass") => {
             Template { alpha_from: "bump", ..t(&["bump", "", "base", "detail"], BUMP_FIRST, 0, true) }
         }
-        n if n.starts_with("tex_bump_alpha_test") => {
-            t(&["bump", "", "", "base", "detail"], &[("detail", 0), ("base", 1), ("bump", 2)], 0, true)
-        }
+        // The others cut where the base's alpha or the bump map's is low:
+        // shaders keep the outline in either map (or both). Measured over
+        // the 26 stagings' fourteen: Zanzibar's and Foundation's grates cut
+        // in the base (bump solid); Sanctuary's and Warlock's temple vines,
+        // Derelict's vines, Headlong's girders, Midship's torn pillars and
+        // Terminal's generator cut in the bump map (base solid), and drew
+        // as black quads cut on the base alone; Lockout's grate and
+        // Derelict's woody vines carry the same cut in both. The product
+        // cuts each as the other map's solid alpha leaves it.
+        n if n.starts_with("tex_bump_alpha_test") => Template {
+            alpha_from: "bump",
+            alpha_combined: true,
+            ..t(&["bump", "", "", "base", "detail"], &[("detail", 0), ("base", 1), ("bump", 2)], 0, true)
+        },
         // Cuts out on the base map's alpha times bitmap 1's (an alpha map
         // of its own): Turf's damaged stucco has a solid door base and the
         // stairwell's opening in `base_stucco1_damaged_01_alpha`; the
@@ -98,7 +112,7 @@ pub fn template(name: &str) -> Template {
         // tex_bump_env's slots, slot 1 was skipped and Turf's stairwell
         // was walled off by a door with no collision behind it.
         n if n.starts_with("tex_bump_env") && n.ends_with("alpha_test_combined") => {
-            Template { alpha_from: "alpha", ..t(&["bump", "alpha", "base", "detail"], BUMP_FIRST, 0, true) }
+            Template { alpha_from: "alpha", alpha_combined: true, ..t(&["bump", "alpha", "base", "detail"], BUMP_FIRST, 0, true) }
         }
         "tex_bump_detail_blend" => t(&["bump", "base", "detail", "detail2"], DETAIL_FIRST, 0, false),
         n if n.starts_with("tex_bump_detail_blend_detail") => {
@@ -477,14 +491,22 @@ impl Textures {
         cache: &Cache,
         base: &Tag<'_>,
         alpha: &Tag<'_>,
+        also: Option<&Tag<'_>>,
         combine: bool,
         dir: &Path,
         notes: &mut Vec<String>,
     ) -> Option<String> {
         let mode = if combine { "x" } else { "" };
-        let key = format!("__cut{mode}{:x}_{:x}", alpha.file as *const CacheFile as usize, alpha.entry.datum);
+        let mut key = format!("__cut{mode}{:x}_{:x}", alpha.file as *const CacheFile as usize, alpha.entry.datum);
+        if let Some(b) = also {
+            key += &format!("_{:x}_{:x}", b.file as *const CacheFile as usize, b.entry.datum);
+        }
         self.stage_mapped(cache, base, 0, dir, notes, "__cut", &key, &mut |mips| {
             let a = decode_bitmap(cache, alpha, 0)?.into_iter().next().ok_or_else(|| Error::Format("no image".into()))?;
+            let b = match also {
+                Some(t) => decode_bitmap(cache, t, 0)?.into_iter().next(),
+                None => None,
+            };
             // A base smaller than the cut-out (a placeholder colour) is
             // taken to the cut-out's size first, as one level.
             if let Some(m0) = mips.first() {
@@ -506,7 +528,10 @@ impl Textures {
                         let u = (x as f32 + 0.5) / m.width as f32;
                         let v = (y as f32 + 0.5) / m.height as f32;
                         let at = ((y * m.width + x) * 4 + 3) as usize;
-                        let cut = sample_alpha(&a, u, v);
+                        let mut cut = sample_alpha(&a, u, v);
+                        if let Some(b) = &b {
+                            cut = ((cut as u32 * sample_alpha(b, u, v) as u32 + 127) / 255) as u8;
+                        }
                         m.rgba[at] = if combine { ((m.rgba[at] as u32 * cut as u32 + 127) / 255) as u8 } else { cut };
                     }
                 }
@@ -621,6 +646,9 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
     let mut roles: BTreeMap<&str, Option<String>> = BTreeMap::new();
     let mut tags: BTreeMap<&str, Tag<'_>> = BTreeMap::new();
     let mut cube_faces: Option<Vec<String>> = None;
+    // A placeholder in the base slot of a template that cuts out on another
+    // map's alpha, kept for when nothing better turns up (below).
+    let mut placeholder_base: Option<Tag<'_>> = None;
     let mut constants: Vec<[f32; 4]> = Vec::new();
     // Pixel constants: D3DCOLOR (B, G, R, A) each, here as RGBA in 0..1.
     let mut pixel: Vec<[f32; 4]> = Vec::new();
@@ -631,10 +659,16 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
                 continue;
             }
             let Some(t) = cache.tag(shader.file, b.u32(0)) else { continue };
-            // A placeholder is left out, except the base of a template that
-            // cuts out on another map's alpha: Backwash's canopy is
-            // color_black with the leaves' outline in its bump map.
-            if is_placeholder(t.name()) && !(role == "base" && tpl.alpha_tested && tpl.alpha_from != "base") {
+            // A placeholder is left out. The base of a template that cuts out
+            // on another map's alpha falls back to it when the runtime
+            // properties name no diffuse map either: Backwash's canopy is
+            // color_black with the leaves' outline in its bump map, while
+            // Warlock's tower vines (default_detail in the slot) take their
+            // colour from the runtime diffuse map, dt_vines_dif.
+            if is_placeholder(t.name()) {
+                if role == "base" && tpl.alpha_tested && tpl.alpha_from != "base" {
+                    placeholder_base = Some(t);
+                }
                 continue;
             }
             if role == "env" {
@@ -665,12 +699,33 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
         if let Some(t) = root.block(0x0C, 0x50).get(0).and_then(|rp| rp.tagref(0x00)).and_then(|r| cache.follow(r)) {
             if !is_placeholder(t.name()) {
                 roles.insert("base", tex.stage(cache, &t, 0, dir, notes));
+                // Only a cut needs its tag (below); tinting and tiling, which
+                // also read `tags`, keep drawing this map as they did.
+                if tpl.alpha_tested && tpl.alpha_from != "base" {
+                    tags.insert("base", t);
+                }
             }
         }
     }
+    if roles.get("base").cloned().flatten().is_none() {
+        if let Some(t) = placeholder_base {
+            roles.insert("base", tex.stage(cache, &t, 0, dir, notes));
+            tags.insert("base", t);
+        }
+    }
     if tpl.alpha_tested && tpl.alpha_from != "base" {
-        if let (Some(b), Some(a)) = (tags.get("base"), tags.get(tpl.alpha_from)) {
-            let cut = tex.stage_cutout(cache, b, a, tpl.alpha_from == "alpha", dir, notes);
+        // A combined template whose own alpha map is not the bump map cuts on
+        // the bump map's alpha as well: Elongation's rebar keeps its outline
+        // only there (solid base, alpha_white in its alpha slot, which is a
+        // placeholder and so never staged); the chainlink fence has the same
+        // holes in base and bump.
+        let bump = if tpl.alpha_combined && tpl.alpha_from != "bump" { tags.get("bump") } else { None };
+        let (alpha, also) = match tags.get(tpl.alpha_from) {
+            Some(a) => (Some(a), bump),
+            None => (bump, None),
+        };
+        if let (Some(b), Some(a)) = (tags.get("base"), alpha) {
+            let cut = tex.stage_cutout(cache, b, a, also, tpl.alpha_combined, dir, notes);
             roles.insert("base", cut);
         }
     }
@@ -2466,7 +2521,10 @@ mod tests {
         assert_eq!(template("tex_bump_alpha_test_single_pass").transparent, 0);
         assert_eq!(template("tex_bump_alpha_test_single_pass").alpha_from, "bump");
         assert_eq!(template("tex_bump_alpha_test_clamped_single_pass").alpha_from, "bump");
-        assert_eq!(template("tex_bump_alpha_test").alpha_from, "base");
+        let grate = template("tex_bump_alpha_test");
+        assert_eq!((grate.alpha_from, grate.alpha_combined), ("bump", true), "base alpha x bump alpha");
+        assert_eq!(template("tex_bump_alpha_test_clamped").alpha_from, "bump");
+        assert!(!template("tex_bump_alpha_test_single_pass").alpha_combined);
         let combined = template("tex_bump_env_alpha_test_combined");
         assert_eq!((combined.alpha_from, combined.slots[1], combined.alpha_tested), ("alpha", "alpha", true));
         assert_eq!(template("tex_bump_plasma_one_channel_illum").slots, &["bump", "base", "detail", "plasma"]);

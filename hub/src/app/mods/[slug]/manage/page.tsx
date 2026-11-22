@@ -12,7 +12,7 @@
  */
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, PackagePlus, Trash2, UploadCloud } from "lucide-react";
+import { AlertTriangle, CheckCircle2, PackagePlus, Star, Trash2, UploadCloud } from "lucide-react";
 
 import type { FileRules, Media } from "@mjolnir/hub-kit";
 import { Navbar } from "../../../components/Navbar";
@@ -102,6 +102,18 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
       setBanner(e instanceof Error ? e.message : String(e));
     }
   };
+
+  const makeCover = async (id: string) => {
+    try {
+      await client.makeCover(id);
+      void loadMedia();
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  /** The cover the hub, launcher and game show: the first approved screenshot. */
+  const coverId = media.find((m) => m.status === "approved" && m.kind !== "video")?.id;
 
   // ── Releases ────────────────────────────────────────────────────────
 
@@ -228,6 +240,23 @@ export default function ManagePage({ params }: { params: Promise<{ slug: string 
                   <figcaption className="text-[11px] text-text-dim mt-1 truncate" title={m.alt_text}>
                     {m.alt_text}
                   </figcaption>
+                  {m.id === coverId ? (
+                    <span className="absolute bottom-6 left-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-accent-blue/20 text-accent-blue">
+                      cover
+                    </span>
+                  ) : (
+                    m.kind !== "video" &&
+                    m.status === "approved" && (
+                      <button
+                        onClick={() => makeCover(m.id)}
+                        aria-label={`Make ${m.alt_text} the cover`}
+                        title="Make this the cover shown in the game and launcher"
+                        className="absolute top-1.5 right-10 sm:right-8 p-2 sm:p-1 rounded bg-background/80 text-text-dim hover:text-accent-blue sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100 transition-opacity"
+                      >
+                        <Star className="w-3.5 h-3.5" />
+                      </button>
+                    )
+                  )}
                   {/* Kept visible on touch, where there is no hover to reveal it. */}
                   <button
                     onClick={() => deleteShot(m.id)}

@@ -729,6 +729,8 @@ local function shown(code)
 end
 Live.title = function(code) return (shown(code)) end
 
+local coverTried = {}
+
 --- The screenshot of `code` on `screen` (its MapImage), the note in its place
 --- until it arrives. Screens from an older UI container have no MapImage.
 --- `field`: the Image (default MapImage; the vote rows' VoteImage0..3), its
@@ -746,6 +748,23 @@ function Live.showCover(screen, code, field)
             image:SetVisibility(VIS_SHOWN)
         end)
         setText(note, "")
+        -- The cached file shows at once; if the hub has since replaced the
+        -- screenshot, fetch the new one and draw it when it lands. The
+        -- listing is re-read at most every CATALOG_SECONDS.
+        local function recheck()
+            if not MapLive.coverStale(code) then return end
+            -- One attempt per new cover: a failed download is not retried
+            -- on every redraw of the same screen.
+            local id = MapLive.coverId(code)
+            if coverTried[code] == id then return end
+            coverTried[code] = id
+            MapLive.cover(code, function(path)
+                if path and UI.valid(screen) and not MapLive.coverStale(code) then
+                    Live.showCover(screen, code, field)
+                end
+            end)
+        end
+        MapLive.refresh(recheck)
         return
     end
     pcall(function() image:SetVisibility(VIS_HIDDEN) end)
@@ -934,6 +953,57 @@ Net.on("maps", function(f, sender)
     for code in (f[1] or ""):gmatch("[%w_]+") do set[code] = true end
     Live.memberMaps[sender or "?"] = { has = set, at = os.time() }
 end)
+
+-- Mods (outdated.lua, "Multiplayer needs an unmodified game"): each client
+-- tells the host what its mod check said, from the identity loop (each
+-- second, sent when it changes and at least every 20 s; not tied to the
+-- hub roster, so a hub outage does not get honest players sent back); the host keeps each member's verdict and when it first saw them,
+-- and its watch sends back a member that reports mods, or reports nothing
+-- or only "unchecked" for longer than the grace below. The host tells each
+-- member its own verdict, and a member leaves a host with mods.
+Live.memberMods = {}       -- host: [name] = { verdict, at }
+Live.memberSeen = {}       -- host: [name] = os.time() first seen this session
+Live.toldHost = {}         -- host: [name] = the verdict this host last told them
+local MODS_SILENT_GRACE = 90      -- seconds a member may send no verdict
+local MODS_UNCHECKED_GRACE = 240  -- seconds a member may stay "unchecked"
+
+function Live.sendModCheck()
+    if Net.isHost() then return end
+    local v = Outdated.verdict()
+    if v == Live.sentMods and os.time() - (Live.sentModsAt or 0) < 20 then return end
+    Live.sentMods, Live.sentModsAt = v, os.time()
+    Net.toHost("modcheck", v)
+end
+
+Net.on("modcheck", function(f, sender)
+    if not Net.isHost() then return end
+    Live.memberMods[sender or "?"] = { verdict = f[1] or "", at = os.time() }
+end)
+
+--- The host watch's mod pass over `players` (remotePlayers()): who to send
+--- back, as { player, why }. Forgets members who left.
+function Live.modsToRemove(players, now)
+    local out, present = {}, {}
+    for _, p in ipairs(players) do
+        present[p.name] = true
+        Live.memberSeen[p.name] = Live.memberSeen[p.name] or now
+        local seen = now - Live.memberSeen[p.name]
+        local m = Live.memberMods[p.name]
+        if m and Outdated.verdictHasMods(m.verdict) then
+            out[#out + 1] = { player = p, why = Outdated.modsLine(m.verdict:match("%d+")) }
+        elseif not m and seen > MODS_SILENT_GRACE then
+            out[#out + 1] = { player = p, why = "Your MJOLNIR Lobby did not say whether your game has mods. Update MJOLNIR from the launcher and join again." }
+        elseif m and m.verdict ~= "clean" and seen > MODS_UNCHECKED_GRACE then
+            out[#out + 1] = { player = p, why = "Your game could not check itself for mods. Start it from the MJOLNIR launcher and join again." }
+        end
+    end
+    for name in pairs(Live.memberSeen) do
+        if not present[name] then
+            Live.memberSeen[name], Live.memberMods[name], Live.toldHost[name] = nil, nil, nil
+        end
+    end
+    return out
+end
 
 local function percent(event)
     if not (event and event.received and event.total and event.total > 0) then return nil end
@@ -2258,6 +2328,23 @@ local function joinGame(g)
                 end
             end,
         })
+        return
+    end
+    -- Joining needs the mod check's answer (outdated.lua): a join from a
+    -- link right after the game started waits for it, up to two minutes.
+    if Outdated.checking() then
+        findNote("Checking your game folder for mods...")
+        local waited = 0
+        local function again()
+            waited = waited + 1
+            if not alive(Find) then return end
+            if Outdated.checking() and waited < 120 then
+                ExecuteInGameThreadWithDelay(1000, again)
+                return
+            end
+            joinGame(g)
+        end
+        ExecuteInGameThreadWithDelay(1000, again)
         return
     end
     -- A map installed since the game started has no cooked registration.
@@ -4709,6 +4796,16 @@ local function watchHost()
                     if bans[string.lower(p.name)] then kick(p, "You are banned from this host's games.") end
                 end
             end
+            -- Mods: send back members whose game has them (or will not
+            -- say), and tell each the host's own verdict once it changes.
+            local players = remotePlayers()
+            for _, r in ipairs(Live.modsToRemove(players, os.time())) do kick(r.player, r.why) end
+            local mine = Outdated.verdict()
+            for _, p in ipairs(players) do
+                if Live.toldHost[p.name] ~= mine and Net.toClient(p.pc, "hostcheck", mine) then
+                    Live.toldHost[p.name] = mine
+                end
+            end
         end)
         UI.reportSlow("host watch", started)
         ExecuteInGameThreadWithDelay(5000, poll)
@@ -4819,7 +4916,8 @@ local AUTO = {
             Games.notice("FORGE games stay private.")
             return autoState({ result = "error FORGE games stay private" })
         end
-        Games.setPublic(on)
+        local refused, why = Games.setPublic(on)
+        if refused == false then return autoState({ result = "error " .. tostring(why) }) end
         autoState({ result = "public " .. tostring(on) })
     end,
     host = function(args)
@@ -4855,6 +4953,12 @@ local AUTO = {
             end
             if not chosen then return autoState({ result = "error no listed game" .. (wanted and (" by " .. wanted) or "") }) end
             local function join()
+                -- The mod check's answer first (outdated.lua), as JOIN waits.
+                if Outdated.checking() then
+                    autoState({ result = "checking for mods" })
+                    ExecuteInGameThreadWithDelay(1000, join)
+                    return
+                end
                 autoState({ result = "joining " .. tostring(chosen.host) })
                 MapLive.register(chosen.map_code)
                 Games.join(chosen, function(ok, err)
@@ -4920,12 +5024,7 @@ local function initialize()
     -- for the Blam game, which is not built yet) waits for the join to end:
     -- leaving mid-join crashed the joiner in the Blam engine's tick (a ban
     -- enforced as a banned player rejoined, two PCs 2026-10-03).
-    Net.on("kick", function(fields)
-        log("host: sent back by the host (" .. tostring(fields[1]) .. ")")
-        -- The host's reason, and the map it names (Live.removeLacking), on
-        -- the main menu once this game is back there (Live.showNotice).
-        local code = fields[2] and fields[2]:match("^[%w_]+$") or nil
-        Live.notice = Live.newNotice({ text = fields[1] or "The host sent you back to the main menu.", code = code })
+    local function leaveHostsGame()
         -- In the lobby, LeaveGame does nothing (two PCs, 2026-10-09): the
         -- fireteam's own leave does it.
         if inFrontend() then
@@ -4944,7 +5043,27 @@ local function initialize()
             end)
         end
         ExecuteInGameThreadWithDelay(200, leave)
+    end
+    Net.on("kick", function(fields)
+        log("host: sent back by the host (" .. tostring(fields[1]) .. ")")
+        -- The host's reason, and the map it names (Live.removeLacking), on
+        -- the main menu once this game is back there (Live.showNotice).
+        local code = fields[2] and fields[2]:match("^[%w_]+$") or nil
+        Live.notice = Live.newNotice({ text = fields[1] or "The host sent you back to the main menu.", code = code })
+        leaveHostsGame()
     end)
+    -- The host's own verdict. A host with mods sends its guests home; a guest
+    -- of an older host hears nothing and stays.
+    Net.on("hostcheck", function(f)
+        if Net.isHost() or not Outdated.verdictHasMods(f[1]) then return end
+        -- Once per leave: the host repeats itself only when its verdict changes.
+        if os.time() - (Live.leftModdedHostAt or 0) < 30 then return end
+        Live.leftModdedHostAt = os.time()
+        log("mods: the host's game reports " .. tostring(f[1]) .. "; leaving")
+        Live.notice = Live.newNotice({ text = "The host's game has mods MJOLNIR did not install, so you were taken out of their game." })
+        leaveHostsGame()
+    end)
+
     -- The host leaving its match by hand: the standings that leaves behind
     -- open the lobby, not a vote (Live.quitEnded). The pause menu's SAVE AND
     -- EXIT, once its dialog says YES, calls EndCampaign (traced in game,
@@ -5042,7 +5161,10 @@ local function initialize()
         isPublic = function() return Games.isPublic() end,
         -- The host's roster comes every few seconds: the client's maps go
         -- back with it (Live.sendMaps).
-        onIds = function() Live.sendMaps() end,
+        onIds = function()
+            Live.sendMaps()
+            Live.sendModCheck()
+        end,
         onBanned = function(name, why)
             for _, player in ipairs(remotePlayers()) do
                 if player.name == name then kick(player, why) end
@@ -5061,6 +5183,10 @@ local function initialize()
         local started = os.clock()
         local ok, err = pcall(Identity.tick, Net.isHost())
         if not ok then log("identity: " .. tostring(err)) end
+        ok, err = pcall(Outdated.poll)
+        if not ok then log("update check: " .. tostring(err)) end
+        ok, err = pcall(Live.sendModCheck)
+        if not ok then log("mods: " .. tostring(err)) end
         UI.reportSlow("identity", started)
         ExecuteInGameThreadWithDelay(1000, identityLoop)
     end
@@ -5095,6 +5221,9 @@ local function initialize()
     end
     ExecuteInGameThreadWithDelay(2000, function() registerInstalled(0) end)
     Outdated.init({ json = Json, ui = UI, log = log, nativeDir = MOD_DIR .. "\\native\\" })
+    -- No joining or public listing while the mod check finds mods or has
+    -- not answered (outdated.lua).
+    Games.gate = Outdated.mpBlock
     math.randomseed(os.time())
     watchMainMenu()
     watchPostGame()

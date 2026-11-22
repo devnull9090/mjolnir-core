@@ -210,6 +210,9 @@ def one(pack, a, defaults):
         return None
 
     # Stage the pack as `map pack` reads a conversion folder.
+    replaced = {os.path.basename(f): f for f in a.replace if f"content/{os.path.basename(f)}" in names}
+    for f in replaced:
+        print(f"  replace content/{f} <- {replaced[f]}", flush=True)
     stage = os.path.join(w, "stage")
     os.makedirs(os.path.join(stage, "machines"), exist_ok=True)
     for f in glob.glob(os.path.join(content, "*.utoc")):
@@ -220,7 +223,9 @@ def one(pack, a, defaults):
             continue
         to = os.path.join(stage, "machines") if MACHINE.search(s) else stage
         for e in ("utoc", "ucas"):
-            shutil.copyfile(os.path.join(content, f"{s}.{e}"), os.path.join(to, f"{s}.{e}"))
+            # A rebuilt container (--replace) in place of the pack's own.
+            source = replaced.get(f"{s}.{e}", os.path.join(content, f"{s}.{e}"))
+            shutil.copyfile(source, os.path.join(to, f"{s}.{e}"))
     shutil.copyfile(os.path.join(unpacked, "map", "level.json"), os.path.join(stage, f"{code.lower()}.level.json"))
     shutil.copyfile(os.path.join(unpacked, "map", "registration.json"), os.path.join(stage, f"{code}.registration.json"))
     shutil.copyfile(bots_file, os.path.join(stage, f"{code}.bots.json"))
@@ -236,8 +241,14 @@ def one(pack, a, defaults):
 
     os.makedirs(a.out, exist_ok=True)
     archive = os.path.join(a.out, f"{slug}-{version}.mjolnir")
+    runtime = a.runtime
+    if runtime == "keep":
+        dep = next((d for d in manifest.get("deps", []) if d.get("slug") == "mjolnir-ce-runtime"), None)
+        if not dep:
+            sys.exit(f"{code}: --runtime keep, but the pack names no mjolnir-ce-runtime range")
+        runtime = dep["range"]
     cmd = [CLI, "map", "pack", stage, "--code", code, "--version", version, "--slug", slug,
-           "--name", manifest["name"], "--summary", manifest.get("summary", ""), "--runtime", a.runtime,
+           "--name", manifest["name"], "--summary", manifest.get("summary", ""), "--runtime", runtime,
            "--game", m.get("game", "halo1"), "--out", archive]
     if m.get("size"):
         cmd += ["--size", m["size"]]
@@ -259,8 +270,8 @@ def one(pack, a, defaults):
     changed = {n for n in set(old) | set(got) if old.get(n) != got.get(n)}
     if "map/bots.json" not in got:
         sys.exit(f"{code}: the new pack has no map/bots.json")
-    if f"content/{stem}.ucas" not in changed or changed - {f"content/{stem}.ucas", f"content/{stem}.utoc",
-                                                             "map/bots.json"}:
+    may = {f"content/{stem}.ucas", f"content/{stem}.utoc", "map/bots.json"} | {f"content/{f}" for f in replaced}
+    if f"content/{stem}.ucas" not in changed or changed - may:
         sys.exit(f"{code}: the new pack differs from the old in {changed}")
     print(f"  {archive}: {os.path.getsize(archive) / 2 ** 20:.1f} MiB", flush=True)
     return archive
@@ -271,7 +282,11 @@ def main():
     ap.add_argument("packs", nargs="+")
     ap.add_argument("--version", help="the new version (one map); else --version-bump of each pack's")
     ap.add_argument("--version-bump", choices=("major", "minor", "patch"), default="minor")
-    ap.add_argument("--runtime", required=True, help="the runtime pack range with the bot characters")
+    ap.add_argument("--runtime", required=True,
+                    help="the runtime pack range with the bot characters, or `keep` for each pack's own")
+    ap.add_argument("--replace", action="append", default=[], metavar="FILE",
+                    help="a rebuilt container file (.utoc/.ucas) packed in place of the pack's own of that "
+                         "name, in packs that have one (a re-cooked MJOLNIRCOOK-<CODE>); may repeat")
     ap.add_argument("--work", default="C:/haloce/ce_conversions/bots/work")
     ap.add_argument("--out", default="C:/haloce/ce_conversions/bots/packs")
     ap.add_argument("--paks", default=os.environ.get("HCE_PAKS"))

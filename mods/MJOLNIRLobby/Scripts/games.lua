@@ -535,7 +535,26 @@ function Games.online() return connectionString() ~= nil end
 Games.call = hub
 Games.explain = explain
 
+--- Why this game may not join or list a multiplayer game, or nil: set by
+--- MJOLNIR Lobby to its mod check (outdated.lua, Outdated.mpBlock).
+Games.gate = nil
+
+local function gated()
+    if not Games.gate then return nil end
+    local ok, why = pcall(Games.gate)
+    if not ok then return "MJOLNIR could not check your game folder for mods: " .. tostring(why) end
+    return why
+end
+
+--- Going public: false and why when the mod check keeps this game out.
 function Games.setPublic(on)
+    if on then
+        local why = gated()
+        if why then
+            setStatus(why)
+            return false, why
+        end
+    end
     local wasPublic = Host.public
     Host.public = on and true or false
     if wasPublic and not Host.public then unlist("private") end
@@ -597,6 +616,8 @@ end
 --- Join a listed game: done(true) once the join is under way, or
 --- done(false, why).
 function Games.join(lobby, done)
+    local blocked = gated()
+    if blocked then return done(false, blocked) end
     guest:joining(lobby.id, os.time())
     publicPresence = nil
     local finish = done

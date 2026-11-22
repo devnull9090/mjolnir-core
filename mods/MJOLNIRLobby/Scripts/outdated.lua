@@ -178,6 +178,48 @@ local function menuOnTop(menu)
     return true
 end
 
+--- The launcher's answer, once it is written (the native half deletes the
+--- old one before each ask). Each second from MJOLNIR Lobby's identity
+--- loop as well as the main menu's poll, so a game that went straight into
+--- a match (a Steam invite) still hears its answer: the multiplayer gate
+--- and the host's mod check read it. A game with no answer at all asks
+--- once, and again after a check that timed out.
+function Outdated.poll()
+    if not nativeDir then return end
+    local now = os.time()
+    if not state.asked and not state.result and now >= (state.retryAt or 0) then
+        local ok, why = askLauncher("check")
+        if ok then
+            state.asked = now
+        else
+            state.retryAt = now + RECHECK_SECONDS
+            log("update check: " .. tostring(why))
+        end
+    end
+    if not state.asked then return end
+    local raw = readFile(nativeDir .. "update_check.json")
+    if raw then
+        state.asked = nil
+        local ok, result = pcall(Json.decode, raw)
+        if ok and type(result) == "table" then
+            result.got = now
+            state.result = result
+            local found = Outdated.findings(result)
+            log(found and string.format("update check: %d update(s), %d unsupported mod(s)",
+                #found.items, #found.unsupported) or "update check: up to date")
+            for _, u in ipairs(type(result.unreachable) == "table" and result.unreachable or {}) do
+                log("update check: could not check " .. tostring(u))
+            end
+        else
+            log("update check: unreadable answer")
+        end
+    elseif now - state.asked > CHECK_TIMEOUT then
+        state.asked = nil
+        state.retryAt = now + 30
+        log("update check: no answer from the launcher")
+    end
+end
+
 --- From the main menu's poll while signed in and in the frontend; `menu` is
 --- the main menu widget, or nil when it is not up.
 function Outdated.tick(menu)
@@ -195,29 +237,7 @@ function Outdated.tick(menu)
         end
     end
     state.lastTick = now
-
-    if state.asked then
-        local raw = readFile(nativeDir .. "update_check.json")
-        if raw then
-            state.asked = nil
-            local ok, result = pcall(Json.decode, raw)
-            if ok and type(result) == "table" then
-                result.got = now
-                state.result = result
-                local found = Outdated.findings(result)
-                log(found and string.format("update check: %d update(s), %d unsupported mod(s)",
-                    #found.items, #found.unsupported) or "update check: up to date")
-                for _, u in ipairs(type(result.unreachable) == "table" and result.unreachable or {}) do
-                    log("update check: could not check " .. tostring(u))
-                end
-            else
-                log("update check: unreadable answer")
-            end
-        elseif now - state.asked > CHECK_TIMEOUT then
-            state.asked = nil
-            log("update check: no answer from the launcher")
-        end
-    end
+    Outdated.poll()
 
     if state.shownVisit or not state.result or (state.screen and UI.valid(state.screen.screen)) then return end
     local found = Outdated.findings(state.result)
@@ -225,6 +245,75 @@ function Outdated.tick(menu)
         state.shownVisit = true
         show(found)
     end
+end
+
+-------------------------------------------------------------------------------
+-- Multiplayer needs an unmodified game
+-------------------------------------------------------------------------------
+-- A mod MJOLNIR did not install (a pak with faster weapons, a UE4SS script)
+-- works in a match: the joiner's own tags drive its own shots. So the
+-- launcher's finding is a gate, not only advice: no joining, no public
+-- listing and no staying in another's match while the last check found any,
+-- and none before a check has answered (fail closed). Every machine tells
+-- its host what its check said (`Outdated.verdict`), and the host sends back
+-- whoever reports mods or reports nothing (main.lua, the host watch); a
+-- client leaves a host that reports mods. A determined cheat can edit this
+-- script or the answer file; this stops mods dropped into the game folder,
+-- the ones the launcher sets aside.
+
+local VERDICT_CLEAN = "clean"
+local VERDICT_UNCHECKED = "unchecked"
+
+--- This game's mod check as one word for the wire: "clean", "unchecked"
+--- (no answer yet, or no answer at all) or "mods:<n>".
+function Outdated.verdict()
+    local r = state.result
+    if type(r) ~= "table" then return VERDICT_UNCHECKED end
+    local u = type(r.unsupported) == "table" and #r.unsupported or 0
+    return u > 0 and ("mods:" .. u) or VERDICT_CLEAN
+end
+
+--- Whether a check is under way with no answer yet: a join waits for it.
+function Outdated.checking()
+    return state.result == nil and state.asked ~= nil
+end
+
+--- Whether a verdict from the wire is a game with mods.
+function Outdated.verdictHasMods(v)
+    return type(v) == "string" and v:match("^mods:%d+$") ~= nil
+end
+
+--- The one line a player is shown when their mods keep them out.
+function Outdated.modsLine(n)
+    n = tonumber(n) or 0
+    return string.format(
+        "Your game has %d mod%s MJOLNIR did not install. Multiplayer needs an unmodified game: open the MJOLNIR launcher and play from there, and it moves them aside while you play.",
+        n, n == 1 and "" or "s")
+end
+
+--- Why this game may not join or list a multiplayer game now, or nil when
+--- it may. Asks for a check when none has answered.
+function Outdated.mpBlock()
+    local r = state.result
+    if type(r) == "table" then
+        local u = type(r.unsupported) == "table" and #r.unsupported or 0
+        if u == 0 then return nil end
+        -- Shown once more on this visit: the screen lists them and offers
+        -- the launcher.
+        state.shownVisit = false
+        return Outdated.modsLine(u)
+    end
+    if not state.asked and nativeDir then
+        local ok, why = askLauncher("check")
+        if ok then
+            state.asked = os.time()
+        else
+            log("update check: " .. tostring(why))
+            return "MJOLNIR could not check your game folder for mods (" .. tostring(why)
+                .. "). Multiplayer needs that check: start the game from the MJOLNIR launcher."
+        end
+    end
+    return "Checking your game folder for mods. Try again in a moment."
 end
 
 --- deps: { json, ui, log, nativeDir }.
