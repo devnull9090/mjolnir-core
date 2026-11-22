@@ -67,11 +67,14 @@ pub struct Template {
     pub alpha_tested: bool,
     /// The role whose alpha an alpha-tested template cuts out on.
     pub alpha_from: &'static str,
+    /// With `alpha_from` not the base: the cut is the base's own alpha times
+    /// that role's (both maps cut), not that role's alone.
+    pub alpha_combined: bool,
 }
 
 /// A shader template's slot layout, by its name (`tex_bump`, ...).
 pub fn template(name: &str) -> Template {
-    let t = |slots, tiling, transparent, alpha_tested| Template { slots, tiling, transparent, alpha_tested, alpha_from: "base" };
+    let t = |slots, tiling, transparent, alpha_tested| Template { slots, tiling, transparent, alpha_tested, alpha_from: "base", alpha_combined: false };
     const BUMP_FIRST: &[(&str, usize)] = &[("bump", 0), ("base", 1), ("detail", 2), ("detail2", 3)];
     // tex_bump_detail_blend alone keeps its details' constants first (25
     // shaders on the 24 maps, base always constant 2 at (1, 1)); its
@@ -87,9 +90,20 @@ pub fn template(name: &str) -> Template {
         n if n.starts_with("tex_bump_alpha_test") && n.contains("single_pass") => {
             Template { alpha_from: "bump", ..t(&["bump", "", "base", "detail"], BUMP_FIRST, 0, true) }
         }
-        n if n.starts_with("tex_bump_alpha_test") => {
-            t(&["bump", "", "", "base", "detail"], &[("detail", 0), ("base", 1), ("bump", 2)], 0, true)
-        }
+        // The others cut where the base's alpha or the bump map's is low:
+        // shaders keep the outline in either map (or both). Measured over
+        // the 26 stagings' fourteen: Zanzibar's and Foundation's grates cut
+        // in the base (bump solid); Sanctuary's and Warlock's temple vines,
+        // Derelict's vines, Headlong's girders, Midship's torn pillars and
+        // Terminal's generator cut in the bump map (base solid), and drew
+        // as black quads cut on the base alone; Lockout's grate and
+        // Derelict's woody vines carry the same cut in both. The product
+        // cuts each as the other map's solid alpha leaves it.
+        n if n.starts_with("tex_bump_alpha_test") => Template {
+            alpha_from: "bump",
+            alpha_combined: true,
+            ..t(&["bump", "", "", "base", "detail"], &[("detail", 0), ("base", 1), ("bump", 2)], 0, true)
+        },
         // Cuts out on the base map's alpha times bitmap 1's (an alpha map
         // of its own): Turf's damaged stucco has a solid door base and the
         // stairwell's opening in `base_stucco1_damaged_01_alpha`; the
@@ -98,7 +112,7 @@ pub fn template(name: &str) -> Template {
         // tex_bump_env's slots, slot 1 was skipped and Turf's stairwell
         // was walled off by a door with no collision behind it.
         n if n.starts_with("tex_bump_env") && n.ends_with("alpha_test_combined") => {
-            Template { alpha_from: "alpha", ..t(&["bump", "alpha", "base", "detail"], BUMP_FIRST, 0, true) }
+            Template { alpha_from: "alpha", alpha_combined: true, ..t(&["bump", "alpha", "base", "detail"], BUMP_FIRST, 0, true) }
         }
         "tex_bump_detail_blend" => t(&["bump", "base", "detail", "detail2"], DETAIL_FIRST, 0, false),
         n if n.starts_with("tex_bump_detail_blend_detail") => {
@@ -670,7 +684,7 @@ fn shader_summary(cache: &Cache, shader: Option<Tag<'_>>, dir: &Path, tex: &mut 
     }
     if tpl.alpha_tested && tpl.alpha_from != "base" {
         if let (Some(b), Some(a)) = (tags.get("base"), tags.get(tpl.alpha_from)) {
-            let cut = tex.stage_cutout(cache, b, a, tpl.alpha_from == "alpha", dir, notes);
+            let cut = tex.stage_cutout(cache, b, a, tpl.alpha_combined, dir, notes);
             roles.insert("base", cut);
         }
     }
@@ -2466,7 +2480,10 @@ mod tests {
         assert_eq!(template("tex_bump_alpha_test_single_pass").transparent, 0);
         assert_eq!(template("tex_bump_alpha_test_single_pass").alpha_from, "bump");
         assert_eq!(template("tex_bump_alpha_test_clamped_single_pass").alpha_from, "bump");
-        assert_eq!(template("tex_bump_alpha_test").alpha_from, "base");
+        let grate = template("tex_bump_alpha_test");
+        assert_eq!((grate.alpha_from, grate.alpha_combined), ("bump", true), "base alpha x bump alpha");
+        assert_eq!(template("tex_bump_alpha_test_clamped").alpha_from, "bump");
+        assert!(!template("tex_bump_alpha_test_single_pass").alpha_combined);
         let combined = template("tex_bump_env_alpha_test_combined");
         assert_eq!((combined.alpha_from, combined.slots[1], combined.alpha_tested), ("alpha", "alpha", true));
         assert_eq!(template("tex_bump_plasma_one_channel_illum").slots, &["bump", "base", "detail", "plasma"]);

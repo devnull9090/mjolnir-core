@@ -78,11 +78,18 @@ units and axes, so every later step reads them unchanged:
   shader pass tags ([h2_cache_format.md](h2_cache_format.md)). Opaque shaders
   become environment-master summaries (base, detail, second detail blended
   by the base's alpha where it is high, the reverse of CE's, bump,
-  self-illumination; alpha tested on the base map for the alpha-test
-  templates, except the single-pass ones, whose compiled lightmap pass
-  discards where the bump map's alpha rounds to 0: Zanzibar's palm fronds,
-  beach bushes and tree foliage keep their outline only there, so their
-  base map is staged with the bump map's alpha as `<stem>__cut.png`).
+  self-illumination; alpha tested for the alpha-test templates. The
+  single-pass ones' compiled lightmap pass discards where the bump map's
+  alpha rounds to 0: Zanzibar's palm fronds, beach bushes and tree foliage
+  keep their outline only there, so their base map is staged with the bump
+  map's alpha as `<stem>__cut.png`. The other `tex_bump_alpha_test*`
+  shaders keep the outline in the base's alpha, the bump map's, or both
+  (of the 26 stagings' fourteen: grates on Zanzibar and Foundation in the
+  base; the temple vines on Sanctuary and Warlock, Derelict's vines,
+  Headlong's girders, Midship's torn pillars and Terminal's generator in
+  the bump map; Lockout's grate in both), so `<stem>__cut.png` takes the
+  product of the two. Cut on the base alone, the bump-map ones drew as
+  black quads, 2026-11-21 playtest).
   `tex_bump_plasma_one_channel_illum` (Zanzibar's fusion coil cores) is a
   lit base and detail plus the plasma pass's glow from bitmap 3: red times
   a band of its alpha around pixel constant 2's, plus green and blue each
