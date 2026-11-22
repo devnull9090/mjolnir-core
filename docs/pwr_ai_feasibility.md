@@ -466,7 +466,113 @@ as the waves doc plans.
 | `water.json` | flux source heights and lake bounds used for the water estimate |
 | `tags/`, `shipped/`, `gptd/`, `src/`, `PWR.umap` | extracted game and map content (local only) |
 
-## Format study, first pass (2026-11-22)
+## How the simulation finds an AI's sector (Ghidra, 2026-11-22)
+
+Read from `HaloSimulation_tag_release.dll` (CU4) and checked against B40 BSP 8
+with `crates/blam-sbsp/examples/pf_objects.rs`. This replaces the guesses in
+section 1 and settles what a generator has to write.
+
+**The lookup.** `FUN_180139e00(bsp, surface, instance, object, ...)` turns a
+ground contact into `sector << 16 | bsp`, through `FUN_18013a080`:
+
+- *Shell contact* (no instance, no object): the BSP's own `bsp2d refs`,
+  indexed by the shell's collision surface.
+- *Instance contact*: `instanced geometry refs[instance]` (a short) names an
+  `object refs` element. Its `bsps[0].bsp2d refs` is indexed by the collision
+  surface **of the instance's definition**. But only when the instance's
+  `pathfinding policy` (sbsp instance byte `+0x7c`) is not `none`:
+  with `none (2)` the sim ignores the ref and casts a ray 4 wu down from the
+  point (`FUN_18013a4d0`) to find something else to stand on.
+- *Scenario object contact* (a machine, scenery): the `object refs` element
+  whose `object id` matches the object's, then the `bsps` entry whose
+  `bsp reference` matches the collision BSP hit.
+
+**A ref** (`FUN_180179250`, `FUN_180179510`) is a sector index, `-1`, or
+`0x80000000 | node` into `bsp2d nodes`. A node is a 2D plane and two children
+(`plane` 12 bytes, `left child`, `right child`; 20 bytes): go left when
+`n . p - d > 0`, else right, until a value above `-2`. The point is first
+taken into the **definition's local frame** (`(p - position) / scale`, then
+dotted with the instance's forward, left and up), and projected to 2D by the
+surface plane's dominant axis, Halo's usual way:
+
+| Dominant normal axis | Positive | Negative |
+|---|---|---|
+| x | (y, z) | (z, y) |
+| y | (z, x) | (x, z) |
+| z | (x, y) | (y, x) |
+
+So node planes are in definition-local 2D, while `vertices` (what links name,
+and what paths are planned on) are world space.
+
+**B40's data agrees.** Its 841 instances are 825 `none` and 16 `static (1)`;
+each static one has its own object ref (flags 0, one `bsps` entry, `bsp
+reference` 0, `node_index` 0, `object id` all -1) whose ref count equals its
+definition's surface count. The `none` instances all carry ref 0, which is
+never read (that was the "object 0 shared by 826 instances" puzzle). The other
+14 object refs are machines and scenery (`object id` types 6 and 7). Sectors,
+links and vertices are laid out object after object, with the intersection
+links that join objects appended at the end.
+
+**What is not read.** Only those two functions touch `object refs` (checked
+across every caller of the pathfinding-data accessor `FUN_18016d960` and every
+user of the per-BSP array `DAT_1813d4618`). They never read `vertex offset` or
+`node_index`. B40's `vertex offset` is not the object's first vertex (object 0
+uses vertices 0 to 103 and has offset 64); it looks like a leftover of Bungie's
+build. A generator can write the object's first vertex.
+
+**No built-in generator.** `generate_pathfinding` (HS function 464) points at
+the generic return-false handler, and the generation globals are bare storage.
+
+**What this means for PWR.**
+
+- All 151 PWR instances are `pathfinding policy = none`, so today an AI on the
+  terrain is on no sector whatever the scenario says. The terrain tiles must
+  become `static` in the BSP (one byte each), which changes the BSP package,
+  not only the scenario.
+- Each static tile needs an object ref with one ref per definition surface.
+  A sector that covers several triangles is just several refs with the same
+  value; nodes are needed only where one triangle is split between sectors.
+- The Blood Gulch crash was not the lookup: the refs it wrote were valid for
+  these functions, and it crashed with every ref `-1` too. The suspect is the
+  writer of the nested `object refs -> bsps -> bsp2d refs` blocks. So the
+  first step is a round trip: read B40's pathfinding, write it back through
+  our writer, and compare bytes.
+
+**The writer, proved** (`crates/blam-sbsp/examples/pf_roundtrip.rs`, B40 BSP 8,
+30 object refs, 3,192 refs). An `object refs` element owns a `bsps` block,
+which owns `bsp2d refs`, so a new element needs its `tgst` wrapper with those
+children; `replace_nested` writes an empty wrapper unless told otherwise.
+
+- Emptying the block and rebuilding it from a donor element's wrapper
+  (`element_with_wrapper`), then replacing each object's `bsp2d refs` and its
+  `bsps` element, gives back the original scenario **byte for byte**.
+- Writing the same elements with no wrappers leaves a tag that no longer
+  reads: the element says one `bsps` entry and the block is not there. That is
+  the likeliest cause of the Blood Gulch crash (it crashed with every ref `-1`
+  too, which the lookup would have handled).
+
+So a generator writes object refs in that order: all elements with a donor's
+wrapper, then per object the refs leaf, then the `bsps` element. The donor can
+be any shipped object ref (the bots canvas, B40, has them).
+
+**Next steps, in order.**
+
+1. Generator for static instances (`blam_sbsp::pathfinding`): per definition,
+   weld the unwelded triangles, drop steep faces, deep water and small rock
+   tops, merge triangles into convex sectors, emit world-space vertices and
+   winged links, and one ref per definition surface. Join tiles with
+   intersection links, as the crack seams already do. Indices as unsigned 16
+   bits. Test: rebuild B40 BSP 8's walkable area from its collision and compare
+   coverage and connectivity with Bungie's 632 sectors.
+2. Set the terrain tiles' `pathfinding policy` to `static` in the BSP and write
+   `instanced geometry refs` to match.
+3. Live gate on a small map before PWR: one static instance with generated
+   refs, an AI walking on it (ground record `+0x9e8` names a sector, follower
+   state not 3).
+4. PWR: bake, then the checks in the step list above (proxy budget, Spirit,
+   zones and objectives per candidate).
+
+## Format study, first pass (superseded by the section above)
 
 `crates/blam-sbsp/examples/pf_objects.rs` compares a scenario's pathfinding
 with its structure BSP's instances. On B40 BSP 8 (`BSP_01_1_Start`, 632 sectors,

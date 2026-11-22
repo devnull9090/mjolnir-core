@@ -48,6 +48,16 @@ fn main() {
     let inst = find_block(&slay, &sbsp, &sroot, "instanced geometry instances").expect("instances");
     let mut shown = 0;
     let mut objects_seen = std::collections::BTreeMap::new();
+    // (instance pathfinding policy byte at +0x7c, object index clamped to 0/1) -> count
+    let mut policy = std::collections::BTreeMap::new();
+    for i in 0..igr.block.count as usize {
+        let object = i16_at(igr.block.element(i).unwrap(), 0);
+        if object < 0 {
+            let b = inst.block.element(i).unwrap();
+            *policy.entry((b.get(0x7c).copied().unwrap_or(255), -1i16)).or_insert(0usize) += 1;
+        }
+    }
+    println!("instance element {} bytes", inst.block.elements.len() / inst.block.count.max(1) as usize);
     for i in 0..igr.block.count as usize {
         let r = igr.block.element(i).unwrap();
         let object = i16_at(r, 0);
@@ -62,6 +72,7 @@ fn main() {
         let pos = [f32_at(b, 40), f32_at(b, 44), f32_at(b, 48)];
         let def = i16_at(b, 52);
         objects_seen.entry(object).or_insert_with(Vec::new).push((i, def));
+        *policy.entry((b.get(0x7c).copied().unwrap_or(255), object.min(1))).or_insert(0usize) += 1;
         if shown >= show {
             continue;
         }
@@ -112,6 +123,56 @@ fn main() {
             }
         }
     }
+    println!("policy byte, object (-1 none / 0 / 1 = above 0) -> instances: {policy:?}");
+    // Which vertices each object's sectors use (through their link rings), against its vertex offset.
+    let links = blk("links");
+    let nodes = blk("bsp2d nodes");
+    let link = |i: usize| {
+        let e = links.block.element(i).unwrap();
+        (i16_at(e, 0) as u16, i16_at(e, 2) as u16, i16_at(e, 8) as u16, i16_at(e, 10) as u16, i16_at(e, 12), i16_at(e, 14))
+    };
+    fn leaves(nodes: &[u8], size: usize, v: i32, out: &mut Vec<i32>, depth: usize) {
+        if v >= 0 { out.push(v); return; }
+        if v == -1 || depth > 64 { return; }
+        let n = (v & 0x7fff_ffff) as usize;
+        if (n + 1) * size > nodes.len() { return; }
+        for k in [12, 16] { leaves(nodes, size, i32::from_le_bytes(nodes[n * size + k..n * size + k + 4].try_into().unwrap()), out, depth + 1); }
+    }
+    let nsize = nodes.block.elements.len() / nodes.block.count.max(1) as usize;
+    for o in 0..objs.block.count as usize {
+        let refs = find_block(&layout, &scn, &root, &format!("{pf}.object refs[{o}].bsps[0].bsp2d refs")).unwrap();
+        let ob = find_block(&layout, &scn, &root, &format!("{pf}.object refs[{o}].bsps")).unwrap();
+        let e = ob.block.element(0).unwrap();
+        let vo = i32_at(e, e.len() - 4);
+        let mut secs = Vec::new();
+        for n in 0..refs.block.count as usize { leaves(nodes.block.elements, nsize, i32_at(refs.block.element(n).unwrap(), 0), &mut secs, 0); }
+        secs.sort(); secs.dedup();
+        let (mut lo, mut hi, mut llo, mut lhi) = (u16::MAX, 0u16, usize::MAX, 0usize);
+        for &sec in &secs {
+            let se = sectors.block.element(sec as usize).unwrap();
+            let first = i32_at(se, 4);
+            let mut l = first as usize;
+            for _ in 0..512 {
+                let (v1, v2, fw, rv, left, _right) = link(l);
+                lo = lo.min(v1).min(v2); hi = hi.max(v1).max(v2); llo = llo.min(l); lhi = lhi.max(l);
+                let next = if left as i32 == sec { fw } else { rv } as usize;
+                if next == first as usize || next == 0xffff { break; }
+                l = next;
+            }
+        }
+        println!("object {o:2}: vertex offset {vo:5}, sectors {:?}..{:?} ({}), vertices used {lo}..{hi}, links {llo}..{lhi}",
+            secs.first(), secs.last(), secs.len());
+    }
+    // Raw object refs: element bytes, and each bsps element's bytes.
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<Vec<_>>().join("");
+    let owned: std::collections::BTreeMap<i16, usize> =
+        objects_seen.iter().filter(|(_, v)| v.len() == 1).map(|(o, v)| (*o, v[0].0)).collect();
+    for o in 0..objs.block.count as usize {
+        let e = objs.block.element(o).unwrap();
+        let ob = find_block(&layout, &scn, &root, &format!("{pf}.object refs[{o}].bsps")).unwrap();
+        let first = ob.block.element(0).map(hex).unwrap_or_default();
+        println!("object {o:2} inst {:?}: {} | bsps[0] {}", owned.get(&(o as i16)), hex(e), first);
+    }
     let shared = objects_seen.values().filter(|v| v.len() > 1).count();
     println!(
         "{} objects used by {} instances; {} objects shared by several instances",
@@ -120,6 +181,6 @@ fn main() {
         shared
     );
     if let Some((o, list)) = objects_seen.iter().find(|(_, v)| v.len() > 1) {
-        println!("  e.g. object {o}: instances/definitions {list:?}");
+        println!("  e.g. object {o}: {} instances, first {:?}", list.len(), &list[..list.len().min(6)]);
     }
 }
