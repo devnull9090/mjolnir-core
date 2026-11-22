@@ -65,6 +65,53 @@ def prop_containers(m, code):
     return out
 
 
+def extra_containers(m, code, repo, used=()):
+    """`extra_containers`: further containers the map owns, which neither
+    its conversion nor its bake makes. Each entry is a container's path
+    without its extension, under the repository or absolute, or a pattern of
+    such paths (`*`). A CE map's scripted devices (ce_machines.py: a tag
+    container a machine) and a custom vehicle's containers
+    (ce_place_vehicles.py) are built once and tested, and a rebuild carries
+    them from here: Yoyorast's 2026-11-18 rebuild knew of neither, and
+    shipped with no gate, button or Mongoose.
+
+    A build name must hold the map's code and be the only one of its name,
+    among these and the names in `used`."""
+    entries = m.get("extra_containers", [])
+    if not isinstance(entries, list):
+        raise ValueError("extra_containers must be a list of map-owned container stems")
+    out, names = [], set(used)
+    for entry in entries:
+        if not isinstance(entry, str):
+            raise ValueError("Invalid extra container stem")
+        path = os.path.abspath(os.path.join(repo, entry))
+        stems = [path]
+        if glob.has_magic(path):
+            stems = sorted(f[:-len(".utoc")] for f in glob.glob(path + ".utoc"))
+            if not stems:
+                raise ValueError(f"Extra container pattern matches nothing: {entry}")
+        for stem in stems:
+            base_name = os.path.basename(stem)
+            name = base_name[len("pakchunk"):].split("-", 1)[-1][:-2]
+            if (not base_name.startswith("pakchunk") or not base_name.endswith("_P") or code not in name
+                    or name in names):
+                raise ValueError("Extra container must have a unique map-owned package name")
+            names.add(name)
+            out.append((stem, name))
+    return out
+
+
+def extra_pack_path(stem, code):
+    """Where an extra container goes in a pack folder, under its own name
+    and chunk number (one with a shader library keeps its shaders): a tag
+    container in `machines/`, the others beside the map's own, where `map
+    pack` takes every `-<CODE>_P`."""
+    base_name = os.path.basename(stem)
+    if f"-MJOLNIRMACH-{code}-" in base_name:
+        return os.path.join("machines", base_name)
+    return base_name if base_name.endswith(f"-{code}_P") else base_name[:-2] + f"-{code}_P"
+
+
 def map_tag_containers(code, m, conv):
     """Every one of them, for a map (its upgrade config `m`), one per build
     name: an upgrade's own doors (`doors`, Zanzibar's) win over the

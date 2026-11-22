@@ -13,7 +13,8 @@ For each map in tools/level/ce_upgrade_maps.json, a staging folder
   - from the upgrade's work folder (upgrade_ce_map.py): the map container
     (pakchunk997-MJOLNIRMAP), the map's own tag containers
     (machine_containers.py: machines, their actors, movable props; the tags
-    in machines/), the landscape world's container renamed
+    in machines/), its `extra_containers` and `vehicle_sounds` (a CE map's
+    scripted devices, a custom vehicle), the landscape world's container renamed
     pakchunk<N>-MJOLNIRLAND-<CODE>_P (`map pack` takes the map's own
     containers by that suffix; the launcher keeps the chunk number of a
     container with a shader library, which this one has), the level file,
@@ -34,7 +35,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from machine_containers import map_tag_containers, pack_path  # noqa: E402
+from machine_containers import extra_containers, extra_pack_path, map_tag_containers, pack_path  # noqa: E402
 from owned_map_cook import verified_owned_cook  # noqa: E402
 from cooked_map_container import cooked_map_container  # noqa: E402
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -116,6 +117,19 @@ def stage(code, m, work, out):
         rel = pack_path(name)
         os.makedirs(os.path.join(dst, os.path.dirname(rel)), exist_ok=True)
         copy_pair(base, os.path.join(dst, os.path.dirname(rel)), os.path.basename(rel))
+    # `extra_containers`: what neither the conversion nor the bake makes (a
+    # CE map's scripted devices, a custom vehicle), under their own names and
+    # chunk numbers; and the file a custom vehicle plays and lights by.
+    staged = {os.path.basename(f)[len("pakchunk"):].split("-", 1)[-1][:-len("_P.utoc")]
+              for f in glob.glob(os.path.join(dst, "**", "pakchunk*.utoc"), recursive=True)}
+    for base, _ in extra_containers(m, code, REPO, staged):
+        rel = extra_pack_path(base, code)
+        os.makedirs(os.path.join(dst, os.path.dirname(rel)), exist_ok=True)
+        copy_pair(base, os.path.join(dst, os.path.dirname(rel)), os.path.basename(rel))
+    if m.get("vehicle_sounds"):
+        if not os.path.isfile(m["vehicle_sounds"]):
+            sys.exit(f"{code}: vehicle_sounds: no {m['vehicle_sounds']}")
+        shutil.copyfile(m["vehicle_sounds"], os.path.join(dst, "vehicle_sounds.json"))
     shutil.copyfile(os.path.join(cache, "map", "registration.json"), os.path.join(dst, f"{code}.registration.json"))
     # The bots' squads as this bake placed them (`map pack` takes
     # <CODE>.bots.json); a map with no bake of its own (indoor) keeps the hub

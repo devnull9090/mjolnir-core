@@ -38,7 +38,7 @@ import argparse
 from ce_objectives import drop_teleporters, park, settle
 from cooked_map_container import cooked_map_container
 import dev_paks
-from machine_containers import map_tag_containers
+from machine_containers import extra_containers, map_tag_containers
 from owned_map_cook import snapshot_owned_cook, verified_owned_cook
 from owned_map_cook import snapshot_owned_cook, verified_owned_cook, flux_bed_requires_mesh, landscape_lod_policy_path, landscape_lod_cook_inputs, render_only_hism_path, render_only_hism_cook_inputs, render_only_pines_path, render_only_pines_cook_inputs, native_grass_pilot_config, native_grass_pilot_cook_inputs
 import glob
@@ -340,6 +340,39 @@ def map_bots(m):
         return {k: v for k, v in json.load(f).items() if not k.startswith("_")}
 
 
+def script_beside(level):
+    """A level's own script (`blam.script`) compiles beside its level, and
+    the build may read a copy of the level it wrote elsewhere. The source is
+    this repository's (tools/level/data), as add_objectives.py takes it."""
+    with open(level, encoding="utf-8") as f:
+        script = (json.load(f).get("blam") or {}).get("script")
+    if not script:
+        return
+    source = os.path.join(HERE, "data", script)
+    if not os.path.isfile(source):
+        sys.exit(f"blam.script {script} of {level} is not in tools/level/data")
+    dest = os.path.join(os.path.dirname(os.path.abspath(level)), script)
+    with open(source, "rb") as f:
+        text = f.read()
+    have = None
+    if os.path.isfile(dest):
+        with open(dest, "rb") as f:
+            have = f.read()
+    if have != text:
+        with open(dest, "wb") as f:
+            f.write(text)
+
+
+def vehicle_sounds(m):
+    """`vehicle_sounds`: the vehicle_sounds.json a map's custom vehicles
+    play and light by (ce_place_vehicles.py writes it): it goes beside the
+    level file in the install and in the pack. None for a map without."""
+    path = m.get("vehicle_sounds")
+    if path and not os.path.isfile(path):
+        sys.exit(f"vehicle_sounds: no {path}")
+    return path or None
+
+
 def paths(code, m, work):
     conv = m["conversion"]
     scene = m.get("scene", conv)
@@ -354,6 +387,7 @@ def paths(code, m, work):
     if m.get("vehicle_moves") or objects or os.path.isfile(level):
         level = moved_level(level, m.get("vehicle_moves") or {}, objects, groups, map_bots(m),
                             m.get("remove_teleporters"))
+        script_beside(level)
     return {"conv": conv, "scene": scene, "work": w, "land": os.path.join(w, "land"),
             "foliage": os.path.join(w, "foliage"), "bake": os.path.join(w, "bake"),
             "level": level, "out_level": os.path.join(w, "level.json")}
@@ -3485,23 +3519,12 @@ def local_install_plan(code, m, p, *, shared=True, runtime_aliases=None):
         containers.append((os.path.join(p["bake"], f"pakchunk{m['chunk']}-MJOLNIRLAND-Windows"), f"MJOLNIRLAND-{code}"))
     if m.get("native_rock_materials"):
         containers.append((os.path.join(p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"), f"MJOLNIRROCK-{code}"))
-    # `extra_containers`: further map-owned containers (stems under the
-    # repo), each a local build named for itself like the rest.
-    extra_containers = m.get("extra_containers", [])
-    if not isinstance(extra_containers, list):
-        raise ValueError("extra_containers must be a list of map-owned container stems")
-    used_names = {name for _, name in containers}
-    for stem in extra_containers:
-        if not isinstance(stem, str):
-            raise ValueError("Invalid extra container stem")
-        stem = os.path.abspath(os.path.join(REPO, stem))
-        base_name = os.path.basename(stem)
-        name = re.sub(r"^pakchunk\d+-", "", base_name)[:-2]
-        if not base_name.startswith("pakchunk") or not base_name.endswith("_P") or code not in name or name in used_names:
-            raise ValueError("Extra container must have a unique map-owned package name")
-        used_names.add(name)
-        containers.append((stem, name))
+    # `extra_containers`: further map-owned containers, each a local build
+    # named for itself like the rest (machine_containers.extra_containers).
+    containers += extra_containers(m, code, REPO, {name for _, name in containers})
     containers += map_tag_containers(code, m, p["conv"])
+    if vehicle_sounds(m):
+        files.append((vehicle_sounds(m), os.path.join(data, "vehicle_sounds.json")))
     required += [f"{base}.{e}" for base, _ in containers for e in ("utoc", "ucas")]
     if level.get("foliage"):
         files.append((os.path.join(p["work"], "foliage.bin"), os.path.join(data, "foliage.bin")))
@@ -3577,9 +3600,13 @@ def stage_install(code, m, p):
     # `native_rock_materials`: the bake's native clones of the rocks' MICs.
     if m.get("native_rock_materials"):
         builds.append((os.path.join(p["bake"], f"pakchunk970-MJOLNIRROCK-{code}_P"), f"MJOLNIRROCK-{code}"))
-    # The map's own tags: its machines, their actors, its movable props
-    # (machine_containers.py: the packs carry the same list).
+    # `extra_containers`: what neither the conversion nor the bake makes
+    # (a CE map's scripted devices, a custom vehicle), and the map's own
+    # tags: its machines, their actors, its movable props
+    # (machine_containers.py: the packs carry the same lists).
+    builds += extra_containers(m, code, REPO, {name for _, name in builds})
     builds += map_tag_containers(code, m, p["conv"])
+    sounds = vehicle_sounds(m)
     missing = [f"{base}.{e}" for base, _ in builds for e in ("utoc", "ucas") if not os.path.isfile(f"{base}.{e}")]
     if missing:
         sys.exit(f"{code}: install is incomplete:\n  " + "\n  ".join(missing))
@@ -3593,6 +3620,8 @@ def stage_install(code, m, p):
     bots = os.path.join(p["bake"], f"{code}.bots.json")
     if os.path.isfile(bots):
         shutil.copyfile(bots, os.path.join(data, "bots.json"))
+    if sounds:
+        shutil.copyfile(sounds, os.path.join(data, "vehicle_sounds.json"))
     if glob.glob(os.path.join(p["work"], "flux_state", "**", "state.json"),recursive=True):
         shutil.copytree(os.path.join(p["work"], "flux_state"), os.path.join(data, "flux_state"), dirs_exist_ok=True)
     decals = os.path.join(p["work"], "decals")
