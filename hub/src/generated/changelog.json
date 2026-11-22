@@ -83,6 +83,27 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.54.1",
+      "tag": "mods-v0.54.1",
+      "title": "The parachute's hands stay on the handles",
+      "date": "2026-11-21",
+      "summary": "In Pelican Warfare, opening the parachute while looking down no longer leaves your arms in front of your face.",
+      "body": "### Fixed\n\nIn MJOLNIRHud 0.23.1.\n\n- **Parachute arms in the right place.** Your hands take the two steering\n  handles when the parachute opens. They were placed from where your arms\n  were at that moment, so opening it while looking down at the ground left\n  two large forearms across the view for the whole glide. They now sit on\n  the harness at eye height, wherever you were looking.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Parachute arms in the right place. Your hands take the two steering handles when the parachute opens. They were placed from where your arms were at that moment, so opening it while looking down at the ground left two large forearms across the view for the whole glide. They now sit on the harness at eye height, wherever you were looking."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.54.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.54.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.54.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.54.0",
       "tag": "mods-v0.54.0",
       "title": "Pelican Warfare: a new game mode on a new map",
