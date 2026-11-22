@@ -249,14 +249,14 @@ def repack(p, level, a, bots):
     if new != shipped:
         sys.exit(f"{code}: the rebaked container holds {new}, the shipped one {shipped}")
     compared = 0
-    for p in shipped:
-        if p.endswith(SCENARIO):
+    for package in shipped:
+        if package.endswith(SCENARIO):
             continue
         x, y = os.path.join(w, "x.bin"), os.path.join(w, "y.bin")
-        run([EXTRACT, src, p, x])
-        run([EXTRACT, built, p, y])
+        run([EXTRACT, src, package, x])
+        run([EXTRACT, built, package, y])
         if sha(x) != sha(y):
-            sys.exit(f"{code}: {p} changed in the rebake")
+            sys.exit(f"{code}: {package} changed in the rebake")
         os.remove(x)
         os.remove(y)
         compared += 1
