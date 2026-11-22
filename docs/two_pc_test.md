@@ -219,7 +219,7 @@ out and back in if it was paired earlier). An older sign-in can't list a
 game, and the lobby's footer says so. Listing and joining both need one.
 
 **A. Join from the lobby.**
-1. **PC 1:** MULTIPLAYER, then PRIVATE GAME, so it reads **PUBLIC GAME**.
+1. **PC 1:** MULTIPLAYER. The lobby opens as **PUBLIC GAME**.
    **Expect:** the footer reads "PUBLIC: listed in FIND GAMES" within a few
    seconds, and the game shows on mjolnircore.com's Games page.
 2. **PC 2:** MULTIPLAYER, then FIND GAMES. **Expect:** PC 1's game with its
