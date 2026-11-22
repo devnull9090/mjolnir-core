@@ -48,8 +48,12 @@ requires sign-in. See the header comment in `lobby.ts`.
 
 ## Public games
 
-**Hosting.** The lobby's PRIVATE GAME button switches to PUBLIC GAME (host
-only; every session starts private). While public, `games.lua`:
+**Hosting.** A host's lobby opens as PUBLIC GAME: MULTIPLAYER lists the
+game unless the host already picked PUBLIC or PRIVATE this launch
+(`Games.defaultPublic`), so a private choice holds through matches and back to
+the lobby. The button switches between PUBLIC GAME and PRIVATE GAME (host
+only). FORGE starts private without counting as the host's choice, and the
+mod check can keep the game private. While public, `games.lua`:
 - reads the PlayFab lobby's connection string from the native half;
 - `POST /lobbies` with the map, game type, players, the host's MAX PLAYERS
   (`max_players`), its game settings line (`settings`,

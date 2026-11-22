@@ -32,7 +32,8 @@ local connectionChecked, online = 0, false
 local sequence = 0
 
 local Host = {
-    public = false,   -- the host's choice; private until switched
+    public = false,   -- the host's choice; public from the first lobby (Games.defaultPublic)
+    chosen = false,   -- someone set public or private this launch
     generation = 0,   -- invalidates asynchronous responses after a session change
     confirmed = nil, -- last successful registration/heartbeat
     world = nil,     -- current world identity, also on clients
@@ -547,7 +548,9 @@ local function gated()
 end
 
 --- Going public: false and why when the mod check keeps this game out.
-function Games.setPublic(on)
+--- `auto`: set by MJOLNIR, not the host (FORGE), so the next lobby still
+--- opens public.
+function Games.setPublic(on, auto)
     if on then
         local why = gated()
         if why then
@@ -555,6 +558,7 @@ function Games.setPublic(on)
             return false, why
         end
     end
+    if not auto then Host.chosen = true end
     local wasPublic = Host.public
     Host.public = on and true or false
     if wasPublic and not Host.public then unlist("private") end
@@ -567,6 +571,15 @@ function Games.setPublic(on)
         setStatus(inMatch and "PRIVATE: out of FIND GAMES. Everyone here stays; nobody new can join."
             or "PRIVATE: only your fireteam and invited friends can join")
     end
+end
+
+--- A host's lobby opens PUBLIC: MULTIPLAYER lists the game in FIND GAMES
+--- unless the host has already picked PUBLIC or PRIVATE this launch (the
+--- lobby button, HOST MENU, /private, `mjolnir_auto host ... private`), so a
+--- private choice holds through matches and back to the lobby. The mod
+--- check can refuse it; the next lobby asks again.
+function Games.defaultPublic()
+    if not Host.chosen then Games.setPublic(true) end
 end
 
 --- The game changed (a new map, game type, or the end of a match): tell the

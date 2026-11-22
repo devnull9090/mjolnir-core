@@ -306,7 +306,7 @@ local function startGame(map, mode)
         if members > 1 then
             return false, "FORGE is host only for now: start it without fireteam members"
         end
-        Games.setPublic(false)
+        Games.setPublic(false, true)
     end
     -- Its world in a container here, asked afresh: a start whose world is
     -- nowhere counts down and never travels, which left the host on MISSION
@@ -2906,6 +2906,8 @@ local function adoptLobby(screen)
     local host = Net.isHost()
     if host then
         if not (Game.map and Game.mode) then Game.map, Game.mode = defaultGame() end
+        -- Public unless the host chose otherwise this launch (games.lua).
+        Games.defaultPublic()
         setText(Lobby.Status, "INVITE FRIENDS TO YOUR FIRETEAM   /   START GAME WHEN EVERYONE IS READY")
     else
         -- A fireteam client: the host's map and game type arrive as
