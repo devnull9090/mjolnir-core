@@ -11,7 +11,7 @@ reads it, and the generator that writes it for maps that ship without any.
 | Simulation code | `HaloSimulation_tag_release.dll`, CU4 (build pin below) |
 | Our code | `crates/blam-sbsp/src/pathfinding.rs`, `crates/blam-sbsp/src/navmesh.rs` |
 | Tools | `pf_stats`, `pf_objects`, `pf_roundtrip`, `pf_generate`, `pf_dump`, `pf_where` (`crates/blam-sbsp/examples/`) |
-| Status | Lookup traced and matched to shipped data. Generator built, wired into `level bake`, and **run in the game** (2026-11-22, one PC, solo): on B40's BSP 8 an Elite hunted the player across instances, and on Pelican Warfare four AI walked up to 1.1 km across terrain tiles on 15,197 generated sectors. Not yet run with a second player, or in a real match. |
+| Status | Lookup traced and matched to shipped data. Generator built, wired into `level bake`, and **run in the game** (2026-11-22, one PC, solo): on B40's BSP 8 an Elite hunted the player across instances, and on Pelican Warfare four AI walked up to 1.1 km across terrain tiles on 15,197 generated sectors. Structures that stand on the terrain (bases, capture platforms) are joined to it, and an Elite walked from open ground onto a base floor. Not yet run with a second player, or in a real match. |
 
 Every claim carries one of four labels, defined in
 [how to research and verify](engine_research_method.md):
@@ -137,6 +137,12 @@ with an **intersection link** **[data, live]**:
   sector's `forward link` as its `reverse link`;
 - a sector's `hint index` heads a chain (`next hint index`) of exactly the
   hints of its own links.
+
+In shipped data the two flagged links of a seam lie on the same line
+**[data]**: over every intersection hint of B40's 14 BSPs and A30's 8 (about
+4,500 seams), the second sector's link is never more than 0.005 wu from the
+joining link, across or in height (`pf_stats` prints this per BSP). Bungie's
+tool cut the pieces where they meet; it did not bridge a gap.
 
 Other hint types exist in the tag definition (`jump`, `climb`, `vault`,
 `mount`, `hoist`, `wall jump`, `breakable floor`, `rail`, `seam`, `door`,
@@ -342,6 +348,12 @@ ground is a few thousand polygons in the shell.
 `blam_sbsp::navmesh` is the front end for ground that is instanced geometry: a
 triangle soup, unwelded and far too fine to be one sector each.
 
+0. **Cut covered floor** (`cut_covered`, when `headroom` is set). Where a
+   floor has a floor of another piece of ground less than `headroom` above
+   it, the upper one is the ground and the lower one is cut away, along the
+   upper one's outline or the line the two cross on. Both then end on the
+   same line, which is what a seam needs (above). See "Structures on the
+   terrain" below.
 1. **Weld** each instance's triangles by position. Instances stay separate
    objects, as in shipped data.
 2. **Choose floors**: not breakable, normal z at least 0.65 (about 49 degrees),
@@ -358,8 +370,55 @@ triangle soup, unwelded and far too fine to be one sector each.
    counted as connections) and build again. A rock's top costs links and
    serves nobody.
 
-Every sector is a union of whole source triangles, so every surface gets one
-plain ref and no nodes are written.
+Every sector is a union of whole source triangles or of pieces of them, so
+every surface gets one plain ref and no nodes are written. A surface that was
+cut names the sector of its largest remaining piece.
+
+### Structures on the terrain
+
+A base slab or a capture platform lies on the terrain without sharing an edge
+with it. The terrain runs on underneath, so it has no edge where the slab
+ends, and an intersection link needs an outer link on both sides. Left alone,
+each structure is a separate piece of ground: small ones are dropped by
+`min_ground`, and an AI standing on one has no sector.
+
+`cut_covered` gives the terrain that edge. The rule is geometry only, with no
+notion of "terrain" or "structure":
+
+- For two floor polygons of **different pieces of ground**
+  (`ground_pieces`: what the generator would connect with nothing cut), the
+  lower one loses the part of it where the upper one is less than `headroom`
+  above. Per pair the gap is linear, so the part is a convex clip: the upper
+  polygon's outline and one half-plane.
+- Of two floors in the same place (within 0.002 wu), the one of the smaller
+  piece goes.
+- What is left of a cut polygon comes back as convex pieces with the same
+  object and surface. New corners are snapped to one point per place, and
+  put into the neighbours' rings where they fall on an edge, so the pieces
+  still share whole edges.
+- The seam builder then joins the two outlines. `seam_step` says how far
+  apart in height they may be: a slab 0.15 wu thick needs more than the
+  default 0.1.
+
+Three things this took to get right, all measured on Pelican Warfare:
+
+- **The upper floor must always win.** A first version let a floor less than
+  0.2 wu above another "ride" on it (the lower one stayed). With three
+  layers (terrain, a slab 0.15 above, a second slab 0.15 above that) each
+  rule removed a different one and nothing was left: a hole where a player
+  stands. "The top of any stack stays" cannot go round in a circle.
+- **Only different pieces cut each other.** PWR's terrain is several sheets
+  that cross each other all over. Cutting every crossing made 80,000 sectors.
+  Sheets that are already one piece of ground gain nothing from a cut.
+- **Leave rock facets out first** (`min_island`). PWR has about 24,000
+  pieces of floor under 50 wu² (123,000 triangles), nearly all rock facets
+  near the ground. Each one cut the terrain round it. With `min_island: 50`
+  they are not floor at all, and 3,400 floors are cut instead of 43,000.
+
+A surface that is no ground itself (a facet left out, a trim strip) in an
+instance the bake makes `static` would have no sector, where the engine's own
+fallback for a `none` instance is a ray 4 wu down. In `ground` mode the bake
+gives such a surface the sector under its middle within those 4 wu.
 
 ### Checked against Bungie's data
 
@@ -502,10 +561,33 @@ run. What it does not show: a second player (AI far from a joiner are known to
 lag), AI fighting on this ground, a route into a base, or a match under the
 Warfare rules (the test sat in warm-up with one player).
 
-One AI was placed on the platform at capture site B, which is a small
-structure of its own and got no sectors (`min_ground` dropped it). It had no
-sector while it stood there, and still walked off onto the terrain when
-ordered. Sites that stand on such platforms need them kept.
+One AI was placed on a pad at a capture site, which is a small structure of
+its own and got no sectors (`min_ground` dropped it). It had no sector while
+it stood there, and still walked off onto the terrain when ordered.
+
+**Pelican Warfare with structures joined**, the same day **[live]**. The same
+level with
+
+```json
+"pathfinding": { "instances": "ground", "plane_tolerance": 0.5, "dent": 1.0, "border": 1.0, "max_corners": 24, "min_ground": 1000, "min_island": 50, "headroom": 0.5, "seam_step": 0.25 }
+```
+
+| | Before | With the cut |
+|---|---|---|
+| Floors cut | none | 3,471 |
+| Pieces of ground over 100 wu² apart from the main one | 3 bases of about 3,100 wu², 4 pads of 200 to 370, about 30 ledges | the ledges only (all 0.6 wu or more above the ground at every edge) |
+| Main ground | 452,243 wu² | 455,129 wu² |
+| Instances with a pathfinding object | 24 | 35 |
+| Tables | 15,197 sectors, 51,844 links, 3,126 seams | 15,928 sectors, 55,361 links, 2,827 seams |
+| Surfaces naming the sector beneath | none | 13,955 |
+| AI on the north pad (instance 149) | no sector | sector 15904, then walked 110 wu off the pad when ordered |
+| AI ordered to the area of the west base | not tried | walked 100 wu from open terrain onto the base floor (instance 148) and stopped on a firing position there, in that floor's own sector |
+| Crash | none | none in about six minutes |
+
+What this does not show: an AI walking onto the centre platform (none was
+ordered there: tasks name areas of 490 m, not spots, and AI did not chase a
+player 40 wu away in warm-up), a second player, or a fight. The base floors
+are single level slabs; nothing here has a ramp or a second storey.
 
 A level baked `--standalone` on a canvas world ships no world of its own, and
 the lobby refuses to host such a map (it checks that a world named after the
@@ -534,9 +616,9 @@ cargo run --release -p blam-sbsp --example pf_roundtrip -- <scenario> <bsp index
 | How does the planner use a sector's shape? | Decides how loose `dent` and `border` may be. | Trace the callers that read `links` and `vertices` through the accessor at `0x16d960`. |
 | What do `threshold` and the unflagged outer links mean? | We write neither as Bungie does. | Same trace; then compare AI behaviour on a link with and without the flag. |
 | How loose may borders be before the AI misbehaves? | PWR ran at 1 wu with AI walking in straight lines over open ground. Nothing was watched near obstacles or in a fight. | Watch AI around rocks and at tile seams at 0.6 and 1.0 wu; the tighter setting fits too (62,109 links). |
-| How should a structure that sits on the terrain (a base, a capture platform) join it? | They are separate pieces, and small ones are dropped. | See how shipped data does it (`pf_objects` on A30), or generate a seam where a floor ends over another floor within a step's height. |
+| Does an AI use a seam with a step in it as readily as a flat one? | Shipped seams are flat to 0.005 wu; ours at a base's edge step up to 0.25 wu. One Elite crossed one. | Watch several AI cross a base's edge both ways, and try `seam_step` at 0.15. |
+| Should a rock stop an AI? | Facets under `min_island` are not floor, and the terrain runs on under the rock, so the planner sees open ground there. | Cut the terrain where any collision stands on it (the `cut-out` policy's job in shipped data), and watch AI walk a boulder field before and after. |
 | What else stores a sector index? | Firing positions did, and stale ones stopped the AI. | Search the scenario's AI blocks (zones' areas, squads' starting locations, user hints) for sector fields, and watch an AI that uses each. |
-| Does an overlapping floor (a base on terrain) need a seam of its own? | PWR's bases are separate pieces. | Read how shipped data joins a building's floor to terrain it overlaps (`pf_objects` on A30). |
 | Does generated output look like shipped output? | Only rings and hints are checked today. | Run `pf_stats`' measures (winding, flatness, dent depth) on generated tables, and add a check that every source triangle's centre lies within `border` of its sector's polygon. |
 | Is the ground still connected with deep water cut out? | The PWR run accepted river and lake beds. | Pass a water mask as the generator's floor filter and count the pieces again. |
 | What are `seams`, `jump seams`, `doors` and `giant pathfinding data`? | Unknown blocks in the same element. | Census them across the shipped scenarios first. |
@@ -554,3 +636,5 @@ cargo run --release -p blam-sbsp --example pf_roundtrip -- <scenario> <bsp index
   Stale firing-position sector indices found and fixed.
 - 2026-11-22: `instances: "ground"` and the bots lane on generated ground; run
   live on Pelican Warfare.
+- 2026-11-22: shipped seams measured; `cut_covered` joins structures to the
+  terrain they stand on; run live on Pelican Warfare.

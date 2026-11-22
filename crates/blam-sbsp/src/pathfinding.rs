@@ -276,14 +276,21 @@ impl Pathfinding {
     /// Build the tables from a shell. Errors when the shell is too large for
     /// the 16-bit link and vertex indices.
     pub fn build(c: &Collision) -> Result<Self, String> {
-        Self::build_sized(c, true)
+        Self::build_sized(c, true, STEP_HEIGHT)
     }
 
     /// [`Self::build`] without the size limits: for looking at ground that
     /// is still too large to write (which of it is connected, say) before
     /// cutting it down. [`Self::check_limits`] says whether it would fit.
     pub fn build_oversize(c: &Collision) -> Result<Self, String> {
-        Self::build_sized(c, false)
+        Self::build_sized(c, false, STEP_HEIGHT)
+    }
+
+    /// [`Self::build`] (`limited`) or [`Self::build_oversize`], with seams
+    /// between floors whose edges are up to `seam_step` apart in height: a
+    /// pad lying on the ground stands a little above it all the way round.
+    pub fn build_with(c: &Collision, limited: bool, seam_step: f32) -> Result<Self, String> {
+        Self::build_sized(c, limited, seam_step)
     }
 
     /// Whether the tables fit the engine's blocks and 16-bit indices.
@@ -301,7 +308,7 @@ impl Pathfinding {
         Ok(())
     }
 
-    fn build_sized(c: &Collision, limited: bool) -> Result<Self, String> {
+    fn build_sized(c: &Collision, limited: bool, seam_step: f32) -> Result<Self, String> {
         let n = c.surfaces.len();
         let floor: Vec<bool> = (0..n).map(|s| walkable(c, s)).collect();
         let step = steps(c, &floor);
@@ -467,7 +474,7 @@ impl Pathfinding {
             pf.links.push(link);
         }
         pf.vertices = verts;
-        pf.join_cracks(c, &far, limited)?;
+        pf.join_cracks(c, &far, limited, seam_step)?;
 
         // Components over sector-to-sector links.
         let mut parent: Vec<usize> = (0..pf.sectors.len()).collect();
@@ -496,6 +503,7 @@ impl Pathfinding {
         c: &Collision,
         far: &[Option<i32>],
         limited: bool,
+        seam_step: f32,
     ) -> Result<(), String> {
         /// A floor link whose edge drops away, as a 2D segment.
         struct Seg {
@@ -588,7 +596,7 @@ impl Pathfinding {
             let dz = (at(p, lo)[2] - at(q, qa)[2])
                 .abs()
                 .max((at(p, hi)[2] - at(q, qb)[2]).abs());
-            if oa.abs().max(ob.abs()) > CRACK_WIDTH || dz >= STEP_HEIGHT {
+            if oa.abs().max(ob.abs()) > CRACK_WIDTH || dz >= seam_step {
                 return None;
             }
             let score = (oa.abs() + ob.abs()) / 2.0 + dz;
@@ -862,7 +870,7 @@ impl Pathfinding {
 
     /// Walkable surfaces' shell polygons and the plane z at (x, y), for
     /// placing points on them.
-    fn surface_z(c: &Collision, surface: usize, x: f32, y: f32) -> Option<f32> {
+    pub fn surface_z(c: &Collision, surface: usize, x: f32, y: f32) -> Option<f32> {
         let n = surface_normal(c, surface);
         let poly = crate::unpack16::polygon(c, surface);
         if poly.len() < 3 || n[2].abs() < 1e-4 {

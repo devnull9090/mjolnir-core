@@ -63,6 +63,9 @@ pub struct Options {
     /// How far the border between two merged floors may move in plan when
     /// its corners are dropped: 0 drops only corners that are in line.
     pub border: f32,
+    /// How far apart in height two floors' edges may be and still be joined
+    /// by a seam.
+    pub seam_step: f32,
 }
 
 impl Default for Options {
@@ -74,6 +77,7 @@ impl Default for Options {
             min_island_area: 0.0,
             dent: 0.0,
             border: 0.0,
+            seam_step: crate::pathfinding::STEP_HEIGHT,
         }
     }
 }
@@ -707,6 +711,313 @@ pub fn merge(polygons: &[Polygon], walk: &dyn Fn(usize, &Polygon) -> bool, o: &O
     Mesh { collision: c, members, surface_of, floors: floor_count, island_floors, merged: merged_floors, corners_dropped, blocked }
 }
 
+/// What [`cut_covered`] did.
+#[derive(Debug, Default, Clone)]
+pub struct Cut {
+    /// Floors that lost some or all of their area.
+    pub cut: usize,
+    /// Of those, floors that were covered whole.
+    pub gone: usize,
+    /// The pieces the others were left as.
+    pub pieces: usize,
+    /// Plan area taken away, wu^2.
+    pub area: f64,
+    /// Corners added to neighbours so a cut edge still meets them.
+    pub inserted: usize,
+    /// For each polygon that came out, the polygon that went in.
+    pub source: Vec<u32>,
+    /// For each polygon that went in, whether it lost any floor.
+    pub touched: Vec<bool>,
+}
+
+/// Where a floor has another floor less than `headroom` above it, nobody
+/// stands on it: the upper one is the ground there. This takes the lower one
+/// away. A pad laid on the terrain, the foot of a ramp, a trim strip on a
+/// deck, a slab sunk into a slope: the lower floor is cut along the upper
+/// one's outline, or along the line the two cross on, so both end on the same
+/// line and a seam can join them ([`Options::seam_step`] is how far apart in
+/// height they may be there). Of two floors in the same place, the one of the
+/// smaller piece of ground goes. Shipped data joins separate pieces the same
+/// way: its seams lie on both pieces' edges to within 0.005 wu.
+///
+/// The upper floor always wins because that rule cannot go round in a
+/// circle: of any stack of floors, the top one stays.
+///
+/// Only floors of **different pieces of ground** act on each other: `piece`
+/// names, for each polygon, the connected ground it is part of
+/// ([`ground_pieces`]; `u32::MAX` for none, which is left alone). Ground that
+/// is already one piece gains nothing from a cut, and a terrain made of
+/// sheets that cross each other all over would be cut to ribbons.
+///
+/// The rule looks only at the geometry. A cut floor comes back as convex
+/// pieces that keep its object and surface; a neighbour of the same object
+/// gets the new corners that fall on its edges, so the pieces still share
+/// whole edges with it.
+pub fn cut_covered(polygons: &[Polygon], piece: &[u32], headroom: f32) -> (Vec<Polygon>, Cut) {
+    type P = [f64; 3];
+    const CELL: f64 = 4.0;
+    // Closer than this, two floors are in the same place.
+    const ABOVE: f64 = 0.002;
+    const MIN_AREA: f64 = 1e-4;
+    let plan_area = |r: &[P]| -> f64 {
+        let mut twice = 0.0;
+        for i in 0..r.len() {
+            let (p, q) = (r[i], r[(i + 1) % r.len()]);
+            twice += p[0] * q[1] - q[0] * p[1];
+        }
+        twice / 2.0
+    };
+    // The part of `r` where g = a x + b y + c is positive (or negative).
+    let clip = |r: &[P], g: [f64; 3], positive: bool| -> Vec<P> {
+        let sign = if positive { 1.0 } else { -1.0 };
+        let at = |p: P| sign * (g[0] * p[0] + g[1] * p[1] + g[2]);
+        let mut out = Vec::with_capacity(r.len() + 1);
+        for i in 0..r.len() {
+            let (p, q) = (r[i], r[(i + 1) % r.len()]);
+            let (gp, gq) = (at(p), at(q));
+            if gp >= 0.0 {
+                out.push(p);
+            }
+            if (gp >= 0.0) != (gq >= 0.0) {
+                // From the same end whichever side is kept, so both sides of
+                // a cut get the same point.
+                let (p, q, gp, gq) = if (gp >= 0.0) == positive { (p, q, gp, gq) } else { (q, p, -gq, -gp) };
+                let t = gp.abs() / (gp.abs() + gq.abs());
+                out.push([0, 1, 2].map(|k| p[k] + (q[k] - p[k]) * t));
+            }
+        }
+        out
+    };
+
+    // The floors, with their plane as z = a x + b y + c.
+    struct Floor {
+        ring: Vec<P>,
+        z: [f64; 3],
+        lo: P,
+        hi: P,
+    }
+    let floors: Vec<Option<Floor>> = polygons
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            if p.breakable || p.ring.len() < 3 || piece[i] == u32::MAX {
+                return None;
+            }
+            let ids: Vec<u32> = (0..p.ring.len() as u32).collect();
+            let (normal, centre) = newell(&p.ring, &ids);
+            let n = unit(normal)?;
+            if n[2] < WALKABLE_NZ as f64 || !convex(&p.ring, &ids) {
+                return None;
+            }
+            let ring: Vec<P> = p.ring.iter().map(|v| v.map(|x| x as f64)).collect();
+            let (mut lo, mut hi) = ([f64::MAX; 3], [f64::MIN; 3]);
+            for v in &ring {
+                for k in 0..3 {
+                    lo[k] = lo[k].min(v[k]);
+                    hi[k] = hi[k].max(v[k]);
+                }
+            }
+            let z = [-n[0] / n[2], -n[1] / n[2], centre[2] + (n[0] * centre[0] + n[1] * centre[1]) / n[2]];
+            Some(Floor { ring, z, lo, hi })
+        })
+        .collect();
+    let mut grid: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
+    let cells = |lo: P, hi: P| {
+        let (x0, x1) = ((lo[0] / CELL).floor() as i32, (hi[0] / CELL).floor() as i32);
+        let (y0, y1) = ((lo[1] / CELL).floor() as i32, (hi[1] / CELL).floor() as i32);
+        (x0..=x1).flat_map(move |x| (y0..=y1).map(move |y| (x, y)))
+    };
+    for (i, f) in floors.iter().enumerate() {
+        if let Some(f) = f {
+            for c in cells(f.lo, f.hi) {
+                grid.entry(c).or_default().push(i as u32);
+            }
+        }
+    }
+
+    let h = headroom as f64;
+    let mut stats = Cut { touched: vec![false; polygons.len()], ..Default::default() };
+    // One point for every place: the same cut point reached from two
+    // polygons differs in its last digit, and the weld would then sometimes
+    // put the two on either side of a rounding boundary. Every corner of an
+    // object is known here, so a new one within `NEAR` of a known one becomes
+    // that one.
+    const NEAR: f32 = 0.001;
+    let mut known: HashMap<(u32, [i32; 3]), Vec<[f32; 3]>> = HashMap::new();
+    let spot = |v: [f32; 3]| v.map(|x| (x / (NEAR * 4.0)).floor() as i32);
+    for p in polygons {
+        for &v in &p.ring {
+            let at = known.entry((p.object, spot(v))).or_default();
+            if !at.contains(&v) {
+                at.push(v);
+            }
+        }
+    }
+    let mut snap = |object: u32, v: [f32; 3]| -> [f32; 3] {
+        let c = spot(v);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    for &q in known.get(&(object, [c[0] + dx, c[1] + dy, c[2] + dz])).into_iter().flatten() {
+                        if (q[0] - v[0]).abs() < NEAR && (q[1] - v[1]).abs() < NEAR && (q[2] - v[2]).abs() < NEAR {
+                            return q;
+                        }
+                    }
+                }
+            }
+        }
+        known.entry((object, c)).or_default().push(v);
+        v
+    };
+    let mut out: Vec<Polygon> = Vec::with_capacity(polygons.len());
+    // New corners, by object.
+    let mut corners: HashMap<u32, Vec<[f32; 3]>> = HashMap::new();
+    for (i, p) in polygons.iter().enumerate() {
+        let Some(b) = &floors[i] else {
+            out.push(p.clone());
+            stats.source.push(i as u32);
+            continue;
+        };
+        let mut above: Vec<u32> = cells(b.lo, b.hi).filter_map(|c| grid.get(&c)).flatten().copied().collect();
+        above.sort_unstable();
+        above.dedup();
+        let mut pieces: Vec<Vec<P>> = vec![b.ring.clone()];
+        let mut touched = false;
+        for a in above {
+            let Some(f) = floors[a as usize].as_ref().filter(|_| piece[a as usize] != piece[i]) else { continue };
+            if f.lo[0] >= b.hi[0] || f.hi[0] <= b.lo[0] || f.lo[1] >= b.hi[1] || f.hi[1] <= b.lo[1] {
+                continue;
+            }
+            if f.hi[2] <= b.lo[2] - ABOVE || f.lo[2] >= b.hi[2] + h {
+                continue;
+            }
+            // Inside the other floor's outline, where it lies above by less
+            // than the headroom. `gap` is how far above it is.
+            let gap = [f.z[0] - b.z[0], f.z[1] - b.z[1], f.z[2] - b.z[2]];
+            let outline: Vec<[f64; 3]> = (0..f.ring.len())
+                .map(|k| {
+                    let (p, q) = (f.ring[k], f.ring[(k + 1) % f.ring.len()]);
+                    let (dx, dy) = (q[0] - p[0], q[1] - p[1]);
+                    [-dy, dx, dy * p[0] - dx * p[1]]
+                })
+                .collect();
+            // Two floors in the same place: the one of the smaller piece
+            // goes.
+            let same = if piece[i] > piece[a as usize] { -ABOVE } else { ABOVE };
+            {
+                let band = [same, h];
+                let mut planes = outline.clone();
+                planes.push([gap[0], gap[1], gap[2] - band[0]]);
+                planes.push([-gap[0], -gap[1], band[1] - gap[2]]);
+                let mut next: Vec<Vec<P>> = Vec::new();
+                for piece in &pieces {
+                    let mut inside = piece.clone();
+                    let mut outside: Vec<Vec<P>> = Vec::new();
+                    for &g in &planes {
+                        let o = clip(&inside, g, false);
+                        if o.len() >= 3 && plan_area(&o) > MIN_AREA {
+                            outside.push(o);
+                        }
+                        inside = clip(&inside, g, true);
+                        if inside.len() < 3 {
+                            break;
+                        }
+                    }
+                    let covered = if inside.len() >= 3 { plan_area(&inside) } else { 0.0 };
+                    if covered > MIN_AREA {
+                        stats.area += covered;
+                        touched = true;
+                        next.extend(outside);
+                    } else {
+                        next.push(piece.clone());
+                    }
+                }
+                pieces = next;
+            }
+            if pieces.is_empty() {
+                break;
+            }
+        }
+        if !touched {
+            out.push(p.clone());
+            stats.source.push(i as u32);
+            continue;
+        }
+        stats.touched[i] = true;
+        stats.cut += 1;
+        if pieces.is_empty() {
+            stats.gone += 1;
+        }
+        stats.pieces += pieces.len();
+        for piece in pieces {
+            let mut ring: Vec<[f32; 3]> = Vec::with_capacity(piece.len());
+            for v in piece {
+                let v = snap(p.object, v.map(|x| x as f32));
+                if ring.last() != Some(&v) {
+                    ring.push(v);
+                }
+            }
+            while ring.len() > 1 && ring.first() == ring.last() {
+                ring.pop();
+            }
+            if ring.len() < 3 {
+                stats.pieces -= 1;
+                continue;
+            }
+            for v in &ring {
+                if !p.ring.contains(v) {
+                    corners.entry(p.object).or_default().push(*v);
+                }
+            }
+            out.push(Polygon { object: p.object, surface: p.surface, ring, breakable: p.breakable });
+            stats.source.push(i as u32);
+        }
+    }
+
+    // A new corner that falls on another polygon's edge joins that edge.
+    let mut near: HashMap<(u32, i32, i32), Vec<[f32; 3]>> = HashMap::new();
+    let cell = |x: f32| (x / CELL as f32).floor() as i32;
+    for (&object, points) in &corners {
+        for &v in points {
+            near.entry((object, cell(v[0]), cell(v[1]))).or_default().push(v);
+        }
+    }
+    if !near.is_empty() {
+        for p in &mut out {
+            let mut ring: Vec<[f32; 3]> = Vec::with_capacity(p.ring.len());
+            for k in 0..p.ring.len() {
+                let (a, b) = (p.ring[k], p.ring[(k + 1) % p.ring.len()]);
+                ring.push(a);
+                let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                if len2 < 1e-8 {
+                    continue;
+                }
+                let mut on: Vec<(f32, [f32; 3])> = Vec::new();
+                for cx in cell(a[0].min(b[0]) - NEAR)..=cell(a[0].max(b[0]) + NEAR) {
+                    for cy in cell(a[1].min(b[1]) - NEAR)..=cell(a[1].max(b[1]) + NEAR) {
+                        for &v in near.get(&(p.object, cx, cy)).into_iter().flatten() {
+                            let w = [v[0] - a[0], v[1] - a[1], v[2] - a[2]];
+                            let t = (w[0] * d[0] + w[1] * d[1] + w[2] * d[2]) / len2;
+                            let off = [0, 1, 2].map(|k| w[k] - d[k] * t);
+                            let ends = t * t * len2 > NEAR * NEAR && (1.0 - t) * (1.0 - t) * len2 > NEAR * NEAR;
+                            if (0.0..=1.0).contains(&t) && ends && off[0] * off[0] + off[1] * off[1] + off[2] * off[2] < NEAR * NEAR {
+                                on.push((t, v));
+                            }
+                        }
+                    }
+                }
+                on.sort_by(|x, y| x.0.total_cmp(&y.0));
+                on.dedup_by(|x, y| (x.0 - y.0).abs() * len2.sqrt() < NEAR);
+                stats.inserted += on.len();
+                ring.extend(on.into_iter().map(|(_, v)| v));
+            }
+            p.ring = ring;
+        }
+    }
+    (out, stats)
+}
+
 /// The plan area of each connected piece of a mesh's sectors, by component id.
 fn component_areas(mesh: &Mesh, pf: &Pathfinding) -> HashMap<usize, f64> {
     let mut areas: HashMap<usize, f64> = HashMap::new();
@@ -722,6 +1033,20 @@ fn component_areas(mesh: &Mesh, pf: &Pathfinding) -> HashMap<usize, f64> {
     areas
 }
 
+/// Which connected piece of ground each polygon is part of, as the generator
+/// would build it with nothing cut: 0 for the largest piece in plan, 1 for
+/// the next, and so on (`u32::MAX`: not ground).
+pub fn ground_pieces(polygons: &[Polygon], o: &Options) -> Result<Vec<u32>, String> {
+    let mesh = merge(polygons, &|_, _| true, o);
+    let pf = Pathfinding::build_with(&mesh.collision, false, o.seam_step)?;
+    let mut by_area: Vec<(usize, f64)> = component_areas(&mesh, &pf).into_iter().collect();
+    by_area.sort_by(|x, y| y.1.total_cmp(&x.1).then(x.0.cmp(&y.0)));
+    let rank: HashMap<usize, u32> = by_area.iter().enumerate().map(|(n, c)| (c.0, n as u32)).collect();
+    Ok((0..polygons.len())
+        .map(|i| mesh.surface_of[i].and_then(|s| pf.surface_sector[s as usize]).map_or(u32::MAX, |sector| rank[&pf.component[sector]]))
+        .collect())
+}
+
 /// Sectors for a polygon soup: [`merge`], then the pathfinding builder, and
 /// when `min_ground` is above zero a second round without the ground an AI
 /// could never reach from anywhere that matters: every connected piece (crack
@@ -735,10 +1060,10 @@ pub fn generate(
 ) -> Result<(Mesh, Pathfinding), String> {
     let mesh = merge(polygons, walk, o);
     if min_ground <= 0.0 {
-        let pf = Pathfinding::build(&mesh.collision)?;
+        let pf = Pathfinding::build_with(&mesh.collision, true, o.seam_step)?;
         return Ok((mesh, pf));
     }
-    let pf = Pathfinding::build_oversize(&mesh.collision)?;
+    let pf = Pathfinding::build_with(&mesh.collision, false, o.seam_step)?;
     let areas = component_areas(&mesh, &pf);
     if areas.values().all(|&a| a >= min_ground as f64) {
         pf.check_limits()?;
@@ -753,7 +1078,7 @@ pub fn generate(
     }
     let keep = |i: usize, p: &Polygon| !small[i] && walk(i, p);
     let mesh = merge(polygons, &keep, o);
-    let pf = Pathfinding::build(&mesh.collision)?;
+    let pf = Pathfinding::build_with(&mesh.collision, true, o.seam_step)?;
     Ok((mesh, pf))
 }
 
@@ -1020,5 +1345,92 @@ mod tests {
         assert_eq!(pf.sectors.len(), 1);
         assert_eq!(pf.surface_sector[mesh.surface_of[1].unwrap() as usize], None);
         assert_eq!(pf.surface_sector[mesh.surface_of[4].unwrap() as usize], None);
+    }
+
+    /// A 2 x 2 square of two triangles at height `z` with its corner at
+    /// (`x`, `y`), as object `object`.
+    fn slab(object: u32, x: f32, y: f32, z: f32) -> Vec<Polygon> {
+        let p = |dx: f32, dy: f32| [x + dx, y + dy, z];
+        [vec![p(0.0, 0.0), p(2.0, 0.0), p(2.0, 2.0)], vec![p(0.0, 0.0), p(2.0, 2.0), p(0.0, 2.0)]]
+            .into_iter()
+            .enumerate()
+            .map(|(n, ring)| Polygon { object, surface: n as u32, ring, breakable: false })
+            .collect()
+    }
+
+    fn pieces(pf: &Pathfinding) -> usize {
+        pf.component.iter().collect::<std::collections::HashSet<_>>().len()
+    }
+
+    #[test]
+    fn a_pad_on_the_ground_cuts_it_and_joins() {
+        // A 2 x 2 pad 0.3 wu over the middle of a 6 x 6 ground.
+        let o = Options { seam_step: 0.35, ..Options::default() };
+        let mut polygons = grid(0, 0.0, 6, 6, &|_, _| 0.0);
+        polygons.extend(slab(1, 2.0, 2.0, 0.3));
+        let piece = ground_pieces(&polygons, &o).expect("pieces");
+        assert_eq!((piece[0], piece[72], piece[73]), (0, 1, 1));
+        let before = merge(&polygons, &|_, _| true, &o);
+        assert_eq!(pieces(&Pathfinding::build_with(&before.collision, true, o.seam_step).unwrap()), 2);
+        let (cut, stats) = cut_covered(&polygons, &piece, 0.5);
+        assert!((stats.area - 4.0).abs() < 1e-6, "the ground under the pad: {}", stats.area);
+        assert!(stats.touched[14 * 2] && !stats.touched[72] && !stats.touched[73]);
+        let (mesh, pf) = generate(&cut, &|_, _| true, &o, 0.0).expect("generate");
+        pf.check_rings().expect("rings");
+        pf.check_hints().expect("hints");
+        assert_eq!(pieces(&pf), 1, "the pad joins the ground all the way round");
+        let area: f64 = component_areas(&mesh, &pf).values().sum();
+        assert!((area - 36.0).abs() < 1e-3, "36 - 4 of ground + 4 of pad: {area}");
+        // A step too tall for the seam leaves them apart.
+        let (_, apart) = generate(&cut, &|_, _| true, &Options::default(), 0.0).expect("generate");
+        assert_eq!(pieces(&apart), 2);
+        // A deck with room to stand under covers nothing.
+        let mut high = grid(0, 0.0, 6, 6, &|_, _| 0.0);
+        high.extend(slab(1, 2.0, 2.0, 0.6));
+        assert_eq!(cut_covered(&high, &piece, 0.5).1.cut, 0);
+    }
+
+    #[test]
+    fn the_top_of_a_stack_of_floors_is_the_ground() {
+        // Ground, a pad 0.15 wu over it, a trim 0.15 wu over half the pad.
+        let o = Options { seam_step: 0.2, ..Options::default() };
+        let mut polygons = grid(0, 0.0, 6, 6, &|_, _| 0.0);
+        polygons.extend(slab(1, 2.0, 2.0, 0.15));
+        polygons.push(Polygon { object: 2, surface: 0, ring: vec![[2.0, 2.0, 0.3], [3.0, 2.0, 0.3], [3.0, 4.0, 0.3], [2.0, 4.0, 0.3]], breakable: false });
+        let piece = ground_pieces(&polygons, &o).expect("pieces");
+        let (cut, _) = cut_covered(&polygons, &piece, 0.5);
+        let (mesh, pf) = generate(&cut, &|_, _| true, &o, 0.0).expect("generate");
+        pf.check_hints().expect("hints");
+        assert_eq!(pieces(&pf), 1);
+        // Nowhere is ground twice, and nowhere is it missing.
+        let area: f64 = component_areas(&mesh, &pf).values().sum();
+        assert!((area - 36.0).abs() < 1e-3, "{area}");
+    }
+
+    #[test]
+    fn a_slab_sunk_into_a_slope_meets_it_on_the_line_they_cross() {
+        // Ground rising 0.1 wu per wu; a level slab at 0.3 that the ground
+        // passes through at x = 3.
+        let o = Options { seam_step: 0.25, ..Options::default() };
+        let mut polygons = grid(0, 0.0, 6, 2, &|x, _| 0.1 * x);
+        polygons.extend(slab(1, 2.0, 0.0, 0.3));
+        let piece = ground_pieces(&polygons, &o).expect("pieces");
+        let (cut, _) = cut_covered(&polygons, &piece, 0.5);
+        let (mesh, pf) = generate(&cut, &|_, _| true, &o, 0.0).expect("generate");
+        pf.check_hints().expect("hints");
+        assert_eq!(pieces(&pf), 1);
+        // Left of x = 3 the slab is on top, right of it the slope.
+        let area: f64 = component_areas(&mesh, &pf).values().sum();
+        assert!((area - 12.0).abs() < 1e-3, "{area}");
+    }
+
+    #[test]
+    fn floors_of_one_piece_of_ground_do_not_cut_each_other() {
+        // Two sheets of one object that cross, joined along an edge.
+        let mut polygons = grid(0, 0.0, 4, 2, &|x, _| 0.1 * x);
+        polygons.extend(grid(0, 0.0, 4, 2, &|x, _| 0.2 - 0.1 * (x - 4.0).abs().min(4.0) + 0.2));
+        let same = vec![0u32; polygons.len()];
+        let (cut, stats) = cut_covered(&polygons, &same, 0.5);
+        assert_eq!((stats.cut, cut.len()), (0, polygons.len()));
     }
 }

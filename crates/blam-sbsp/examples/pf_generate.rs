@@ -11,6 +11,11 @@
 //!     --dent <wu>          how far a sector's corner may lie inside its hull
 //!     --border <wu>        how far a border between two sectors may move
 //!     --ground <wu^2>      leave out connected ground (seams included) smaller than this
+//!     --headroom <wu>      cut away floor that another floor covers closer than this
+//!     --step <wu>          how far apart in height a seam may join two floors (default 0.1)
+//!     --drops              how the pieces other than the largest sit on it
+//!     --why <instance> <surface>   what became of one surface
+//!     --box x0,y0,x1,y1    the sectors centred in a box, highest first: centre, area, piece, instances
 //!     --compare <scenario> <bsp index>
 use blam_sbsp::navmesh::{self, Options, POLICY_STATIC};
 use blam_sbsp::pathfinding::{Pathfinding, INDEX_LIMIT};
@@ -33,6 +38,9 @@ fn main() {
     let sbsp = std::fs::read(&a[0]).expect("sbsp");
     let mut o = Options::default();
     let (mut only_static, mut range, mut compare, mut ground) = (false, None, None, 0.0);
+    let (mut headroom, mut drops) = (0.0f32, false);
+    let mut why: Vec<(u32, u32)> = Vec::new();
+    let mut boxes: Vec<[f32; 4]> = Vec::new();
     let mut i = 1;
     while i < a.len() {
         match a[i].as_str() {
@@ -66,6 +74,24 @@ fn main() {
                 o.border = a[i + 1].parse().unwrap();
                 i += 1;
             }
+            "--headroom" => {
+                headroom = a[i + 1].parse().unwrap();
+                i += 1;
+            }
+            "--step" => {
+                o.seam_step = a[i + 1].parse().unwrap();
+                i += 1;
+            }
+            "--drops" => drops = true,
+            "--box" => {
+                let v: Vec<f32> = a[i + 1].split(',').map(|x| x.parse().unwrap()).collect();
+                boxes.push([v[0], v[1], v[2], v[3]]);
+                i += 1;
+            }
+            "--why" => {
+                why.push((a[i + 1].parse().unwrap(), a[i + 2].parse().unwrap()));
+                i += 2;
+            }
             "--compare" => {
                 compare = Some((a[i + 1].clone(), a[i + 2].parse::<usize>().unwrap()));
                 i += 2;
@@ -97,6 +123,41 @@ fn main() {
         objects.len(),
         polygons.len()
     );
+    for &(object, surface) in &why {
+        for (n, p) in polygons.iter().enumerate().filter(|(_, p)| p.object == object && p.surface == surface) {
+            println!("why {object}/{surface}: polygon {n}, breakable {}, ring {:?}", p.breakable, p.ring);
+        }
+    }
+    let raw_why: Vec<usize> = polygons.iter().enumerate().filter(|(_, p)| why.contains(&(p.object, p.surface))).map(|(n, _)| n).collect();
+    let mut why_note = String::new();
+    let polygons = if headroom > 0.0 {
+        let piece = navmesh::ground_pieces(&polygons, &o).expect("pieces");
+        let (cut, stats) = navmesh::cut_covered(&polygons, &piece, headroom);
+        for &n in &raw_why {
+            why_note += &format!("  polygon {n}: piece {}, touched {}, {} piece(s) left\n", piece[n] as i64, stats.touched[n], stats.source.iter().filter(|&&s| s as usize == n).count());
+        }
+        {
+            let mut by: BTreeMap<u32, (usize, usize)> = BTreeMap::new();
+            for (i, p) in polygons.iter().enumerate() {
+                let e = by.entry(p.object).or_default();
+                e.0 += 1;
+                e.1 += stats.touched[i] as usize;
+            }
+            let mut by: Vec<_> = by.into_iter().filter(|x| x.1 .1 > 0).collect();
+            by.sort_by_key(|x| std::cmp::Reverse(x.1 .1));
+            println!(
+                "floors cut, by instance (of its polygons): {}",
+                by.iter().take(30).map(|(o, (n, t))| format!("{o}: {t} of {n}")).collect::<Vec<_>>().join(", ")
+            );
+        }
+        println!(
+            "covered floor: {} floors cut ({} whole) into {} pieces, {:.0} wu^2 taken, {} corners inserted; {} polygons  [{:.1}s]",
+            stats.cut, stats.gone, stats.pieces, stats.area, stats.inserted, cut.len(), t0.elapsed().as_secs_f32()
+        );
+        cut
+    } else {
+        polygons
+    };
     let (mesh, pf) = match navmesh::generate(&polygons, &|_, _| true, &o, ground) {
         Ok(x) => x,
         Err(e) => {
@@ -151,6 +212,31 @@ fn main() {
         t0.elapsed().as_secs_f32()
     );
     println!("rings: {:?}; hints: {:?}", pf.check_rings(), pf.check_hints());
+    for b in &boxes {
+        let mut found: Vec<(f32, String)> = Vec::new();
+        for (sector, &surface) in pf.sector_surface.iter().enumerate() {
+            let ring = blam_sbsp::unpack16::polygon(&mesh.collision, surface);
+            let c = [0, 1, 2].map(|k| ring.iter().map(|v| v[k]).sum::<f32>() / ring.len() as f32);
+            if c[0] < b[0] || c[0] > b[2] || c[1] < b[1] || c[1] > b[3] {
+                continue;
+            }
+            let objects: std::collections::BTreeSet<u32> = mesh.members[surface].iter().map(|&m| polygons[m as usize].object).collect();
+            found.push((c[2], format!("  sector {sector} at ({:.1}, {:.1}, {:.2}), {:.1} wu^2, piece {}, instances {objects:?}", c[0], c[1], c[2], area(&ring), pf.component[sector])));
+        }
+        found.sort_by(|x, y| y.0.total_cmp(&x.0));
+        println!("box {b:?}: {} sectors", found.len());
+        for (_, line) in found.iter().take(25) {
+            println!("{line}");
+        }
+    }
+    if !why.is_empty() {
+        print!("{why_note}");
+        for (n, p) in polygons.iter().enumerate().filter(|(_, p)| why.contains(&(p.object, p.surface))) {
+            let sector = mesh.surface_of[n].and_then(|s| pf.surface_sector[s as usize]);
+            let m = [0, 1, 2].map(|k| p.ring.iter().map(|v| v[k]).sum::<f32>() / p.ring.len() as f32);
+            println!("  after: polygon {n} of {}/{}: sector {sector:?}; under its middle {m:?}: {:?}", p.object, p.surface, pf.sector_at(&mesh.collision, m));
+        }
+    }
 
     // Connected ground, by area.
     let mut by_component: BTreeMap<usize, (usize, f64)> = BTreeMap::new();
@@ -172,6 +258,44 @@ fn main() {
         components.iter().take(5).map(|c| format!("{} sectors {:.1} wu^2", c.0, c.1)).collect::<Vec<_>>().join(", ")
     );
     println!("ring sizes: {sizes:?}");
+    // How the other pieces sit on the largest: for each of their outer edges,
+    // how far below its middle the largest piece's floor lies.
+    if drops {
+        let mut area_of: BTreeMap<usize, f64> = BTreeMap::new();
+        for (s, &surface) in pf.sector_surface.iter().enumerate() {
+            *area_of.entry(pf.component[s]).or_default() += area(&blam_sbsp::unpack16::polygon(&mesh.collision, surface));
+        }
+        let main = *area_of.iter().max_by(|x, y| x.1.total_cmp(y.1)).unwrap().0;
+        let mut drops: BTreeMap<usize, Vec<(f32, f32)>> = BTreeMap::new();
+        for l in &pf.links {
+            let (left, right) = (l.left as i64, l.right as i64);
+            if right >= 0 && (right as usize) < pf.sectors.len() && left >= 0 { continue; }
+            let s = if left >= 0 && (left as usize) < pf.sectors.len() { left } else { right } as usize;
+            if s >= pf.sectors.len() || !pf.sectors[s].is_floor() { continue; }
+            let c = pf.component[s];
+            if c == main || area_of[&c] < 100.0 { continue; }
+            let (a, b) = (pf.vertices[l.v1 as usize], pf.vertices[l.v2 as usize]);
+            let len = ((b[0]-a[0]).powi(2) + (b[1]-a[1]).powi(2)).sqrt();
+            let m = [(a[0]+b[0])/2.0, (a[1]+b[1])/2.0, (a[2]+b[2])/2.0];
+            let mut best: Option<f32> = None;
+            for (t, &surface) in pf.sector_surface.iter().enumerate() {
+                if pf.component[t] != main || !pf.sectors[t].is_floor() { continue; }
+                if let Some(z) = blam_sbsp::pathfinding::Pathfinding::surface_z(&mesh.collision, surface, m[0], m[1]) {
+                    if z <= m[2] + 0.5 && best.is_none_or(|bz| z > bz) { best = Some(z); }
+                }
+            }
+            drops.entry(c).or_default().push((best.map_or(f32::NAN, |z| m[2] - z), len));
+        }
+        for (c, d) in &drops {
+            let mut h: BTreeMap<i32, f32> = BTreeMap::new();
+            let mut none = 0.0;
+            for &(dz, len) in d {
+                if dz.is_nan() { none += len } else { *h.entry((dz * 10.0).floor() as i32).or_default() += len }
+            }
+            println!("  piece {c} ({:.0} wu^2): {} outer edges; length by drop (0.1 wu bins): {:?}; no ground under {none:.0} wu",
+                area_of[c], d.len(), h.iter().map(|(k, v)| (*k as f32 / 10.0, v.round())).collect::<Vec<_>>());
+        }
+    }
     // Where each piece of ground other than the largest lies, and whose it is.
     {
         let mut pieces: BTreeMap<usize, (f64, [f64; 2], std::collections::BTreeSet<u32>)> = BTreeMap::new();

@@ -450,6 +450,24 @@ pub struct InstancePathfinding {
     /// Connected ground smaller than this (wu^2 in plan) gets no sectors.
     #[serde(default)]
     pub min_ground: f32,
+    /// Floor that shares edges with less than this much floor (wu^2) is left
+    /// out before anything else: a rock's facets, say.
+    #[serde(default)]
+    pub min_island: f32,
+    /// A floor with another piece of ground less than this (wu) above it is
+    /// cut away there: the upper one is the ground. Both then end on one
+    /// line, where a seam joins them. 0: floors are never cut, and a
+    /// structure standing on the terrain stays a piece of its own.
+    #[serde(default)]
+    pub headroom: f32,
+    /// How far apart in height two floors' edges may be for a seam to join
+    /// them, wu: how far a pad may stand above the ground it lies on.
+    #[serde(default = "default_seam_step")]
+    pub seam_step: f32,
+}
+
+fn default_seam_step() -> f32 {
+    blam_sbsp::pathfinding::STEP_HEIGHT
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
@@ -464,6 +482,10 @@ pub enum PathfindingInstances {
 struct Ground {
     instances: Vec<blam_sbsp::navmesh::Instance>,
     polygons: usize,
+    /// Floors cut where another piece of ground lies closely over them, and
+    /// surfaces that are no ground themselves and name the sector beneath.
+    cut: usize,
+    beneath: usize,
     mesh: blam_sbsp::navmesh::Mesh,
     pf: blam_sbsp::pathfinding::Pathfinding,
     /// For each instance that gets a pathfinding object, one ref per
@@ -490,7 +512,18 @@ fn generate_ground(cfg: &InstancePathfinding, sbsp: &[u8]) -> Result<Ground> {
         max_ring: cfg.max_corners,
         dent: cfg.dent,
         border: cfg.border,
+        min_island_area: cfg.min_island,
+        seam_step: cfg.seam_step,
         ..Options::default()
+    };
+    // Where one piece of ground lies closely over another, the lower one
+    // gives way, so the pieces meet on a line and join.
+    let raw = polygons;
+    let (polygons, cut) = if cfg.headroom > 0.0 {
+        let piece = navmesh::ground_pieces(&raw, &options).map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+        navmesh::cut_covered(&raw, &piece, cfg.headroom)
+    } else {
+        (raw.clone(), navmesh::Cut { source: (0..raw.len() as u32).collect(), touched: vec![false; raw.len()], ..Default::default() })
     };
     let (mesh, pf) = navmesh::generate(&polygons, &|_, _| true, &options, cfg.min_ground)
         .map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
@@ -503,10 +536,75 @@ fn generate_ground(cfg: &InstancePathfinding, sbsp: &[u8]) -> Result<Ground> {
             refs.entry(p.object as usize).or_insert_with(|| vec![-1; instances[p.object as usize].surfaces]);
         }
     }
+    // A surface names the sector of the largest piece of it that is ground.
+    let plan = |ring: &[[f32; 3]]| -> f64 {
+        let mut twice = 0f64;
+        for k in 0..ring.len() {
+            let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
+            twice += a[0] as f64 * b[1] as f64 - b[0] as f64 * a[1] as f64;
+        }
+        twice.abs() / 2.0
+    };
+    let mut largest: Vec<f64> = vec![-1.0; raw.len()];
     for (n, p) in polygons.iter().enumerate() {
         if let Some(sector) = mesh.surface_of[n].and_then(|s| pf.surface_sector[s as usize]) {
-            let i = p.object as usize;
-            refs.entry(i).or_insert_with(|| vec![-1; instances[i].surfaces])[p.surface as usize] = sector as i32;
+            let (i, source, area) = (p.object as usize, cut.source[n] as usize, plan(&p.ring));
+            if area > largest[source] {
+                largest[source] = area;
+                refs.entry(i).or_insert_with(|| vec![-1; instances[i].surfaces])[p.surface as usize] = sector as i32;
+            }
+        }
+    }
+    // An instance we make static loses the simulation's own fallback for a
+    // surface with no sector, a ray 4 wu down to whatever ground is there.
+    // Give it back: a surface an AI could stand on that is no ground itself
+    // (a trim strip, a facet too small to count) names the sector under its
+    // middle, within those 4 wu.
+    let mut beneath = 0;
+    if cfg.instances == PathfindingInstances::Ground {
+        const CELL: f32 = 8.0;
+        let mut grid: std::collections::HashMap<(i32, i32), Vec<usize>> = Default::default();
+        for (sector, &surface) in pf.sector_surface.iter().enumerate() {
+            let ring = blam_sbsp::unpack16::polygon(&mesh.collision, surface);
+            let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+            for v in &ring {
+                for k in 0..2 {
+                    lo[k] = lo[k].min(v[k]);
+                    hi[k] = hi[k].max(v[k]);
+                }
+            }
+            for x in (lo[0] / CELL).floor() as i32..=(hi[0] / CELL).floor() as i32 {
+                for y in (lo[1] / CELL).floor() as i32..=(hi[1] / CELL).floor() as i32 {
+                    grid.entry((x, y)).or_default().push(sector);
+                }
+            }
+        }
+        for p in &raw {
+            let Some(r) = refs.get_mut(&(p.object as usize)) else { continue };
+            if r[p.surface as usize] >= 0 || p.ring.len() < 3 {
+                continue;
+            }
+            let n = p.ring.len() as f32;
+            let m = [0, 1, 2].map(|k| p.ring.iter().map(|v| v[k]).sum::<f32>() / n);
+            let (a, b, c) = (p.ring[0], p.ring[1], p.ring[2]);
+            let (u, v) = ([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]);
+            let normal = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+            let len = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+            if len < 1e-9 || normal[2] / len < 0.3 {
+                continue;
+            }
+            let mut best: Option<(usize, f32)> = None;
+            for &sector in grid.get(&((m[0] / CELL).floor() as i32, (m[1] / CELL).floor() as i32)).into_iter().flatten() {
+                if let Some(z) = pathfinding::Pathfinding::surface_z(&mesh.collision, pf.sector_surface[sector], m[0], m[1]) {
+                    if z <= m[2] + 0.25 && m[2] - z < 4.0 && best.is_none_or(|(_, bz)| z > bz) {
+                        best = Some((sector, z));
+                    }
+                }
+            }
+            if let Some((sector, _)) = best {
+                r[p.surface as usize] = sector as i32;
+                beneath += 1;
+            }
         }
     }
     if refs.is_empty() {
@@ -515,7 +613,7 @@ fn generate_ground(cfg: &InstancePathfinding, sbsp: &[u8]) -> Result<Ground> {
             PathfindingInstances::Ground => "pathfinding: no instance of the BSP carries walkable ground",
         });
     }
-    Ok(Ground { instances, polygons: polygons.len(), mesh, pf, refs })
+    Ok(Ground { instances, polygons: raw.len(), cut: cut.cut, beneath, mesh, pf, refs })
 }
 
 fn default_plane_tolerance() -> f32 {
@@ -2723,6 +2821,12 @@ impl Baker {
             }
         }
         println!("  path    firing positions on BSP {bsp}: {placed} on a sector, {lost} on none");
+        if ground.cut > 0 || ground.beneath > 0 {
+            println!(
+                "  path    {} floor(s) cut where another piece of ground lies closely over them; {} surface(s) that are no ground name the sector beneath",
+                ground.cut, ground.beneath
+            );
+        }
         println!(
             "  path    pathfinding[{bsp}]: {} instance(s) of {} with a pathfinding object, {} polygon(s) -> {} sector(s) ({} step(s)), {} link(s) ({} seam(s)), {} vertices; {} object ref(s) reused, {} added, {} emptied",
             refs.len(),

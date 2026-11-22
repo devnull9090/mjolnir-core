@@ -364,7 +364,13 @@ or use `null` to leave the loader's per-map default in effect.
   "dent": 0,                // how far a sector's corner may lie inside its convex hull, wu
   "border": 0,              // how far a border between two sectors may move when straightened, wu
   "max_corners": 16,        // corners per sector, straight runs not counted
-  "min_ground": 0           // connected ground smaller than this (wu², in plan) gets no sectors
+  "min_ground": 0,          // connected ground smaller than this (wu², in plan) gets no sectors
+  "min_island": 0,          // floor sharing edges with less floor than this (wu²) is left out first:
+                            // rock facets
+  "headroom": 0,            // a floor with another piece of ground less than this (wu) above it is cut
+                            // away there, so a slab or platform on the terrain joins it. 0: never cut
+  "seam_step": 0.1          // how far apart in height two floors' edges may be for a seam to join them:
+                            // how far a slab may stand above the ground it lies on
 }
 ```
 

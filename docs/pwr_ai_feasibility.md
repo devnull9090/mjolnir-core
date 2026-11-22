@@ -515,9 +515,13 @@ in about six minutes. One PC, one player, in warm-up.
 
 The remaining steps, in order:
 
-1. **Capture platforms and bases.** An AI placed on site B's platform had no
-   sector: small structures are dropped, and the bases are pieces of their
-   own. Keep them and join them to the terrain.
+1. **Capture platforms and bases: done (same day).** The bake cuts the
+   terrain away under a floor that lies on it (`headroom`), so the two end on
+   one line and a seam joins them. All three bases and the four pads are now
+   part of the main ground, an AI on a pad has a sector, and an Elite walked
+   from open terrain onto the west base's floor. Not yet watched: an AI
+   walking onto the centre platform. Details in the engine article,
+   "Structures on the terrain".
 2. **Water.** Deep water is still walkable ground in this bake.
 3. **Zones and tasks per capture candidate** in place of the bots lane's one
    map-wide zone (section 4), so squads assault and hold the site in play.

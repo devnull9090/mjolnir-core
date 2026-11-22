@@ -246,6 +246,49 @@ fn main() {
             }
         }
         println!("  hint types -> count: {kinds:?}");
+        // Each intersection seam: how far the flagged link lies from the
+        // joining link its hint names, across (in plan) and in height.
+        {
+            let (mut across, mut height, mut same) = (Vec::new(), Vec::new(), 0);
+            for i in 0..nl {
+                let l = link(i);
+                if l[2] & 2 == 0 || l[3] >= hints.count as usize {
+                    continue;
+                }
+                let he = hints.element(l[3]).unwrap();
+                let j = i32_at(he, 4);
+                if u16_at(he, 0) != 0 || j < 0 || j as usize >= nl {
+                    continue;
+                }
+                let jl = link(j as usize);
+                if l[0] >= nv || l[1] >= nv || jl[0] >= nv || jl[1] >= nv {
+                    continue;
+                }
+                if (jl[0], jl[1]) == (l[0], l[1]) {
+                    same += 1;
+                    continue;
+                }
+                let (a, b) = (vertex(jl[0]), vertex(jl[1]));
+                let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+                let len2 = (dx * dx + dy * dy).max(1e-9);
+                let (mut d, mut h) = (0f32, 0f32);
+                for v in [vertex(l[0]), vertex(l[1])] {
+                    let t = (((v[0] - a[0]) * dx + (v[1] - a[1]) * dy) / len2).clamp(0.0, 1.0);
+                    let q = [a[0] + dx * t, a[1] + dy * t, a[2] + (b[2] - a[2]) * t];
+                    d = d.max(((v[0] - q[0]).powi(2) + (v[1] - q[1]).powi(2)).sqrt());
+                    h = h.max((v[2] - q[2]).abs());
+                }
+                across.push(d);
+                height.push(h);
+            }
+            across.sort_by(f32::total_cmp);
+            height.sort_by(f32::total_cmp);
+            println!(
+                "  intersection seams: {same} flagged links on their joining link, {} apart from it; across p50 {:.3} p90 {:.3} p99 {:.3} max {:.3}; height p50 {:.3} p90 {:.3} p99 {:.3} max {:.3}",
+                across.len(), pct(&across, 0.5), pct(&across, 0.9), pct(&across, 0.99), pct(&across, 1.0),
+                pct(&height, 0.5), pct(&height, 0.9), pct(&height, 0.99), pct(&height, 1.0)
+            );
+        }
         println!(
             "  link flag bit -> [one-sided, two-sided]: {}",
             sided.iter().map(|(k, v)| format!("{k:#x}:{v:?}")).collect::<Vec<_>>().join(" ")
