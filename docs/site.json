@@ -86,6 +86,16 @@
       ]
     },
     {
+      "id": "engine",
+      "title": "Engine reference",
+      "blurb": "How the simulation works, subsystem by subsystem: the tag data that drives it, where its code lives, and how we know. Every claim is labelled traced, measured, seen live or inferred.",
+      "docs": [
+        "engine_reference.md",
+        "engine_ai_pathfinding.md",
+        "engine_research_method.md"
+      ]
+    },
+    {
       "id": "internals",
       "title": "Game internals",
       "blurb": "Reverse-engineering notes on the game itself: tag data, containers, textures, audio, the simulation DLL, scripting and reading the running game. Working logs, superseded turns included.",
