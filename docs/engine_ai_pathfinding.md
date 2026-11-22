@@ -405,8 +405,9 @@ Three things this took to get right, all measured on Pelican Warfare:
 - **The upper floor must always win.** A first version let a floor less than
   0.2 wu above another "ride" on it (the lower one stayed). With three
   layers (terrain, a slab 0.15 above, a second slab 0.15 above that) each
-  rule removed a different one and nothing was left: a hole where a player
-  stands. "The top of any stack stays" cannot go round in a circle.
+  rule removed a different one and nothing was left: a hole in the west
+  base's floor, found offline with `pf_generate --why <instance> <surface>`.
+  "The top of any stack stays" cannot go round in a circle.
 - **Only different pieces cut each other.** PWR's terrain is several sheets
   that cross each other all over. Cutting every crossing made 80,000 sectors.
   Sheets that are already one piece of ground gain nothing from a cut.
@@ -576,13 +577,19 @@ level with
 |---|---|---|
 | Floors cut | none | 3,471 |
 | Pieces of ground over 100 wu² apart from the main one | 3 bases of about 3,100 wu², 4 pads of 200 to 370, about 30 ledges | the ledges only (all 0.6 wu or more above the ground at every edge) |
-| Main ground | 452,243 wu² | 455,129 wu² |
+| Main ground | 452,243 wu² | 454,863 wu² |
 | Instances with a pathfinding object | 24 | 35 |
 | Tables | 15,197 sectors, 51,844 links, 3,126 seams | 15,928 sectors, 55,361 links, 2,827 seams |
 | Surfaces naming the sector beneath | none | 13,955 |
 | AI on the north pad (instance 149) | no sector | sector 15904, then walked 110 wu off the pad when ordered |
 | AI ordered to the area of the west base | not tried | walked 100 wu from open terrain onto the base floor (instance 148) and stopped on a firing position there, in that floor's own sector |
 | Crash | none | none in about six minutes |
+
+Two things about reading the ground record (`+0x9e8`) that cost time here.
+A **player's** record never carries a sector: it read none on every surface
+in both bakes, so it says nothing about the data. And an **AI's** reads none
+while it walks and a sector once it stands: the four surfaces walking Elites
+were read on all have sectors offline.
 
 What this does not show: an AI walking onto the centre platform (none was
 ordered there: tasks name areas of 490 m, not spots, and AI did not chase a
