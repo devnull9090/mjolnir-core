@@ -63,7 +63,8 @@ end
 ---   %LOCALAPPDATA%\Meteorite\Saved\mjolnir_dev.txt   (any contents)
 --- Players never have it, so everyone else opens public as before.
 local function readDevMark()
-    local base = os.getenv("LOCALAPPDATA")
+    -- Guarded: test harnesses (tools/tests) load this with a stubbed `os`.
+    local base = type(os) == "table" and type(os.getenv) == "function" and os.getenv("LOCALAPPDATA") or nil
     return base ~= nil and readFile(base .. "\\Meteorite\\Saved\\mjolnir_dev.txt") ~= nil
 end
 Games.dev = readDevMark()
