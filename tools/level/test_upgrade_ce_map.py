@@ -843,17 +843,85 @@ class TeleporterTeamTest(unittest.TestCase):
         level = {"blam": {"objects": [end("sender", "alpha"), end("receiver", "alpha"),
                                       end("sender", "charlie"), end("receiver", "charlie")]},
                  "markers": [{"type": "teleport_from", "team": 0}, {"type": "teleport_to", "team": 0},
-                             {"type": "teleport_from", "team": 2}, {"type": "hill", "team": 0}]}
+                             {"type": "teleport_from", "team": 2},
+                             {"type": "hill", "team": 0, "pos": [0.0, 0.0, 0.0]}]}
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder) / "map.level.json"
             base.write_text(json.dumps(level), encoding="utf-8")
             moved = json.loads(Path(upgrade.moved_level(str(base), {}, gone=["alpha"])).read_text(encoding="utf-8"))
             self.assertEqual([o["set"]["multiplayer data.teleporter channel"] for o in moved["blam"]["objects"]],
                              ["charlie", "charlie"])
-            self.assertEqual(moved["markers"], [{"type": "teleport_from", "team": 2}, {"type": "hill", "team": 0}])
+            self.assertEqual(moved["markers"], [{"type": "teleport_from", "team": 2},
+                                                {"type": "hill", "team": 0, "pos": [0.0, 0.0, 0.0]}])
             # A channel the map does not have stops the build.
             with self.assertRaises(SystemExit):
                 upgrade.moved_level(str(base), {}, gone=["bravo"])
+
+
+class ObjectivesTest(unittest.TestCase):
+    """A remaster is built on its conversion's level file, which may be older
+    than the objectives: the three game types come from its CE netgame flags
+    at every build."""
+    LABEL = "multiplayer data.megalo label"
+    TEAM = "multiplayer data.owner team"
+
+    def old_conversion(self):
+        markers = [{"type": "hill", "team": 0, "pos": [x, y, 0.0], "yaw": 0}
+                   for x, y in ((0.0, 0.0), (600.0, 0.0), (600.0, 600.0), (0.0, 600.0))]
+        markers += [{"type": "oddball", "team": 0, "pos": [50.0, 50.0, 0.0], "yaw": 0},
+                    {"type": "race_track", "team": 0, "pos": [0.0, 0.0, 0.0], "yaw": 0},
+                    {"type": "race_track", "team": 1, "pos": [5000.0, 0.0, 0.0], "yaw": 0}]
+        health = {"group": "scenery", "tag": r"objects\multi\health_pack_spot",
+                  "set": {self.LABEL: "ce_health_pack", self.TEAM: "neutral"}}
+        stand = {"group": "scenery", "tag": r"objects\multi\ctf\flag_stand", "set": {self.LABEL: "ctf_flag_return"}}
+        return {"game": "halo1", "modes": ["slayer", "ctf"], "markers": markers,
+                "blam": {"objects": [stand, health]}}
+
+    def test_an_old_conversion_gains_its_hills_balls_and_track(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder) / "map.level.json"
+            base.write_text(json.dumps(self.old_conversion()), encoding="utf-8")
+            moved = upgrade.moved_level(str(base), {})
+            self.assertNotEqual(moved, str(base))
+            level = json.loads(Path(moved).read_text(encoding="utf-8"))
+            self.assertEqual(level["modes"], ["slayer", "ctf", "koth", "oddball", "race"])
+            self.assertEqual(len(level["koth_hills"]), 1)
+            self.assertEqual(len(level["race_flags"]), 2)
+            labels = [o["set"].get(self.LABEL) for o in level["blam"]["objects"]]
+            self.assertEqual(labels, ["ctf_flag_return", "ce_health_pack", "koth_hill", "oddball_spawn",
+                                      "race_flag", "race_flag"])
+            # Health pack spots leave the spawn search with them.
+            self.assertEqual(level["blam"]["objects"][1]["set"][self.TEAM], "eighth party")
+            # Built again, nothing more changes.
+            self.assertEqual(upgrade.moved_level(moved, {}), moved)
+
+    def test_a_level_converted_with_its_objectives_is_left_as_it_is(self):
+        with tempfile.TemporaryDirectory() as folder:
+            first = Path(folder) / "old.level.json"
+            first.write_text(json.dumps(self.old_conversion()), encoding="utf-8")
+            level = json.loads(Path(upgrade.moved_level(str(first), {})).read_text(encoding="utf-8"))
+            # gen_ce_level.py places a map's machines after its objectives.
+            level["blam"]["objects"].append({"group": "machines", "tag": "gate", "set": {}})
+            base = Path(folder) / "map.level.json"
+            base.write_text(json.dumps(level), encoding="utf-8")
+            self.assertEqual(upgrade.moved_level(str(base), {}), str(base))
+
+    def test_a_map_with_no_objective_flags_keeps_its_modes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder) / "map.level.json"
+            level = {"modes": ["slayer", "team_slayer", "ctf"], "markers": [{"type": "ctf_flag", "team": 0}],
+                     "blam": {"objects": []}}
+            base.write_text(json.dumps(level), encoding="utf-8")
+            self.assertEqual(upgrade.moved_level(str(base), {}), str(base))
+
+    def test_two_race_flags_on_one_index_stop_the_build(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder) / "map.level.json"
+            level = self.old_conversion()
+            level["markers"][-1]["team"] = 0
+            base.write_text(json.dumps(level), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                upgrade.moved_level(str(base), {})
 
 
 if __name__ == "__main__":
