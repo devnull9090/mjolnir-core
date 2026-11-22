@@ -2330,6 +2330,23 @@ local function joinGame(g)
         })
         return
     end
+    -- Joining needs the mod check's answer (outdated.lua): a join from a
+    -- link right after the game started waits for it, up to two minutes.
+    if Outdated.checking() then
+        findNote("Checking your game folder for mods...")
+        local waited = 0
+        local function again()
+            waited = waited + 1
+            if not alive(Find) then return end
+            if Outdated.checking() and waited < 120 then
+                ExecuteInGameThreadWithDelay(1000, again)
+                return
+            end
+            joinGame(g)
+        end
+        ExecuteInGameThreadWithDelay(1000, again)
+        return
+    end
     -- A map installed since the game started has no cooked registration.
     local registered, notWhy = MapLive.register(g.map_code)
     if not registered then log("find games: " .. tostring(g.map_code) .. " not registered: " .. tostring(notWhy)) end
@@ -4935,6 +4952,12 @@ local AUTO = {
             end
             if not chosen then return autoState({ result = "error no listed game" .. (wanted and (" by " .. wanted) or "") }) end
             local function join()
+                -- The mod check's answer first (outdated.lua), as JOIN waits.
+                if Outdated.checking() then
+                    autoState({ result = "checking for mods" })
+                    ExecuteInGameThreadWithDelay(1000, join)
+                    return
+                end
                 autoState({ result = "joining " .. tostring(chosen.host) })
                 MapLive.register(chosen.map_code)
                 Games.join(chosen, function(ok, err)
@@ -5000,12 +5023,7 @@ local function initialize()
     -- for the Blam game, which is not built yet) waits for the join to end:
     -- leaving mid-join crashed the joiner in the Blam engine's tick (a ban
     -- enforced as a banned player rejoined, two PCs 2026-10-03).
-    Net.on("kick", function(fields)
-        log("host: sent back by the host (" .. tostring(fields[1]) .. ")")
-        -- The host's reason, and the map it names (Live.removeLacking), on
-        -- the main menu once this game is back there (Live.showNotice).
-        local code = fields[2] and fields[2]:match("^[%w_]+$") or nil
-        Live.notice = Live.newNotice({ text = fields[1] or "The host sent you back to the main menu.", code = code })
+    local function leaveHostsGame()
         -- In the lobby, LeaveGame does nothing (two PCs, 2026-10-09): the
         -- fireteam's own leave does it.
         if inFrontend() then
@@ -5024,6 +5042,14 @@ local function initialize()
             end)
         end
         ExecuteInGameThreadWithDelay(200, leave)
+    end
+    Net.on("kick", function(fields)
+        log("host: sent back by the host (" .. tostring(fields[1]) .. ")")
+        -- The host's reason, and the map it names (Live.removeLacking), on
+        -- the main menu once this game is back there (Live.showNotice).
+        local code = fields[2] and fields[2]:match("^[%w_]+$") or nil
+        Live.notice = Live.newNotice({ text = fields[1] or "The host sent you back to the main menu.", code = code })
+        leaveHostsGame()
     end)
     -- The host's own verdict. A host with mods sends its guests home; a guest
     -- of an older host hears nothing and stays.
@@ -5034,11 +5060,7 @@ local function initialize()
         Live.leftModdedHostAt = os.time()
         log("mods: the host's game reports " .. tostring(f[1]) .. "; leaving")
         Live.notice = Live.newNotice({ text = "The host's game has mods MJOLNIR did not install, so you were taken out of their game." })
-        if inFrontend() then
-            Live.leaveFireteam()
-        else
-            pcall(function() FindFirstOf("BlamCampaignFlowGameSubsystem"):LeaveGame() end)
-        end
+        leaveHostsGame()
     end)
 
     -- The host leaving its match by hand: the standings that leaves behind
@@ -5160,6 +5182,8 @@ local function initialize()
         local started = os.clock()
         local ok, err = pcall(Identity.tick, Net.isHost())
         if not ok then log("identity: " .. tostring(err)) end
+        ok, err = pcall(Outdated.poll)
+        if not ok then log("update check: " .. tostring(err)) end
         ok, err = pcall(Live.sendModCheck)
         if not ok then log("mods: " .. tostring(err)) end
         UI.reportSlow("identity", started)

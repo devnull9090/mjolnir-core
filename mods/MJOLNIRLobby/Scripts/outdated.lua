@@ -178,6 +178,48 @@ local function menuOnTop(menu)
     return true
 end
 
+--- The launcher's answer, once it is written (the native half deletes the
+--- old one before each ask). Each second from MJOLNIR Lobby's identity
+--- loop as well as the main menu's poll, so a game that went straight into
+--- a match (a Steam invite) still hears its answer: the multiplayer gate
+--- and the host's mod check read it. A game with no answer at all asks
+--- once, and again after a check that timed out.
+function Outdated.poll()
+    if not nativeDir then return end
+    local now = os.time()
+    if not state.asked and not state.result and now >= (state.retryAt or 0) then
+        local ok, why = askLauncher("check")
+        if ok then
+            state.asked = now
+        else
+            state.retryAt = now + RECHECK_SECONDS
+            log("update check: " .. tostring(why))
+        end
+    end
+    if not state.asked then return end
+    local raw = readFile(nativeDir .. "update_check.json")
+    if raw then
+        state.asked = nil
+        local ok, result = pcall(Json.decode, raw)
+        if ok and type(result) == "table" then
+            result.got = now
+            state.result = result
+            local found = Outdated.findings(result)
+            log(found and string.format("update check: %d update(s), %d unsupported mod(s)",
+                #found.items, #found.unsupported) or "update check: up to date")
+            for _, u in ipairs(type(result.unreachable) == "table" and result.unreachable or {}) do
+                log("update check: could not check " .. tostring(u))
+            end
+        else
+            log("update check: unreadable answer")
+        end
+    elseif now - state.asked > CHECK_TIMEOUT then
+        state.asked = nil
+        state.retryAt = now + 30
+        log("update check: no answer from the launcher")
+    end
+end
+
 --- From the main menu's poll while signed in and in the frontend; `menu` is
 --- the main menu widget, or nil when it is not up.
 function Outdated.tick(menu)
@@ -195,29 +237,7 @@ function Outdated.tick(menu)
         end
     end
     state.lastTick = now
-
-    if state.asked then
-        local raw = readFile(nativeDir .. "update_check.json")
-        if raw then
-            state.asked = nil
-            local ok, result = pcall(Json.decode, raw)
-            if ok and type(result) == "table" then
-                result.got = now
-                state.result = result
-                local found = Outdated.findings(result)
-                log(found and string.format("update check: %d update(s), %d unsupported mod(s)",
-                    #found.items, #found.unsupported) or "update check: up to date")
-                for _, u in ipairs(type(result.unreachable) == "table" and result.unreachable or {}) do
-                    log("update check: could not check " .. tostring(u))
-                end
-            else
-                log("update check: unreadable answer")
-            end
-        elseif now - state.asked > CHECK_TIMEOUT then
-            state.asked = nil
-            log("update check: no answer from the launcher")
-        end
-    end
+    Outdated.poll()
 
     if state.shownVisit or not state.result or (state.screen and UI.valid(state.screen.screen)) then return end
     local found = Outdated.findings(state.result)
@@ -251,6 +271,11 @@ function Outdated.verdict()
     if type(r) ~= "table" then return VERDICT_UNCHECKED end
     local u = type(r.unsupported) == "table" and #r.unsupported or 0
     return u > 0 and ("mods:" .. u) or VERDICT_CLEAN
+end
+
+--- Whether a check is under way with no answer yet: a join waits for it.
+function Outdated.checking()
+    return state.result == nil and state.asked ~= nil
 end
 
 --- Whether a verdict from the wire is a game with mods.
