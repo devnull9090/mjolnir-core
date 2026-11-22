@@ -11,8 +11,11 @@
 //! the same code as `mjolnir level register`.
 //!
 //! The rebuild reads the shipped containers and takes a few seconds, so it
-//! runs only when the set of enabled maps or the game build changed since
-//! the last one. Both are kept in [`RECORD`].
+//! runs only when the set of enabled maps, a map's registration or the game
+//! build changed since the last one. A map updated in place can also change
+//! what the menu lists about it (its game types) with the same registration:
+//! then only the menu's list is written again. All four are kept in
+//! [`RECORD`].
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -54,6 +57,55 @@ pub struct Enabled {
 struct Record {
     codes: Vec<String>,
     game: String,
+    /// Every enabled map's `registration.json`: what the container is built
+    /// from. Absent in a record written before 0.24.3, which never equals a
+    /// real one, so the first launch after the update rebuilds once.
+    #[serde(default)]
+    registrations: String,
+    /// Every enabled map's `level.json`, by size and time: what the menu's
+    /// list reads its game types from.
+    #[serde(default)]
+    levels: String,
+}
+
+impl Record {
+    /// The container the last rebuild wrote still lists what is wanted now.
+    fn registers(&self, wanted: &Record) -> bool {
+        self.codes == wanted.codes
+            && self.game == wanted.game
+            && self.registrations == wanted.registrations
+    }
+}
+
+/// A fingerprint of the enabled maps' registrations (the bytes: they are a
+/// few hundred each) and one of their level files (size and time: they run
+/// to megabytes, and this is taken on every launch).
+fn data_fingerprints(maps: &Path, codes: &[String]) -> (String, String) {
+    let mut registrations = Vec::new();
+    let mut levels = Vec::new();
+    for code in codes {
+        let dir = maps.join(code);
+        registrations.extend_from_slice(code.as_bytes());
+        registrations.push(0);
+        registrations.extend(fs::read(dir.join("registration.json")).unwrap_or_default());
+        registrations.push(0);
+        let (len, modified) = fs::metadata(dir.join("level.json"))
+            .map(|m| {
+                let modified = m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                (m.len(), modified)
+            })
+            .unwrap_or((0, 0));
+        levels.extend_from_slice(format!("{code}:{len}:{modified};").as_bytes());
+    }
+    (
+        crate::hub::sha256_hex(&registrations),
+        crate::hub::sha256_hex(&levels),
+    )
 }
 
 /// UE4SS's folder, when it is installed. Without it there is no loader to
@@ -142,8 +194,9 @@ fn copy_map_data(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 /// Make `MJOLNIRMaps` hold exactly the enabled map packs, then rebuild the
-/// registration when what it would register has changed. Returns the log of
-/// a rebuild, empty when none was needed.
+/// registration when what it would register has changed, or write only the
+/// menu's list again when a map updated in place changed its level file.
+/// Returns the log of a rebuild, empty when none was needed.
 pub fn sync(paks: &Path, enabled: &[Enabled]) -> Result<Vec<String>, String> {
     let Some(_) = ue4ss_dir(paks) else {
         return Ok(Vec::new());
@@ -178,32 +231,45 @@ pub fn sync(paks: &Path, enabled: &[Enabled]) -> Result<Vec<String>, String> {
 
     let mut codes: Vec<String> = enabled.iter().map(|m| m.code.clone()).collect();
     codes.sort();
+    let (registrations, levels) = data_fingerprints(&layout.maps, &codes);
     let wanted = Record {
         codes,
         game: game_fingerprint(paks),
+        registrations,
+        levels,
     };
     let record_path = layout.maps.join(RECORD);
+    let write_record = |record: &Record| -> Result<(), String> {
+        fs::write(
+            &record_path,
+            serde_json::to_vec_pretty(record).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| format!("{}: {e}", record_path.display()))
+    };
     let previous: Option<Record> = fs::read(&record_path)
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok());
     let container_there = paks.join(format!("{REG_CONTAINER}.utoc")).is_file();
     let up_to_date = match &previous {
-        Some(p) => *p == wanted && (wanted.codes.is_empty() || container_there),
+        Some(p) => p.registers(&wanted) && (wanted.codes.is_empty() || container_there),
         // Never registered by this launcher, and nothing to register: leave a
         // registration somebody built by hand (`mjolnir level register`) alone.
         None => wanted.codes.is_empty(),
     };
     if up_to_date {
+        // The registration stands. An update to a map already installed can
+        // still have changed its game types, which the menu reads from the
+        // list, not from the container.
+        if previous.is_some_and(|p| p.levels != wanted.levels) {
+            blam_pack::maps::write_menu_list(&layout)?;
+            write_record(&wanted)?;
+        }
         return Ok(Vec::new());
     }
 
     let usmap = ue_asset::Usmap::parse(USMAP).map_err(|e| format!("bundled usmap: {e}"))?;
     let done = blam_pack::maps::rebuild(&layout, &[], &usmap)?;
-    fs::write(
-        &record_path,
-        serde_json::to_vec_pretty(&wanted).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| format!("{}: {e}", record_path.display()))?;
+    write_record(&wanted)?;
     Ok(done.log)
 }
 
@@ -290,6 +356,85 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// A map updated in place with new game types: the registration stands
+    /// (same codes, same game, same `registration.json`), so the container is
+    /// left alone, but the menu's list is written again from the new level.
+    #[test]
+    fn an_updated_level_reaches_the_menu_list_without_a_rebuild() {
+        let root = std::env::temp_dir().join(format!("mjolnir-maplist-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let paks = root.join("Meteorite/Content/Paks");
+        let ue4ss = root.join("Meteorite/Binaries/Win64/ue4ss");
+        fs::create_dir_all(&paks).unwrap();
+        fs::create_dir_all(ue4ss.join("Mods")).unwrap();
+        let maps = ue4ss.join(blam_pack::maps::MAPS_DIR);
+        let list = maps.join(blam_pack::maps::MENU_LIST);
+        let container = paks.join(format!("{REG_CONTAINER}.utoc"));
+
+        let data = root.join("cache").join("map");
+        fs::create_dir_all(&data).unwrap();
+        fs::write(
+            data.join("registration.json"),
+            br#"{"code":"BGL","from":"B40","title":"Blood Gulch","description":"d","world":"/Game/Levels/Halo1/Solo/BGL/BGL.BGL"}"#,
+        )
+        .unwrap();
+        fs::write(data.join("level.json"), br#"{"modes":["slayer","ctf"]}"#).unwrap();
+        let enabled = [Enabled {
+            code: "BGL".into(),
+            data: data.clone(),
+        }];
+
+        // The state a rebuild leaves, without the game's tables to run one:
+        // the map's folder, a container, the list and the record.
+        let dir = maps.join("BGL");
+        fs::create_dir_all(&dir).unwrap();
+        copy_map_data(&data, &dir).unwrap();
+        fs::write(&container, b"built by the last rebuild").unwrap();
+        blam_pack::maps::write_menu_list(&Layout::for_paks(&paks)).unwrap();
+        let codes = vec!["BGL".to_string()];
+        let (registrations, levels) = data_fingerprints(&maps, &codes);
+        let record = Record {
+            codes,
+            game: game_fingerprint(&paks),
+            registrations,
+            levels,
+        };
+        fs::write(maps.join(RECORD), serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(!fs::read_to_string(&list).unwrap().contains("koth"));
+
+        // Nothing changed: nothing is written.
+        assert!(sync(&paks, &enabled).unwrap().is_empty());
+        assert!(!fs::read_to_string(&list).unwrap().contains("koth"));
+
+        // The pack's next release adds game types.
+        fs::write(
+            data.join("level.json"),
+            br#"{"modes":["slayer","ctf","koth","oddball","race"]}"#,
+        )
+        .unwrap();
+        assert!(sync(&paks, &enabled).unwrap().is_empty(), "no rebuild");
+        let listed: serde_json::Value = serde_json::from_slice(&fs::read(&list).unwrap()).unwrap();
+        assert_eq!(listed[0]["code"], "BGL");
+        assert_eq!(
+            listed[0]["modes"],
+            serde_json::json!(["slayer", "ctf", "koth", "oddball", "race"])
+        );
+        assert_eq!(fs::read(&container).unwrap(), b"built by the last rebuild");
+        let after: Record = serde_json::from_slice(&fs::read(maps.join(RECORD)).unwrap()).unwrap();
+        assert!(after.registers(&record) && after.levels != record.levels);
+
+        // A record from before 0.24.3 has neither fingerprint, and never
+        // passes for a current one: the next launch rebuilds.
+        let old: Record = serde_json::from_str(r#"{"codes":["BGL"],"game":"g"}"#).unwrap();
+        assert!(!old.registers(&Record {
+            codes: vec!["BGL".into()],
+            game: "g".into(),
+            registrations: after.registrations.clone(),
+            levels: after.levels.clone(),
+        }));
+        let _ = fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn the_bundled_usmap_parses() {
         ue_asset::Usmap::parse(USMAP).expect("bundled usmap must parse");
@@ -362,6 +507,22 @@ mod tests {
             sync(&paks, &enabled).expect("second sync").is_empty(),
             "nothing changed, no rebuild"
         );
+
+        // The map's next release changes its game types and nothing else.
+        let level_path = enabled[0].data.join("level.json");
+        let mut level: serde_json::Value =
+            serde_json::from_slice(&fs::read(&level_path).unwrap()).unwrap();
+        level["modes"] = serde_json::json!(["slayer", "mjolnir_test_mode"]);
+        fs::write(&level_path, serde_json::to_vec(&level).unwrap()).unwrap();
+        let container = paks.join(format!("{REG_CONTAINER}.utoc"));
+        let built = fs::metadata(&container).unwrap().modified().unwrap();
+        assert!(
+            sync(&paks, &enabled).expect("third sync").is_empty(),
+            "a level change alone rebuilds nothing"
+        );
+        assert_eq!(fs::metadata(&container).unwrap().modified().unwrap(), built);
+        let list = fs::read_to_string(maps.join(blam_pack::maps::MENU_LIST)).unwrap();
+        assert!(list.contains("mjolnir_test_mode"), "the menu list has the new game type");
 
         sync(&paks, &[]).expect("removing the map");
         assert!(!maps.join(&code).exists());
