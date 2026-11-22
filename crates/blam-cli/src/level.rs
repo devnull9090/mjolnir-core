@@ -851,6 +851,12 @@ pub struct Bots {
     pub zone: usize,
     #[serde(default)]
     pub objective: usize,
+    /// Megalo labels whose objects are places to hold (`koth_hill`): each
+    /// such object with a boundary gets a zone area of its own, firing
+    /// positions inside its boundary, and a task named after it,
+    /// `<label>_<spawn order>`, that a squad is sent to with `ai_set_task`.
+    #[serde(default)]
+    pub objectives: Vec<String>,
     /// The kinds of bot the map offers, each with `count` squads of its own
     /// named `<name>_<k>`: MJOLNIRHud places the kind the host chose. Without
     /// any, one kind `bot` from the donor squad and `weapon`.
@@ -898,6 +904,58 @@ fn default_bot_spacing() -> f64 {
 fn default_bot_areas() -> usize {
     16
 }
+
+/// A place for bots to hold: a placed object whose Megalo label is one of
+/// `bots.objectives`, with its boundary.
+#[derive(Debug, Clone)]
+pub struct BotObjective {
+    /// The task's and area's name, `<label>_<spawn order>`.
+    pub name: String,
+    /// Where it stands, relative to the canvas origin, Unreal cm.
+    pub pos: [f64; 3],
+    /// Its boundary: a cylinder `radius` across, from `down` under to `up`
+    /// over its position, wu.
+    pub radius: f32,
+    pub up: f32,
+    pub down: f32,
+}
+
+/// The objects of the level a bot can hold: those whose Megalo label is one
+/// of `labels` and whose boundary is a cylinder or a sphere, in the level's
+/// order. Two with the same spawn order take a running suffix.
+fn bot_objectives(objects: &[ObjectPlacement], labels: &[String]) -> Result<Vec<BotObjective>> {
+    let mut out: Vec<BotObjective> = Vec::new();
+    for o in objects {
+        let field = |k: &str| o.set.get(&format!("multiplayer data.{k}")).map(String::as_str);
+        let Some(label) = field("megalo label").filter(|l| labels.iter().any(|w| w == l)) else { continue };
+        let shape = field("boundary shape").unwrap_or("none");
+        if shape != "cylinder" && shape != "sphere" {
+            println!("  note    bots: a {label} object with a {shape} boundary is not held: only cylinders and spheres are read");
+            continue;
+        }
+        let num = |k: &str| -> Result<f32> {
+            let v = field(k).with_context(|| format!("bots: a {label} object has no {k}"))?;
+            v.parse::<f32>().with_context(|| format!("bots: {label} {k} = {v}"))
+        };
+        let radius = num("boundary width or radius")?;
+        let (up, down) = if shape == "sphere" { (radius, radius) } else { (num("boundary positive height")?, num("boundary negative height")?) };
+        let order = field("spawn order").unwrap_or("0");
+        let mut name = format!("{label}_{order}");
+        let mut k = 1;
+        while out.iter().any(|x| x.name == name) {
+            name = format!("{label}_{order}_{k}");
+            k += 1;
+        }
+        out.push(BotObjective { name, pos: o.pos, radius, up, down });
+    }
+    Ok(out)
+}
+
+/// The finest and coarsest grids an objective's firing positions use, wu,
+/// and how many one may have: enough to stand a few squads in, few enough to
+/// leave the zone's 2048 to the rest of the map.
+const BOT_HOLD_SPACING: [f32; 4] = [1.5, 2.0, 2.5, 3.0];
+const BOT_HOLD_MAX: usize = 64;
 
 /// The area tasks the bots' objective always has, `area_0` .. `area_15`:
 /// MJOLNIRHud sends a roaming bot to a random one of them (`Bots.AREAS` in
@@ -1718,6 +1776,9 @@ struct Baker {
     /// Each zone area's extent, `[x0, y0, x1, y1]` in Unreal cm, for the same
     /// file.
     bot_areas: Vec<[f64; 4]>,
+    /// The places to hold: name (= task), zone area, centre (Unreal cm,
+    /// absolute) and radius (cm).
+    bot_objectives: Vec<(String, usize, [f64; 3], f64)>,
     /// Each `blam.object_names` entry's final index, by folded name.
     object_index: std::collections::BTreeMap<String, usize>,
     /// Each `blam.device_groups` entry's final index.
@@ -3070,7 +3131,15 @@ impl Baker {
     /// With `ground` (the level's `blam.pathfinding`, already written by
     /// [`Self::instance_pathfinding`]) the bots stand and fight on those
     /// sectors, and the shell's are not built.
-    fn bots_finish(&mut self, bots: &Bots, ix: &BotIndices, bsp: usize, sbsp: &[u8], ground: Option<&Ground>) -> Result<()> {
+    fn bots_finish(
+        &mut self,
+        bots: &Bots,
+        ix: &BotIndices,
+        bsp: usize,
+        sbsp: &[u8],
+        ground: Option<&Ground>,
+        objectives: &[BotObjective],
+    ) -> Result<()> {
         use blam_sbsp::pathfinding::{self, Pathfinding};
         let built;
         let (shell, pf): (&blam_sbsp::ce::Collision, &Pathfinding) = match ground {
@@ -3178,11 +3247,67 @@ impl Baker {
         let points: Vec<[f64; 3]> = spawns.iter().map(|(p, _)| *p).collect();
         let spawns: Vec<([f64; 3], f64)> = spread_order(&points).into_iter().map(|i| spawns[i]).collect();
         self.bot_starts = (0..ix.count).map(|i| abs_pos(self.origin, spawns[i % spawns.len()].0)).collect();
+
+        // The places to hold: firing positions inside each one's boundary,
+        // on the main ground, from the finest grid that keeps them few enough.
+        let holds: Vec<(&BotObjective, [f32; 3])> = objectives
+            .iter()
+            .map(|o| {
+                let (x, y, z) = ue_to_blam(abs_pos(self.origin, o.pos));
+                (o, [x as f32, y as f32, z as f32])
+            })
+            .collect();
+        let inside = |o: &BotObjective, c: [f32; 3], p: [f32; 3]| {
+            let (dx, dy, dz) = (p[0] - c[0], p[1] - c[1], p[2] - c[2]);
+            dx * dx + dy * dy <= o.radius * o.radius && dz <= o.up && dz >= -o.down
+        };
+        let mut held: Vec<(String, Vec<pathfinding::FiringPosition>)> = Vec::new();
+        if !holds.is_empty() {
+            let mut left: Vec<usize> = (0..holds.len()).collect();
+            let mut found: Vec<Option<Vec<pathfinding::FiringPosition>>> = vec![None; holds.len()];
+            for (n, &spacing) in BOT_HOLD_SPACING.iter().enumerate() {
+                if left.is_empty() {
+                    break;
+                }
+                let all = pf.firing_positions(shell, spacing, &components, 0.0);
+                left.retain(|&h| {
+                    let (o, c) = holds[h];
+                    let mine: Vec<_> = all.iter().filter(|f| inside(o, c, f.point)).cloned().collect();
+                    let last = n + 1 == BOT_HOLD_SPACING.len();
+                    if mine.len() <= BOT_HOLD_MAX || last {
+                        found[h] = Some(mine.into_iter().take(BOT_HOLD_MAX).collect());
+                        false
+                    } else {
+                        true
+                    }
+                });
+            }
+            for ((o, c), mine) in holds.iter().zip(found) {
+                let mine = mine.unwrap_or_default();
+                if mine.len() < BOT_POSITIONS_PER_AREA {
+                    println!(
+                        "  note    bots: {} at ({:.1}, {:.1}, {:.1}) wu is not held: {} firing position(s) inside its boundary on the main ground, fewer than {BOT_POSITIONS_PER_AREA}",
+                        o.name, c[0], c[1], c[2], mine.len()
+                    );
+                    continue;
+                }
+                println!("  bots    {}: {} firing position(s) inside its boundary at ({:.1}, {:.1}, {:.1}) wu", o.name, mine.len(), c[0], c[1], c[2]);
+                held.push((o.name.clone(), mine));
+            }
+        }
+        let held_count: usize = held.iter().map(|h| h.1.len()).sum();
+        let budget = 2048usize.saturating_sub(held_count);
+        // The grid leaves the held places to their own areas.
+        let free = |f: &pathfinding::FiringPosition| !holds.iter().any(|&(o, c)| inside(o, c, f.point));
+
         let mut spacing = bots.spacing as f32;
-        let mut fps = pf.firing_positions(shell, spacing, &components, 0.0);
-        while fps.len() > 2048 {
+        let grid = |spacing: f32| -> Vec<pathfinding::FiringPosition> {
+            pf.firing_positions(shell, spacing, &components, 0.0).into_iter().filter(free).collect()
+        };
+        let mut fps = grid(spacing);
+        while fps.len() > budget {
             spacing *= 1.15;
-            fps = pf.firing_positions(shell, spacing, &components, 0.0);
+            fps = grid(spacing);
         }
         // Narrow ground falls between the grid's points (Night Lockout's
         // walkways had 12 at 2.5 wu): a finer grid, down to 1 wu, while the
@@ -3190,8 +3315,8 @@ impl Baker {
         let want = bots.areas.clamp(1, 32) * BOT_POSITIONS_PER_AREA;
         while fps.len() < want && spacing > BOT_SPACING_MIN {
             let finer_spacing = (spacing / 1.25).max(BOT_SPACING_MIN);
-            let finer = pf.firing_positions(shell, finer_spacing, &components, 0.0);
-            if finer.len() > 2048 {
+            let finer = grid(finer_spacing);
+            if finer.len() > budget {
                 break;
             }
             (spacing, fps) = (finer_spacing, finer);
@@ -3229,7 +3354,18 @@ impl Baker {
                 [ax0, -ay1, ax1, -ay0].map(|v| v as f64 * WU_CM)
             })
             .collect();
-        let areas: Vec<Vec<pathfinding::FiringPosition>> = cells.into_values().collect();
+        let mut areas: Vec<Vec<pathfinding::FiringPosition>> = cells.into_values().collect();
+        // The roaming tasks and bots.json know the grid's areas, which come
+        // first; the held places follow.
+        let grid_areas = areas.len();
+        if grid_areas + held.len() > 32 {
+            bail!(
+                "bots: {grid_areas} area(s) of grid and {} place(s) to hold; a zone's tasks name at most 32 areas: lower bots.areas",
+                held.len()
+            );
+        }
+        let held_names: Vec<String> = held.iter().map(|h| h.0.clone()).collect();
+        areas.extend(held.into_iter().map(|h| h.1));
 
         let zp = format!("zones[{}]", ix.zone);
         let fpp = format!("{zp}.firing positions");
@@ -3303,7 +3439,8 @@ impl Baker {
                 .map(|f| (0..3).map(|i| (f.point[i] - mean[i]).powi(2)).sum::<f32>())
                 .sum::<f32>()
                 / n;
-            set_fixed_string(&mut self.file, &format!("{a}.name"), &format!("bots_area_{k}"))?;
+            let area_name = if k < grid_areas { format!("bots_area_{k}") } else { held_names[k - grid_areas].clone() };
+            set_fixed_string(&mut self.file, &format!("{a}.name"), &area_name)?;
             for (field, value) in [
                 ("runtime relative mean point", format!("({}, {}, {})", mean[0], mean[1], mean[2])),
                 ("runtime standard deviation", format!("{}", var.sqrt())),
@@ -3318,10 +3455,19 @@ impl Baker {
             start += members.len();
         }
         println!(
-            "  bots    zone {:?}: {total} firing position(s) at {spacing:.2} wu in {} area(s)",
+            "  bots    zone {:?}: {total} firing position(s) ({held_count} in places to hold) at {spacing:.2} wu in {} area(s) ({} to hold)",
             "mjolnir_bots",
-            areas.len()
+            areas.len(),
+            held_names.len()
         );
+        self.bot_objectives = held_names
+            .iter()
+            .enumerate()
+            .map(|(j, name)| {
+                let o = objectives.iter().find(|o| &o.name == name).expect("held from these");
+                (name.clone(), grid_areas + j, abs_pos(self.origin, o.pos), o.radius as f64 * WU_CM)
+            })
+            .collect();
 
         // The user hints: none of the canvas's, which name its BSPs.
         let hp = format!("ai user hint data[{}]", ix.hint);
@@ -3345,10 +3491,11 @@ impl Baker {
         // of the areas, which MJOLNIRHud sends a bot to (`ai_set_task`) to roam
         // the map. Every task sees the players.
         let n = areas.len();
+        let tasks = BOT_AREA_TASKS + 1 + held_names.len();
         let op = format!("ai objectives[{}]", ix.objective);
         self.file = blockedit::select(
             &self.file,
-            &[(format!("{op}.tasks"), vec![0; BOT_AREA_TASKS + 1]), (format!("{op}.opposing objectives"), vec![])],
+            &[(format!("{op}.tasks"), vec![0; tasks]), (format!("{op}.opposing objectives"), vec![])],
         )?;
         let tap0 = format!("{op}.tasks[0].areas");
         let ta_size = block_element_size(&self.file, &tap0)?;
@@ -3370,8 +3517,16 @@ impl Baker {
             elements: (0..n).flat_map(area_entry).collect(),
             wrappers: None,
         }];
+        for (j, _) in held_names.iter().enumerate() {
+            task_areas.push(blockedit::NestedReplace {
+                path: format!("{op}.tasks[{}].areas", BOT_AREA_TASKS + 1 + j),
+                count: 1,
+                elements: area_entry(grid_areas + j),
+                wrappers: None,
+            });
+        }
         for k in 0..BOT_AREA_TASKS {
-            let members = area_task_members(k, n);
+            let members = area_task_members(k, grid_areas);
             task_areas.push(blockedit::NestedReplace {
                 path: format!("{op}.tasks[{}].areas", k + 1),
                 count: members.len() as u32,
@@ -3385,9 +3540,13 @@ impl Baker {
             (format!("{op}.zone index"), format!("#{}", ix.zone)),
             (format!("{op}.first task index"), "#0".to_string()),
         ];
-        for t in 0..=BOT_AREA_TASKS {
+        for t in 0..tasks {
             let tp = format!("{op}.tasks[{t}]");
-            let name = if t == 0 { "hunt".to_string() } else { format!("area_{}", t - 1) };
+            let name = match t {
+                0 => "hunt".to_string(),
+                t if t <= BOT_AREA_TASKS => format!("area_{}", t - 1),
+                t => held_names[t - BOT_AREA_TASKS - 1].clone(),
+            };
             sets.extend([
                 (format!("{tp}.name"), name),
                 (format!("{tp}.flags"), "0x200".to_string()),
@@ -3398,7 +3557,7 @@ impl Baker {
                 // Every player slot, not the donor's first four.
                 (format!("{tp}.follow players"), if t == 0 { "0xffff" } else { "0x0" }.to_string()),
                 (format!("{tp}.first_child"), "none".to_string()),
-                (format!("{tp}.next_sibling"), if t < BOT_AREA_TASKS { format!("#{}", t + 1) } else { "none".to_string() }),
+                (format!("{tp}.next_sibling"), if t + 1 < tasks { format!("#{}", t + 1) } else { "none".to_string() }),
                 (format!("{tp}.parent"), "none".to_string()),
                 (format!("{tp}.filter"), "0".to_string()),
                 (format!("{tp}.filter flags"), "0x0".to_string()),
@@ -3409,8 +3568,9 @@ impl Baker {
             apply_set(&mut self.file, &field, &value).with_context(|| format!("{field} = {value}"))?;
         }
         println!(
-            "  bots    objective \"mjolnir_bots\": task hunt over {n} area(s), tasks area_0 .. area_{} sharing them",
-            BOT_AREA_TASKS - 1
+            "  bots    objective \"mjolnir_bots\": task hunt over {n} area(s), tasks area_0 .. area_{} sharing the {grid_areas} of grid{}",
+            BOT_AREA_TASKS - 1,
+            if held_names.is_empty() { String::new() } else { format!(", tasks {} holding one each", held_names.join(", ")) }
         );
 
         // The squads: one actor each, standing on its spawn, `count` of each
@@ -3590,6 +3750,7 @@ fn bake(a: BakeArgs) -> Result<()> {
         added: Default::default(),
         bot_starts: Vec::new(),
         bot_areas: Vec::new(),
+        bot_objectives: Vec::new(),
         object_index: Default::default(),
         group_index: Default::default(),
     };
@@ -3916,7 +4077,8 @@ fn bake(a: BakeArgs) -> Result<()> {
             .with_context(|| format!("bots: --bsp {canvas_bsp}=<payload> is needed to generate pathfinding"))?;
         let sbsp = std::fs::read(payload).with_context(|| format!("cannot read BSP payload {payload}"))?;
         let bsp = if level.blam.single_bsp.is_some() { 0 } else { canvas_bsp };
-        baker.bots_finish(b, ix, bsp, &sbsp, ground.as_ref())?;
+        let objectives = bot_objectives(&level.blam.objects, &b.objectives)?;
+        baker.bots_finish(b, ix, bsp, &sbsp, ground.as_ref(), &objectives)?;
     }
 
     // The map's own Unreal world, when one is given: the bare level renamed
@@ -4002,6 +4164,7 @@ fn bake(a: BakeArgs) -> Result<()> {
 
     let bot_starts = std::mem::take(&mut baker.bot_starts);
     let bot_areas = std::mem::take(&mut baker.bot_areas);
+    let bot_objectives = std::mem::take(&mut baker.bot_objectives);
     let file = baker.file;
 
     // The same exactness gate `pack` applies before anything leaves the tool.
@@ -4261,7 +4424,19 @@ fn bake(a: BakeArgs) -> Result<()> {
         .unwrap_or_else(|| scen.to_string());
     let write_bots = |dir: &Path| -> Result<()> {
         let path = dir.join(format!("{file_key}.bots.json"));
-        std::fs::write(&path, serde_json::to_vec_pretty(&bots_record(&bot_starts, &bot_areas))?)?;
+        let mut record = bots_record(&bot_starts, &bot_areas);
+        if !bot_objectives.is_empty() {
+            // Not under a name the HUD already reads: it takes the first
+            // "starts", "areas" and "tasks" in the file.
+            let tenth = |v: f64| (v * 10.0).round() / 10.0;
+            record["holds"] = serde_json::Value::Array(
+                bot_objectives
+                    .iter()
+                    .map(|(name, area, pos, radius)| serde_json::json!({ "name": name, "area": area, "pos": pos.map(tenth), "radius": tenth(*radius) }))
+                    .collect(),
+            );
+        }
+        std::fs::write(&path, serde_json::to_vec_pretty(&record)?)?;
         println!(
             "  wrote    {} ({} bot start(s), {} area(s))",
             path.display(),
@@ -4983,7 +5158,7 @@ mod tests {
     #[test]
     fn appended_elements_land_after_the_clear() {
         let mut baker = Baker { file: vec![], origin: [0.0; 3], next_unique: 0,
-            added: Default::default(), bot_starts: vec![], bot_areas: vec![],
+            added: Default::default(), bot_starts: vec![], bot_areas: vec![], bot_objectives: vec![],
             object_index: Default::default(), group_index: Default::default() };
         let clear = Clear { blocks: vec!["object names".into()], ..Default::default() };
         assert_eq!(baker.final_index("object names", &clear, 405), 0);
@@ -4998,7 +5173,7 @@ mod tests {
         let palettes = vec![("standard", vec![entry.clone(); 32]), ("packs", vec![entry.clone(); 200]),
                             ("utilities", vec![entry; 24])];
         let mut baker = Baker { file: vec![0x42], origin: [0.0;3], next_unique: 0,
-            added: Default::default(), bot_starts: vec![], bot_areas: vec![],
+            added: Default::default(), bot_starts: vec![], bot_areas: vec![], bot_objectives: vec![],
             object_index: Default::default(), group_index: Default::default() };
         let error = baker.map_variant_palettes(&palettes, &ForgeLimits::default(), &BTreeMap::new()).unwrap_err();
         assert!(error.to_string().contains("256 map variant palette entries"));
@@ -5171,6 +5346,40 @@ mod tests {
         assert_eq!(r["starts"], serde_json::json!([[30020.8, 48048.4, 824.4], [12265.3, -24116.8, -30.5]]));
         assert_eq!(bots_record(&[], &[])["starts"], serde_json::json!([]));
         assert_eq!(r["tasks"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn bot_objectives_takes_labelled_objects_with_a_boundary() {
+        let hill = |order: &str, shape: &str| ObjectPlacement {
+            tag: "objects\\multi\\ctf\\flag_stand".into(),
+            group: "scenery".into(),
+            pos: [100.0, 200.0, 300.0],
+            rot: [0.0; 3],
+            name: None,
+            placed: true,
+            power_group: None,
+            position_group: None,
+            set: [
+                ("multiplayer data.megalo label", "koth_hill"),
+                ("multiplayer data.spawn order", order),
+                ("multiplayer data.boundary shape", shape),
+                ("multiplayer data.boundary width or radius", "6.5"),
+                ("multiplayer data.boundary positive height", "1.25"),
+                ("multiplayer data.boundary negative height", "0.5"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        };
+        let mut ball = hill("0", "cylinder");
+        ball.set.insert("multiplayer data.megalo label".into(), "oddball_spawn".into());
+        let objects = vec![hill("4", "cylinder"), hill("4", "cylinder"), hill("2", "box"), ball, hill("1", "sphere")];
+        let held = bot_objectives(&objects, &["koth_hill".to_string()]).unwrap();
+        let names: Vec<&str> = held.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(names, ["koth_hill_4", "koth_hill_4_1", "koth_hill_1"]);
+        assert_eq!((held[0].radius, held[0].up, held[0].down), (6.5, 1.25, 0.5));
+        assert_eq!((held[2].up, held[2].down), (6.5, 6.5), "a sphere reaches its radius both ways");
+        assert!(bot_objectives(&objects, &[]).unwrap().is_empty(), "no labels, nothing held");
     }
 
     #[test]
