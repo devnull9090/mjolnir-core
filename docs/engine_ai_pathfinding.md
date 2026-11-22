@@ -419,7 +419,64 @@ Three things this took to get right, all measured on Pelican Warfare:
 A surface that is no ground itself (a facet left out, a trim strip) in an
 instance the bake makes `static` would have no sector, where the engine's own
 fallback for a `none` instance is a ray 4 wu down. In `ground` mode the bake
-gives such a surface the sector under its middle within those 4 wu.
+gives such a surface the sector under its middle within those 4 wu, or
+failing that the nearest sector beside it (within 3 wu in plan and 2 wu in
+height). The second case is a facet of a steep bank: an Elite that slid onto
+one beside PWR's centre platform had no sector and stood there for good.
+
+### Water
+
+The simulation has no water. Fluid Flux is Unreal only
+([flux_water.md](flux_water.md)), so a river bed is ordinary collision and an
+AI walks along it under the surface.
+
+`blam.pathfinding.water` names the level's baked Flux states and a depth:
+
+```json
+"water": { "states": ["flux_state/lower_lake/state.json", "flux_state/upper_river/state.json"], "max_depth": 0.5 }
+```
+
+A floor polygon whose middle lies more than `max_depth` under the water's
+surface is not floor (`WaterState` in `crates/blam-cli/src/level.rs`). The
+surface is `height.exr` red plus the state's `capture`; a texel is wet when
+`velocity.exr` blue (the depth) is over 1 cm; all centimetres, 304.8 to the
+world unit, y the other way. A bridge deck over a river is above the surface
+at its middle and stays floor. Where the state has `ground.exr`, the bake
+prints how far the drowned polygons lie from the bed the water was baked on,
+which shows at once whether the state and the collision are the same terrain.
+
+Limits: ground outside every state counts as dry. The shore follows whole
+triangles, not the depth contour. The setting acts only on instance ground
+(`blam.pathfinding`); a map whose ground is the shell (the bots lane) is not
+cut. Both state formats load (`mjolnir-flux-state-v2`, and the first one with
+no schema that Battle Creek, Timberland and TST ship), but only the v2 states
+of Pelican Warfare have been checked against collision.
+
+**Pelican Warfare with water left out**, 2026-11-22 **[live]**, `max_depth`
+0.5 wu (1.5 m):
+
+| | |
+|---|---|
+| Left out | 8,527 polygons, 27,788 wu² in plan (the feasibility estimate was 30,330) |
+| Fit to the collision | drowned polygons' middles are 0.02 wu (median) from the baked bed |
+| Ground | two pieces: 399,676 wu² holding both banks, both bases and all seven test spawns, and 2,417 wu² about (170, -261) wu in the south-east |
+| Tables | 15,425 sectors, 54,904 links, 2,735 seams; 1,719 firing positions |
+| Elite ordered from the west side to the east | walked 306 wu across the river; no position sample in water |
+| Elite ordered from the east side to the west base | walked 271 wu across the river onto the base floor; no sample in water |
+| Elite from the north pad | walked 162 wu; no sample in water |
+| Crash | none in two runs of about five minutes |
+
+Positions were sampled every two to three seconds and tested with the same
+states, so a ford narrower than about 6 wu could be missed. About 25,000 wu²
+that was ground before is now in pieces under `min_ground` (bars and shelves
+cut off by deep water) and gets no sectors; which of it matters has not been
+looked at.
+
+A bot spawn was added on the centre platform. The bots lane puts each squad
+on the nearest firing position, and its 15 wu grid has none on the platform,
+so the Elite started beside it. With the player on the platform 9 wu away it
+did not come: on this map the AI moved only on area orders. An AI walking
+onto the platform is still not shown.
 
 ### Checked against Bungie's data
 
@@ -586,10 +643,11 @@ level with
 | Crash | none | none in about six minutes |
 
 Two things about reading the ground record (`+0x9e8`) that cost time here.
-A **player's** record never carries a sector: it read none on every surface
-in both bakes, so it says nothing about the data. And an **AI's** reads none
-while it walks and a sector once it stands: the four surfaces walking Elites
-were read on all have sectors offline.
+A **player's** record cannot be trusted: it read none on surfaces that have a
+sector (148/4400, 143/4929) and a sector on another (143/4904) a few minutes
+later, so it says nothing about the data. And an **AI's** reads none while it
+walks and a sector once it stands: the four surfaces walking Elites were read
+on all have sectors offline.
 
 What this does not show: an AI walking onto the centre platform (none was
 ordered there: tasks name areas of 490 m, not spots, and AI did not chase a
@@ -627,7 +685,8 @@ cargo run --release -p blam-sbsp --example pf_roundtrip -- <scenario> <bsp index
 | Should a rock stop an AI? | Facets under `min_island` are not floor, and the terrain runs on under the rock, so the planner sees open ground there. | Cut the terrain where any collision stands on it (the `cut-out` policy's job in shipped data), and watch AI walk a boulder field before and after. |
 | What else stores a sector index? | Firing positions did, and stale ones stopped the AI. | Search the scenario's AI blocks (zones' areas, squads' starting locations, user hints) for sector fields, and watch an AI that uses each. |
 | Does generated output look like shipped output? | Only rings and hints are checked today. | Run `pf_stats`' measures (winding, flatness, dent depth) on generated tables, and add a check that every source triangle's centre lies within `border` of its sector's polygon. |
-| Is the ground still connected with deep water cut out? | The PWR run accepted river and lake beds. | Pass a water mask as the generator's floor filter and count the pieces again. |
+| Does an AI walk onto a capture platform? | Offline the platforms are in the main ground. No AI has been ordered onto one: the bots lane has no firing position there. | Zones and firing positions per capture site, then order a squad to the site. |
+| Why do AI on PWR not chase a player they are told to see? | `ai_magically_see_object` moved an Elite on B40 and none on PWR, in warm-up, at 9 to 50 wu. | Try once the match is live, and with a second player. |
 | What are `seams`, `jump seams`, `doors` and `giant pathfinding data`? | Unknown blocks in the same element. | Census them across the shipped scenarios first. |
 
 ## History
@@ -645,3 +704,5 @@ cargo run --release -p blam-sbsp --example pf_roundtrip -- <scenario> <bsp index
   live on Pelican Warfare.
 - 2026-11-22: shipped seams measured; `cut_covered` joins structures to the
   terrain they stand on; run live on Pelican Warfare.
+- 2026-11-22: deep water left out from the level's baked Flux states; AI
+  crossed PWR's river dry in both directions.

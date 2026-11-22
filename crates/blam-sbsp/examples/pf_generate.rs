@@ -131,7 +131,7 @@ fn main() {
     let raw_why: Vec<usize> = polygons.iter().enumerate().filter(|(_, p)| why.contains(&(p.object, p.surface))).map(|(n, _)| n).collect();
     let mut why_note = String::new();
     let polygons = if headroom > 0.0 {
-        let piece = navmesh::ground_pieces(&polygons, &o).expect("pieces");
+        let piece = navmesh::ground_pieces(&polygons, &|_, _| true, &o).expect("pieces");
         let (cut, stats) = navmesh::cut_covered(&polygons, &piece, headroom);
         for &n in &raw_why {
             why_note += &format!("  polygon {n}: piece {}, touched {}, {} piece(s) left\n", piece[n] as i64, stats.touched[n], stats.source.iter().filter(|&&s| s as usize == n).count());

@@ -1036,8 +1036,8 @@ fn component_areas(mesh: &Mesh, pf: &Pathfinding) -> HashMap<usize, f64> {
 /// Which connected piece of ground each polygon is part of, as the generator
 /// would build it with nothing cut: 0 for the largest piece in plan, 1 for
 /// the next, and so on (`u32::MAX`: not ground).
-pub fn ground_pieces(polygons: &[Polygon], o: &Options) -> Result<Vec<u32>, String> {
-    let mesh = merge(polygons, &|_, _| true, o);
+pub fn ground_pieces(polygons: &[Polygon], walk: &dyn Fn(usize, &Polygon) -> bool, o: &Options) -> Result<Vec<u32>, String> {
+    let mesh = merge(polygons, walk, o);
     let pf = Pathfinding::build_with(&mesh.collision, false, o.seam_step)?;
     let mut by_area: Vec<(usize, f64)> = component_areas(&mesh, &pf).into_iter().collect();
     by_area.sort_by(|x, y| y.1.total_cmp(&x.1).then(x.0.cmp(&y.0)));
@@ -1368,7 +1368,7 @@ mod tests {
         let o = Options { seam_step: 0.35, ..Options::default() };
         let mut polygons = grid(0, 0.0, 6, 6, &|_, _| 0.0);
         polygons.extend(slab(1, 2.0, 2.0, 0.3));
-        let piece = ground_pieces(&polygons, &o).expect("pieces");
+        let piece = ground_pieces(&polygons, &|_, _| true, &o).expect("pieces");
         assert_eq!((piece[0], piece[72], piece[73]), (0, 1, 1));
         let before = merge(&polygons, &|_, _| true, &o);
         assert_eq!(pieces(&Pathfinding::build_with(&before.collision, true, o.seam_step).unwrap()), 2);
@@ -1397,7 +1397,7 @@ mod tests {
         let mut polygons = grid(0, 0.0, 6, 6, &|_, _| 0.0);
         polygons.extend(slab(1, 2.0, 2.0, 0.15));
         polygons.push(Polygon { object: 2, surface: 0, ring: vec![[2.0, 2.0, 0.3], [3.0, 2.0, 0.3], [3.0, 4.0, 0.3], [2.0, 4.0, 0.3]], breakable: false });
-        let piece = ground_pieces(&polygons, &o).expect("pieces");
+        let piece = ground_pieces(&polygons, &|_, _| true, &o).expect("pieces");
         let (cut, _) = cut_covered(&polygons, &piece, 0.5);
         let (mesh, pf) = generate(&cut, &|_, _| true, &o, 0.0).expect("generate");
         pf.check_hints().expect("hints");
@@ -1414,7 +1414,7 @@ mod tests {
         let o = Options { seam_step: 0.25, ..Options::default() };
         let mut polygons = grid(0, 0.0, 6, 2, &|x, _| 0.1 * x);
         polygons.extend(slab(1, 2.0, 0.0, 0.3));
-        let piece = ground_pieces(&polygons, &o).expect("pieces");
+        let piece = ground_pieces(&polygons, &|_, _| true, &o).expect("pieces");
         let (cut, _) = cut_covered(&polygons, &piece, 0.5);
         let (mesh, pf) = generate(&cut, &|_, _| true, &o, 0.0).expect("generate");
         pf.check_hints().expect("hints");

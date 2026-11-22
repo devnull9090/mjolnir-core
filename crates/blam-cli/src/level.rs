@@ -464,7 +464,133 @@ pub struct InstancePathfinding {
     /// them, wu: how far a pad may stand above the ground it lies on.
     #[serde(default = "default_seam_step")]
     pub seam_step: f32,
+    /// Water too deep to walk in, from the level's baked Fluid Flux states.
+    #[serde(default)]
+    pub water: Option<PathfindingWater>,
 }
+
+/// Standing and running water an AI must not walk into, from the level's
+/// baked Fluid Flux states ([flux_water.md](../../../docs/flux_water.md)).
+/// The simulation has no water: a river bed is ordinary collision.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PathfindingWater {
+    /// Each baked state's `state.json`, relative to the level file. Its
+    /// `height.exr` and `velocity.exr` (and `ground.exr`, when the state
+    /// has one) lie beside it.
+    pub states: Vec<String>,
+    /// Floor further than this under the water's surface (wu) gets no
+    /// sectors. About 0.5 is knee to waist deep.
+    pub max_depth: f32,
+}
+
+/// One baked Fluid Flux state: per texel, the water's surface and its bed,
+/// in Unreal centimetres, or no water.
+struct WaterState {
+    centre: [f64; 2],
+    cell: f64,
+    res: [usize; 2],
+    /// Surface z, cm; NaN where the texel is dry.
+    surface: Vec<f32>,
+    /// Bed z, cm, when the state carries the ground it was baked on.
+    bed: Option<Vec<f32>>,
+}
+
+impl WaterState {
+    fn load(state: &Path) -> Result<WaterState> {
+        let text = std::fs::read_to_string(state).with_context(|| format!("cannot read {}", state.display()))?;
+        let v: serde_json::Value = serde_json::from_str(&text).with_context(|| format!("{}", state.display()))?;
+        let num = |x: &serde_json::Value| x.as_f64().context("a number");
+        let three = |k: &str| -> Result<[f64; 3]> {
+            let a = v[k].as_array().with_context(|| format!("{}: no {k}", state.display()))?;
+            Ok([num(&a[0])?, num(&a[1])?, num(&a[2])?])
+        };
+        // A state with no schema is the first format: no ground, no origin.
+        if !v["schema"].is_null() && v["schema"].as_str() != Some("mjolnir-flux-state-v2") {
+            bail!("{}: schema {} is not one this reads (mjolnir-flux-state-v2, or none)", state.display(), v["schema"]);
+        }
+        let centre = three("centre")?;
+        let origin = if v["origin"].is_null() { [0.0; 3] } else { three("origin")? };
+        if origin != [0.0; 3] {
+            bail!("{}: a state with a canvas origin other than zero is not read yet", state.display());
+        }
+        let cell = num(&v["cell"])?;
+        let capture = num(&v["capture"])?;
+        let res = v["res"].as_array().context("res")?;
+        let res = [num(&res[0])? as usize, num(&res[1])? as usize];
+        // One channel of a texture, row by row.
+        let channel = |name: &str, pick: usize| -> Result<Vec<f32>> {
+            let file = Path::new(v[name].as_str().with_context(|| format!("{}: no {name}", state.display()))?)
+                .file_name()
+                .context("a file name")?
+                .to_owned();
+            let path = state.with_file_name(file);
+            let image = exr::prelude::read_first_rgba_layer_from_file(
+                &path,
+                |size, _| (size.width(), vec![0f32; size.width() * size.height()]),
+                move |(width, pixels): &mut (usize, Vec<f32>), at, (r, g, b, a): (f32, f32, f32, f32)| {
+                    pixels[at.y() * *width + at.x()] = [r, g, b, a][pick];
+                },
+            )
+            .with_context(|| format!("cannot read {}", path.display()))?;
+            let (width, pixels) = image.layer_data.channel_data.pixels;
+            if width != res[0] || pixels.len() != res[0] * res[1] {
+                bail!("{}: {} texels, the state says {} x {}", path.display(), pixels.len(), res[0], res[1]);
+            }
+            Ok(pixels)
+        };
+        // Height's red is the surface above the capture plane's zero;
+        // velocity's blue is the depth; ground's red is the bed under the
+        // domain's centre height. All centimetres (tools/level/audit_flux_state.py).
+        let (height, depth) = (channel("height", 0)?, channel("velocity", 2)?);
+        let surface = height.iter().zip(&depth).map(|(&h, &d)| if d > 1.0 { h + capture as f32 } else { f32::NAN }).collect();
+        let bed = if v["ground"].is_null() { None } else { Some(channel("ground", 0)?.iter().map(|&g| centre[2] as f32 - g).collect()) };
+        Ok(WaterState { centre: [centre[0], centre[1]], cell, res, surface, bed })
+    }
+
+    /// The texel over a point given in simulation world units.
+    fn texel(&self, x: f32, y: f32) -> Option<usize> {
+        // Unreal centimetres: 304.8 to the world unit, y the other way.
+        let col = (x as f64 * 304.8 - self.centre[0]) / self.cell + self.res[0] as f64 / 2.0;
+        let row = (-(y as f64) * 304.8 - self.centre[1]) / self.cell + self.res[1] as f64 / 2.0;
+        (col >= 0.0 && row >= 0.0 && (col as usize) < self.res[0] && (row as usize) < self.res[1])
+            .then(|| row as usize * self.res[0] + col as usize)
+    }
+}
+
+struct Water {
+    states: Vec<WaterState>,
+    max_depth: f32,
+}
+
+impl Water {
+    fn load(cfg: &PathfindingWater, level_dir: &Path) -> Result<Water> {
+        let states = cfg.states.iter().map(|s| WaterState::load(&level_dir.join(s))).collect::<Result<Vec<_>>>()?;
+        Ok(Water { states, max_depth: cfg.max_depth })
+    }
+
+    /// How far under water a point is, wu: the deepest any state says.
+    fn depth(&self, p: [f32; 3]) -> Option<f32> {
+        self.states
+            .iter()
+            .filter_map(|s| s.texel(p[0], p[1]).map(|t| s.surface[t]).filter(|z| !z.is_nan()))
+            .map(|surface| surface / 304.8 - p[2])
+            .reduce(f32::max)
+    }
+
+    /// How far a point is from the bed the state was baked on, wu: a check
+    /// that the state and the collision are the same place.
+    fn off_bed(&self, p: [f32; 3]) -> Option<f32> {
+        self.states
+            .iter()
+            .filter_map(|s| {
+                let bed = s.bed.as_ref()?;
+                s.texel(p[0], p[1]).filter(|&t| !s.surface[t].is_nan()).map(|t| (bed[t] / 304.8 - p[2]).abs())
+            })
+            .reduce(f32::min)
+    }
+}
+
 
 fn default_seam_step() -> f32 {
     blam_sbsp::pathfinding::STEP_HEIGHT
@@ -486,6 +612,12 @@ struct Ground {
     /// surfaces that are no ground themselves and name the sector beneath.
     cut: usize,
     beneath: usize,
+    /// Floors left out as under water, their plan area, and how far their
+    /// middles lie from the bed the water was baked on (median, wu).
+    drowned: (usize, f64, Option<f32>),
+    /// Each connected piece of ground that got sectors, largest first: its
+    /// plan area (wu^2), its middle, and how many sectors.
+    pieces: Vec<(f64, [f64; 2], usize)>,
     mesh: blam_sbsp::navmesh::Mesh,
     pf: blam_sbsp::pathfinding::Pathfinding,
     /// For each instance that gets a pathfinding object, one ref per
@@ -495,7 +627,7 @@ struct Ground {
 
 /// Generate sectors over a BSP payload's instanced geometry
 /// (docs/engine_ai_pathfinding.md).
-fn generate_ground(cfg: &InstancePathfinding, sbsp: &[u8]) -> Result<Ground> {
+fn generate_ground(cfg: &InstancePathfinding, sbsp: &[u8], level_dir: &Path) -> Result<Ground> {
     use blam_sbsp::navmesh::{self, Options, POLICY_STATIC};
     use blam_sbsp::pathfinding;
     // An instance that copies the shell is not ground of its own.
@@ -516,17 +648,57 @@ fn generate_ground(cfg: &InstancePathfinding, sbsp: &[u8]) -> Result<Ground> {
         seam_step: cfg.seam_step,
         ..Options::default()
     };
+    // Floor too deep under water is no ground. A polygon is judged at its
+    // middle: a bridge deck over a river is above the surface there.
+    let water = cfg.water.as_ref().map(|w| Water::load(w, level_dir)).transpose()?;
+    let middle = |p: &navmesh::Polygon| {
+        let n = p.ring.len().max(1) as f32;
+        [0, 1, 2].map(|k| p.ring.iter().map(|v| v[k]).sum::<f32>() / n)
+    };
+    let dry = |_: usize, p: &navmesh::Polygon| water.as_ref().is_none_or(|w| w.depth(middle(p)).is_none_or(|d| d <= w.max_depth));
     // Where one piece of ground lies closely over another, the lower one
     // gives way, so the pieces meet on a line and join.
     let raw = polygons;
     let (polygons, cut) = if cfg.headroom > 0.0 {
-        let piece = navmesh::ground_pieces(&raw, &options).map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+        let piece = navmesh::ground_pieces(&raw, &dry, &options).map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
         navmesh::cut_covered(&raw, &piece, cfg.headroom)
     } else {
         (raw.clone(), navmesh::Cut { source: (0..raw.len() as u32).collect(), touched: vec![false; raw.len()], ..Default::default() })
     };
-    let (mesh, pf) = navmesh::generate(&polygons, &|_, _| true, &options, cfg.min_ground)
+    let (mesh, pf) = navmesh::generate(&polygons, &dry, &options, cfg.min_ground)
         .map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+    let mut by_piece: BTreeMap<usize, (f64, [f64; 2], usize)> = BTreeMap::new();
+    for (sector, &surface) in pf.sector_surface.iter().enumerate() {
+        let ring = blam_sbsp::unpack16::polygon(&mesh.collision, surface);
+        let n = ring.len();
+        let area = (0..n).map(|k| (ring[k][0] * ring[(k + 1) % n][1] - ring[(k + 1) % n][0] * ring[k][1]) as f64).sum::<f64>().abs() / 2.0;
+        let e = by_piece.entry(pf.component[sector]).or_insert((0.0, [0.0; 2], 0));
+        e.0 += area;
+        for k in 0..2 {
+            e.1[k] += area * ring.iter().map(|v| v[k] as f64).sum::<f64>() / n as f64;
+        }
+        e.2 += 1;
+    }
+    let mut pieces: Vec<(f64, [f64; 2], usize)> =
+        by_piece.into_values().map(|(a, c, n)| (a, [c[0] / a.max(1e-9), c[1] / a.max(1e-9)], n)).collect();
+    pieces.sort_by(|x, y| y.0.total_cmp(&x.0));
+    let mut drowned = (0usize, 0f64, None);
+    if let Some(w) = &water {
+        let mut off: Vec<f32> = Vec::new();
+        for p in raw.iter().filter(|p| p.ring.len() >= 3 && !dry(0, p)) {
+            let (a, b, c) = (p.ring[0], p.ring[1], p.ring[2]);
+            let up = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            let n = p.ring.len();
+            let twice: f32 = (0..n).map(|k| p.ring[k][0] * p.ring[(k + 1) % n][1] - p.ring[(k + 1) % n][0] * p.ring[k][1]).sum();
+            if up > 0.0 {
+                drowned.0 += 1;
+                drowned.1 += twice.abs() as f64 / 2.0;
+                off.extend(w.off_bed(middle(p)));
+            }
+        }
+        off.sort_by(f32::total_cmp);
+        drowned.2 = off.get(off.len() / 2).copied();
+    }
     pf.check_rings().map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
     pf.check_hints().map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
     let mut refs: BTreeMap<usize, Vec<i32>> = BTreeMap::new();
@@ -559,7 +731,7 @@ fn generate_ground(cfg: &InstancePathfinding, sbsp: &[u8]) -> Result<Ground> {
     // surface with no sector, a ray 4 wu down to whatever ground is there.
     // Give it back: a surface an AI could stand on that is no ground itself
     // (a trim strip, a facet too small to count) names the sector under its
-    // middle, within those 4 wu.
+    // middle, within those 4 wu, or failing that the nearest one beside it.
     let mut beneath = 0;
     if cfg.instances == PathfindingInstances::Ground {
         const CELL: f32 = 8.0;
@@ -601,6 +773,31 @@ fn generate_ground(cfg: &InstancePathfinding, sbsp: &[u8]) -> Result<Ground> {
                     }
                 }
             }
+            // Nothing under it (a facet of a steep bank, a bed too deep):
+            // the nearest ground beside it, within 3 wu in plan and 2 wu in
+            // height, so a unit that slid there can find its way out.
+            if best.is_none() {
+                let (cx, cy) = ((m[0] / CELL).floor() as i32, (m[1] / CELL).floor() as i32);
+                let mut nearest: Option<(usize, f32)> = None;
+                for x in cx - 1..=cx + 1 {
+                    for y in cy - 1..=cy + 1 {
+                        for &sector in grid.get(&(x, y)).into_iter().flatten() {
+                            let ring = blam_sbsp::unpack16::polygon(&mesh.collision, pf.sector_surface[sector]);
+                            for k in 0..ring.len() {
+                                let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
+                                let d = [b[0] - a[0], b[1] - a[1]];
+                                let t = (((m[0] - a[0]) * d[0] + (m[1] - a[1]) * d[1]) / (d[0] * d[0] + d[1] * d[1]).max(1e-9)).clamp(0.0, 1.0);
+                                let q = [a[0] + d[0] * t, a[1] + d[1] * t, a[2] + (b[2] - a[2]) * t];
+                                let far = ((q[0] - m[0]).powi(2) + (q[1] - m[1]).powi(2)).sqrt();
+                                if far < 3.0 && (q[2] - m[2]).abs() < 2.0 && nearest.is_none_or(|(_, n)| far < n) {
+                                    nearest = Some((sector, far));
+                                }
+                            }
+                        }
+                    }
+                }
+                best = nearest;
+            }
             if let Some((sector, _)) = best {
                 r[p.surface as usize] = sector as i32;
                 beneath += 1;
@@ -613,7 +810,7 @@ fn generate_ground(cfg: &InstancePathfinding, sbsp: &[u8]) -> Result<Ground> {
             PathfindingInstances::Ground => "pathfinding: no instance of the BSP carries walkable ground",
         });
     }
-    Ok(Ground { instances, polygons: raw.len(), cut: cut.cut, beneath, mesh, pf, refs })
+    Ok(Ground { instances, polygons: raw.len(), cut: cut.cut, beneath, drowned, pieces, mesh, pf, refs })
 }
 
 fn default_plane_tolerance() -> f32 {
@@ -2821,9 +3018,31 @@ impl Baker {
             }
         }
         println!("  path    firing positions on BSP {bsp}: {placed} on a sector, {lost} on none");
+        println!(
+            "  path    {} piece(s) of ground: {}",
+            ground.pieces.len(),
+            ground
+                .pieces
+                .iter()
+                .take(8)
+                .map(|(a, c, n)| format!("{a:.0} wu^2 in {n} sector(s) about ({:.0}, {:.0})", c[0], c[1]))
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+        if ground.drowned.0 > 0 {
+            println!(
+                "  path    water: {} upward polygon(s), {:.0} wu^2 in plan, lie too deep to be ground; {}",
+                ground.drowned.0,
+                ground.drowned.1,
+                match ground.drowned.2 {
+                    Some(off) => format!("their middles are {off:.2} wu (median) from the bed the water was baked on"),
+                    None => "the states carry no bed to check them against".to_string(),
+                }
+            );
+        }
         if ground.cut > 0 || ground.beneath > 0 {
             println!(
-                "  path    {} floor(s) cut where another piece of ground lies closely over them; {} surface(s) that are no ground name the sector beneath",
+                "  path    {} floor(s) cut where another piece of ground lies closely over them; {} surface(s) that are no ground name the sector beneath or beside them",
                 ground.cut, ground.beneath
             );
         }
@@ -3348,6 +3567,7 @@ fn bake(a: BakeArgs) -> Result<()> {
     }
     let map = palette_map()?;
     let scen = level.canvas.scenario.to_uppercase();
+    let level_dir = a.file.parent().unwrap_or(Path::new("."));
 
     let idx = index::build(&a.src.paks)?;
     let by_group = idx.by_group();
@@ -3554,7 +3774,7 @@ fn bake(a: BakeArgs) -> Result<()> {
                 Err(e) => println!("  bsp {index}: no copy of the shell looked for ({e})"),
             }
             if let Some(cfg) = level.blam.pathfinding.as_ref().filter(|_| Some(index) == level_bsp) {
-                let g = generate_ground(cfg, &new_body)?;
+                let g = generate_ground(cfg, &new_body, level_dir)?;
                 if cfg.instances == PathfindingInstances::Ground {
                     // The simulation reads an instance's sectors only when
                     // its policy is not none.
@@ -3675,7 +3895,7 @@ fn bake(a: BakeArgs) -> Result<()> {
                 .as_ref()
                 .with_context(|| format!("pathfinding: --bsp {canvas_bsp}=<payload> or --pathfinding-bsp <payload> is needed"))?;
             let sbsp = std::fs::read(payload).with_context(|| format!("cannot read BSP payload {}", payload.display()))?;
-            ground = Some(generate_ground(cfg, &sbsp)?);
+            ground = Some(generate_ground(cfg, &sbsp, level_dir)?);
         }
         let bsp = if level.blam.single_bsp.is_some() { 0 } else { canvas_bsp };
         baker.instance_pathfinding(bsp, ground.as_ref().expect("generated"))?;
@@ -4567,6 +4787,46 @@ fn append_forge_preloads(data: &[u8], targets: &[String], usmap: &ue_asset::Usma
 
 #[cfg(test)]
 mod tests {
+    /// A baked water state of the first format, written and read back.
+    #[test]
+    fn a_baked_water_state_says_how_deep_a_point_is() {
+        use exr::prelude::*;
+        let dir = std::env::temp_dir().join(format!("mjolnir-water-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // 4 x 2 texels of 100 cm about the origin; the left half is water
+        // 150 cm deep with its surface at 300 cm (capture -200 + height 500).
+        let wet = |x: usize| x < 2;
+        write_rgba_file(dir.join("height.exr"), 4, 2, |x, _| (if wet(x) { 500f32 } else { 0.0 }, 0f32, 0f32, 1f32)).unwrap();
+        write_rgba_file(dir.join("velocity.exr"), 4, 2, |x, _| (0f32, 0f32, if wet(x) { 150f32 } else { 0.0 }, 0f32)).unwrap();
+        std::fs::write(
+            dir.join("state.json"),
+            r#"{"height": "flux_state/height.exr", "velocity": "flux_state/velocity.exr", "centre": [0, 0, 1000], "res": [4, 2], "cell": 100.0, "height_cm": 500.0, "capture": -200.0}"#,
+        )
+        .unwrap();
+        let water = super::Water::load(&super::PathfindingWater { states: vec!["state.json".into()], max_depth: 0.5 }, &dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        // (-150 cm, 50 cm) in Unreal is (-0.49, -0.16) wu, y the other way.
+        let depth = water.depth([-150.0 / 304.8, -50.0 / 304.8, 150.0 / 304.8]).expect("wet");
+        assert!((depth - 150.0 / 304.8).abs() < 1e-4, "{depth}");
+        assert!(water.depth([150.0 / 304.8, -50.0 / 304.8, 0.0]).is_none(), "the right half is dry");
+        assert!(water.depth([50.0, 0.0, 0.0]).is_none(), "outside the state is dry");
+        assert!(water.off_bed([-0.4, 0.1, 0.0]).is_none(), "no ground in this format");
+    }
+
+    /// Reads a real state when MJOLNIR_FLUX_STATE names its state.json.
+    #[test]
+    fn a_shipped_water_state_loads() {
+        let Some(path) = std::env::var_os("MJOLNIR_FLUX_STATE") else { return };
+        let path = std::path::PathBuf::from(path);
+        let cfg = super::PathfindingWater { states: vec![path.file_name().unwrap().to_string_lossy().into_owned()], max_depth: 0.5 };
+        let water = super::Water::load(&cfg, path.parent().unwrap()).unwrap();
+        let s = &water.states[0];
+        let wet: Vec<f32> = s.surface.iter().copied().filter(|z| !z.is_nan()).collect();
+        let (lo, hi) = wet.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &z| (lo.min(z), hi.max(z)));
+        println!("{} of {} texels wet; surface {lo:.0} to {hi:.0} cm; ground {}", wet.len(), s.surface.len(), s.bed.is_some());
+        assert!(!wet.is_empty());
+    }
+
     use super::*;
 
     #[test]

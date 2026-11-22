@@ -522,7 +522,11 @@ The remaining steps, in order:
    from open terrain onto the west base's floor. Not yet watched: an AI
    walking onto the centre platform. Details in the engine article,
    "Structures on the terrain".
-2. **Water.** Deep water is still walkable ground in this bake.
+2. **Water: done (same day).** The bake reads the map's two baked Flux
+   states and leaves out floor more than 0.5 wu under the surface (27,788
+   wu²). Both banks and both bases stay one piece of ground, and Elites
+   ordered across the river in both directions arrived without a position
+   sample in water. Details in the engine article, "Water".
 3. **Zones and tasks per capture candidate** in place of the bots lane's one
    map-wide zone (section 4), so squads assault and hold the site in play.
 4. **A second player, and a fight.** One placed squad walking 300 wu across tiles, with the

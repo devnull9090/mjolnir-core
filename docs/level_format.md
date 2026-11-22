@@ -369,8 +369,12 @@ or use `null` to leave the loader's per-map default in effect.
                             // rock facets
   "headroom": 0,            // a floor with another piece of ground less than this (wu) above it is cut
                             // away there, so a slab or platform on the terrain joins it. 0: never cut
-  "seam_step": 0.1          // how far apart in height two floors' edges may be for a seam to join them:
+  "seam_step": 0.1,         // how far apart in height two floors' edges may be for a seam to join them:
                             // how far a slab may stand above the ground it lies on
+  "water": {                // optional: floor too deep under water gets no sectors
+    "states": ["flux_state/river/state.json"],  // the level's baked Fluid Flux states, relative to this file
+    "max_depth": 0.5        // wu under the surface, judged at each polygon's middle
+  }
 }
 ```
 
