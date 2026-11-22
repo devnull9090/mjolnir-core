@@ -311,9 +311,14 @@ map baked before levels has `<kind>_<k>` squads, which a bot falls back to.
   and a body that heals itself. So `build_bot_characters.sh` reads the
   players' model (`objects\characters\spartans\spartans`, `new damage
   info`) and writes it into the Spartan bot characters: body 45, shield 70,
-  the shield back after the model's stun time (7 s) over its recharge time
-  (3 s), no body regeneration, at every level. A Spartan bot takes the hits
-  a player takes. The host's Shields setting is a player trait and does not
+  the shield back after 6 s over its recharge time (3 s), no body
+  regeneration, at every level. A Spartan bot takes the hits a player takes.
+  Checked in game 2026-11-21 (Blood Gulch, values poked into the running
+  game): bots had read 105 body and no shield; with these they read 45 and
+  70, and a bot and the player hit by the same `damage_object` for 40 lost
+  the same 57% and refilled frame for frame. The player's shield starts back
+  a second before the model's stun time (7 s) says, so the bots' delay is
+  the stun time less a second; at 7 a bot recharged a second late. The host's Shields setting is a player trait and does not
   reach bots.
 
 Every machine in the match needs the characters' containers,

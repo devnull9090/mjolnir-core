@@ -59,8 +59,8 @@ PY
 # donor, has no shield (0) and a body that regenerates, which the players'
 # model does not. A character's vitality block overrides its unit's model for
 # an AI unit, so the model's damage info is copied into it: body = maximum
-# vitality; shield = maximum shield vitality; delay = the shield's stun time;
-# recharge = its recharge time. The same numbers go in the normal and
+# vitality; shield = maximum shield vitality; delay = the shield's stun time
+# less a second (below); recharge = its recharge time. The same numbers go in the normal and
 # legendary slots: a player's body is the same at every difficulty. $1 is a
 # model path substring.
 vitality_sets() {
@@ -90,7 +90,13 @@ v = "vitality properties[0]."
 for slot in ("normal", "legendary"):
     print(f"{v}{slot} body vitality={body_max}")
     print(f"{v}{slot} shield vitality={shield_max}")
-print(f"{v}shield recharge delay time={delay}")
+# A player's shield starts back a second before the model's stun time says:
+# measured 2026-11-21 on Blood Gulch, a player and a bot damaged by the same
+# command, frame for frame alike with the bot's delay at stun - 1 (6 s for
+# stun 7) and a second late at 7. The rate (1 / recharge time) matched as is.
+# Where the player's second goes is not known; no globals or trait field
+# holds a shield delay for Megalo.
+print(f"{v}shield recharge delay time={max(0.0, delay - 1.0)}")
 print(f"{v}shield recharge time={recharge}")
 print(f"{v}runtime_shield_recharge_velocity={1.0 / recharge}")
 # A player's body does not heal on its own (the model's body recharge never
