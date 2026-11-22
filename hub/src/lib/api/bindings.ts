@@ -1,4 +1,4 @@
-import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
+import type { Ai, D1Database, Fetcher, R2Bucket, Vectorize } from "@cloudflare/workers-types";
 
 /**
  * Worker bindings and secrets the API runs against, matching wrangler.jsonc
@@ -13,6 +13,12 @@ export interface HubBindings {
   MODS_BUCKET: R2Bucket;
   RELEASES_BUCKET: R2Bucket;
   SITE_URL: string;
+  /** The site's static files. Absent under `next dev`, which serves them itself. */
+  ASSETS?: Fetcher;
+  /** Workers AI and the docs' Vectorize index: semantic docs search
+   *  (docs-search.ts). Optional, because the search answers without them. */
+  AI?: Ai;
+  DOCS_INDEX?: Vectorize;
   DISCORD_CLIENT_ID?: string;
   DISCORD_CLIENT_SECRET?: string;
   DISCORD_PUBLIC_KEY?: string;

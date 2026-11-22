@@ -501,7 +501,7 @@ button. Check the deployed API's current limits and response schemas.
    `channel` (`beta` for playtests), and `changelog_md`. Save the returned ID.
 3. Upload the signed archive as raw bytes to `PUT /releases/{id}/archive`.
    This source revision accepts up to 90 MiB in one request. Larger files use
-   the multipart routes in `hub/src/lib/api/publish.ts`, with a 400 MiB total cap.
+   the multipart routes in `hub/src/lib/api/publish.ts`, with a 1 GiB total cap.
 4. Call `POST /releases/{id}/complete`. Read scan findings and status. A successful
    upload is not proof that the release was published.
 5. Fix rejected packages, rebuild and re-sign. Some releases require moderator

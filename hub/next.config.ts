@@ -3,7 +3,13 @@ import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 
 // Makes getCloudflareContext() work under `next dev`: bindings come from
 // wrangler.jsonc (local D1/R2 simulations) and secrets from .dev.vars.
-initOpenNextCloudflareForDev();
+//
+// Workers AI and Vectorize have no local simulation. Left to its default,
+// wrangler opens a remote session for them at startup, and `next dev` then
+// fails for anyone not signed in to the Cloudflare account. So they stay
+// unconnected here: docs search answers by keyword alone, as it does when the
+// bindings are missing. MJ_REMOTE_BINDINGS=1 connects them to the real index.
+initOpenNextCloudflareForDev({ remoteBindings: process.env.MJ_REMOTE_BINDINGS === "1" });
 
 const nextConfig: NextConfig = {
   async headers() {

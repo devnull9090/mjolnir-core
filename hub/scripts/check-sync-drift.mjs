@@ -32,6 +32,7 @@ const OUTPUTS = [
   "src/generated/shipped-banks.json",
   "public/tag-search.json",
   "public/console-search.json",
+  "public/docs-search.json",
   "public/docs-images",
 ];
 

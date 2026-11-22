@@ -150,12 +150,16 @@ Copy the three files into your Paks folder:
 cp out/pakchunk999-MJOLNIR-texture_P.* "$HCE_PAKS/"
 ```
 
-`pakchunk999` mounts after everything shipped, and the `_P` suffix makes it a patch
-container — that is what wins the chunk lookup. The `.pak` is a discovery stub; a
+The `_P` suffix makes it a patch container, and that is what wins the chunk lookup over
+everything shipped; the number `999` confers nothing. The `.pak` is a discovery stub; a
 container without one is never mounted. Then launch the game and go look at the thing
 you painted.
 
 To undo it, delete those three files. That is the whole uninstall.
+
+If a mod installed from the hub replaces the same texture, it wins over a hand-copied
+container. `mjolnir dev install out/pakchunk999-MJOLNIR-texture_P.utoc --name my-repaint`
+installs yours above all hub content, and `mjolnir dev remove my-repaint` takes it out again.
 
 ## In the tag editor
 
@@ -216,7 +220,7 @@ Refused rather than approximated, in both cases:
 - **Cubemaps, arrays and volume textures** fail too. One 2D image does not say what the
   other faces should become, and rewriting one would silently discard them.
 - A classic texture that keeps **every** mip inline in its export has no bulk chunk to
-  replace; the encoder handles it, but neither the command nor the editor can pack it
+  replace; `texture swap` rewrites the export alone (CLI 0.13.0), and the editor cannot
   yet. A classic chain whose *tail* mips are inline — the usual case, everything below
   128x128 — is fine on the command line: `texture swap` rewrites the export body too and
   packs the `.uasset` beside the `.ubulk`, both at their shipped lengths. The editor does
@@ -233,7 +237,8 @@ the exception: *Replace…* stays enabled, and the refusal comes after the PNG i
 ## Troubleshooting
 
 **Nothing changed in game.** Check the file names first — the `_P` suffix and the
-`.pak` stub are both load-bearing, and a `pakchunk` number below a shipped one loses.
+`.pak` stub are both load-bearing, and a hand-copied container loses to a hub-installed mod that
+replaces the same texture (`mjolnir dev list` names it).
 Close the game before copying: Windows will not let files it holds open be replaced,
 so a silent copy failure looks exactly like a swap that did nothing.
 

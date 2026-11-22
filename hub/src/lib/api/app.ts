@@ -27,6 +27,7 @@ import { registerPlayerRoutes } from "./players";
 import { registerCrashRoutes } from "./crashes";
 import { registerBenchRoutes } from "./benches";
 import { registerForgeRoutes } from "./forge";
+import { registerDocsSearchRoutes } from "./docs-search";
 import { CLIENT_VARY, clientOf, compatible } from "./clients";
 import {
   ErrorSchema,
@@ -452,6 +453,10 @@ app.openapi(
 
 registerPublishRoutes(app);
 registerForgeRoutes(app);
+
+// ── Docs: semantic search ─────────────────────────────────────────────
+
+registerDocsSearchRoutes(app);
 
 // ── Community: media, ratings, comments ───────────────────────────────
 

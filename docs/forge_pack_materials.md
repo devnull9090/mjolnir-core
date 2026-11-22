@@ -70,13 +70,18 @@ target/debug/mjolnir.exe forge pack forge-packs/foundry-wide/build/game/all/mjol
   --out forge-packs/foundry-wide/build/foundry-wide-0.2.0.mjolnir --sign
 ```
 
-Reserve an unused shader chunk in `900..999`. Foundry Wide uses **967**; its
-number must stay in `pakchunk967-MJOLNIRFORGEMAT-foundry-wide_P`, because Unreal
-opens the matching numbered shader library. A different pack needs its own
-reserved number. Asset paths are derived from the validated pack slug:
+Cook under a shader chunk in `900..999` that your own installed packs do not
+use (`build_materials.py` enforces the range). Foundry Wide uses **967**, as
+`pakchunk967-MJOLNIRFORGEMAT-foundry-wide_P`: Unreal opens the shader library
+whose number matches the container's. Asset paths are derived from the validated pack slug:
 `/Game/MJOLNIR/Forge/<slug>/Materials/` and `.../Textures/`.
 
-The launcher checks this numeric reservation before installing an enabled
+**Launcher 0.24.0 and newer** give each installed container its own number and
+rename its shader library to match, so two packs cooked under the same number
+install side by side ([chunk_numbering.md](chunk_numbering.md)). The rest of
+this paragraph is what an older launcher does.
+
+An older launcher checks the numeric reservation before installing an enabled
 surface pack, applying a profile, launching, or copying live dependencies.
 Different slugs do not make the same shader number safe. A conflicting active
 pack or unrelated `.pak`/`.utoc`/`.ucas` in Paks is refused without modifying

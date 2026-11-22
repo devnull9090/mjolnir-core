@@ -2,7 +2,7 @@
 
 **Goal:** change a weapon's ammunition and see it in the running game
 **Time:** about an hour, most of it waiting for the game to load
-**You need:** Halo Campaign Evolved on Steam (Windows), and a text editor
+**You need:** Halo Campaign Evolved on Windows and a text editor. The steps use the Steam build; the launcher and the editor also work with the Xbox app build ([`game_pass.md`](game_pass.md))
 
 This walks the whole path, from a clean install to a value you changed showing up on the HUD. It
 is the same route the project took to get there the first time, with the dead ends removed.
@@ -83,7 +83,9 @@ That gives you `target/release/mjolnir`. The rest of this guide writes `mjolnir`
 if you built it, that means `target/release/mjolnir`.
 
 Optional but recommended, since it turns a twenty-minute manual test loop into a two-minute one.
-It needs UE4SS, which the MJOLNIR launcher installs, and a clone of the repository to run it from:
+It needs UE4SS, which the MJOLNIR launcher installs. The launcher's **My Mods** page lists
+MJOLNIRBridge under *Available to install*. The driver scripts in `tools/mcp/game` need a clone of
+the repository either way, and from a clone the same install is:
 
 ```powershell
 .\scripts\install-bridge.ps1
@@ -224,13 +226,14 @@ Every edit reports what moved:
   before   200
   after    99
   file     32620 bytes, unchanged length true
-  walk     7269 of 7269 bytes consumed
-  differs  1 byte(s) from the original
+  changed  1 byte(s) at 0x75B9..=0x75B9, inside the field at 0x75B9..0x75BB
+  contained within the field: true
+  re-read  99  (walk exact: true)
 ```
 
-Read those last three lines every time. `walk … consumed` means the patched tag still parses
-exactly; `differs 1 byte(s)` means the edit touched its field and nothing else. If either looks
-wrong, stop.
+Read those last three lines every time. `contained within the field: true` means the edit touched
+its field and nothing else; `walk exact: true` means the patched tag still parses exactly, and
+`re-read` is your value read back out of it. If any of them looks wrong, stop.
 
 ### Editing a tag file directly
 
@@ -313,6 +316,16 @@ Three things about those names matter:
 Nothing shipped is modified. Deleting those three files reverts the game completely, and Steam's
 *Verify integrity of game files* is the backstop.
 
+**If you also have mods installed from the hub,** a hand-copied container loses to any hub mod
+that changes the same tag. `mjolnir dev install` installs yours above all hub content and writes
+the stub `.pak` itself:
+
+```bash
+mjolnir dev install <somewhere>/pakchunk999-MJOLNIR-Windows_P.utoc --name ar-ammo
+mjolnir dev list             # your builds, and any loose container that is losing to the hub
+mjolnir dev remove ar-ammo   # undo
+```
+
 ---
 
 ## Step 8 — See it work
@@ -328,7 +341,9 @@ Then reload. The magazine fills to 99 in one press, and the reserve drops by exa
 99 in the magazine, 861 in reserve — 900 less the 39 it took to top up from 60. That arithmetic
 working out is the confirmation: it is not a HUD quirk, the simulation is using your numbers.
 
-With the bridge mod installed, the whole loop is scriptable:
+With the bridge mod installed, the whole loop is scriptable. The input line below is the CU2
+sequence; on CU4 the frontend menu takes only mouse clicks, so use `{"click":[x,y]}` steps and
+the `sendinput` route for menus ([`game_automation.md`](game_automation.md), *Hazards*):
 
 ```bash
 node tools/mcp/game/cli.mjs launch

@@ -71,7 +71,9 @@ Two things to know:
 
 Click **Test in game**. The editor bakes your recipe into an override container, verifies
 it by reading it back the way the game would, and installs it into your Paks folder
-(files named `pakchunk999-MJOLNIRDEV-…`, loaded after everything else).
+(files named `pakchunk999-MJOLNIRDEV-…`, which override the shipped game). If a mod installed
+from the hub changes the same tag, the hub's copy wins: disable that mod in the launcher while
+you test, or check with `mjolnir dev list`, which names a test install that is losing.
 
 Launch the game and look at your change. When you are done, **Remove test install** puts
 your installation back exactly as it was — those files are the only thing the editor ever
@@ -100,7 +102,7 @@ for it (about fifteen seconds) and every edit after that is instant. See
 **Export .mjolnir archive** writes `build/<slug>-<version>.mjolnir` — a zip holding the
 manifest and the baked containers, in exactly the format the hub validates
 ([the spec](mjolnir_format.md)). Anyone can install that file's published version through
-the launcher's hub tab; you can also hand it to a friend directly.
+the launcher's **Browse Hub** page.
 
 One honest caveat: a baked container includes data derived from the game's own tags.
 Share your mod through the hub or with people who own the game — and the recipe files

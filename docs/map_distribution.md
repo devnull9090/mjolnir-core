@@ -229,7 +229,7 @@ writes the one-type script for a list without entry 20
 
 | What | Where |
 |---|---|
-| Map and runtime containers | `Meteorite/Content/Paks`, named by the launcher (`pakchunk{9xx}-MJOLNIRHUB-<slug>-<n>_P`), with `.pak` siblings: a stub, or a vehicle's [banks](#a-vehicles-banks) |
+| Map and runtime containers | `Meteorite/Content/Paks`, named by the launcher (`pakchunk<N>-MJOLNIRHUB-<slug>-<j>_<v>_P`, with `N` from 10000 and `v` from 1000: [chunk_numbering.md](chunk_numbering.md)), with `.pak` siblings: a stub, or a vehicle's [banks](#a-vehicles-banks) |
 | Map data (`map/`) | `Binaries/<Win64\|WinGDK>/ue4ss/MJOLNIRMaps/<CODE>/` |
 | The map list | `ue4ss/MJOLNIRMaps/maps.json`, generated |
 | The registration container | `Paks/pakchunk996-MJOLNIRREG_P.{utoc,ucas,pak}`, generated |
@@ -240,9 +240,12 @@ instead of the legacy texture-only `pakchunk985` name. Local installation and
 archive staging read `materials.spec.json` and reject missing correctly named
 outputs; a stale 985 container cannot substitute for the authored cook.
 
-A container that carries a shader library keeps its own chunk number in
-the name the launcher gives it (`pakchunk988-MJOLNIRHUB-…`), not a load
-order number. UE opens a mounted pak's shader library by the number it
+Before launcher 0.24.0, a container that carried a shader library kept its
+own chunk number in the name the launcher gave it (`pakchunk988-MJOLNIRHUB-…`),
+not a load order number. Launcher 0.24.0 and newer give every container a
+number of its own and rename its shader library to match; only the runtime
+containers listed in `config/fixed_chunks.json` keep their cooked number
+([chunk_numbering.md](chunk_numbering.md)). The reason either is needed: UE opens a mounted pak's shader library by the number it
 reads off the file name (`ShaderCodeLibrary.cpp`, `OnPakFileMounted`), so
 the CE material masters renamed to `pakchunk9NN` would mount without
 their shaders.
@@ -405,7 +408,7 @@ official classic, and the catalog metadata (migration 0017). `GET
   - rejects a `code` another mod's listing or held release has (`map_code_taken`).
 - The archive limits are those of any content release. One request
   (`PUT /releases/{id}/archive`) takes up to 90 MiB, under Cloudflare's
-  100 MB request body. A bigger archive, up to 400 MiB, goes up in parts:
+  100 MB request body. A bigger archive, up to 1 GiB, goes up in parts:
   `POST /releases/{id}/archive/multipart`, parts of 5 to 64 MiB, then
   `.../multipart/{upload_id}/complete` joins them. The release's
   `POST /releases/{id}/complete` then scans the stored archive from R2 as a

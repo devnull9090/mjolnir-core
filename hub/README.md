@@ -42,11 +42,23 @@ author signature) and `SUPER_ADMIN_DISCORD_ID` (the account seated as admin at s
 `../changelog` and `../blog`. That is why editing a repo doc shows up on the site without
 touching this package.
 
-A doc is only published if it is listed in `scripts/sync-docs.mjs` (`ORDER` for notes, `GUIDES`
-for guides). Anything else is skipped, and the script warns about unlisted docs. A relative link
-in a published doc goes to the note or guide route when its target is published, and to the file
-on GitHub otherwise (`resolveHref` in `src/app/docs/_components/Markdown.tsx`), so a link to an
-unlisted doc leaves the site rather than 404ing.
+What the site publishes, and in which section of `/docs`, is `../docs/site.json`. Every Markdown
+file in `docs/` has to be in one of its sections or under its `repoOnly`, and the sync fails
+otherwise, so a new doc is placed on the site or kept off it on purpose. A relative link in a
+published doc goes to the note or guide route when its target is published, and to the file on
+GitHub otherwise (`resolveHref` in `src/app/docs/_components/Markdown.tsx`), so a link to a
+repo-only doc leaves the site rather than 404ing.
+
+Docs search has two layers. The sync cuts every published doc into chunks, one per heading, and
+writes `public/docs-search.json`; the palette (`src/app/docs/_components/DocsSearch.tsx`, Ctrl K)
+fetches it once and ranks keywords in the browser (`src/lib/docs-search.ts`), together with the
+tag and console indexes. A question is also sent to `GET /api/v1/docs/search`, which embeds it
+with Workers AI and returns the nearest chunks from a Vectorize index (`src/lib/api/docs-search.ts`);
+the palette merges the two rankings. The index is filled by `POST /api/v1/docs/search/sync`, which
+`deploy-hub.yml` calls after each deploy. Neither binding connects under `pnpm dev`, where search
+is keywords alone; `MJ_REMOTE_BINDINGS=1 pnpm dev` connects them, for someone signed in to the
+Cloudflare account. That is the production index, `mjolnir-docs`: there is no other, so a sync
+run from a local build replaces what the live site searches until the next deploy syncs it back.
 
 To exercise the Workers runtime rather than the Next dev server — bindings, the real R2 and D1
 behaviour — build and preview:

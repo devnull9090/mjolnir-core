@@ -36,7 +36,7 @@ from a runtime mod reading your level file. One `.level.json` describes both.
 
 | What | How |
 |---|---|
-| `mjolnir` CLI | `cargo build --release -p blam-cli` (or a release build) |
+| `mjolnir` CLI | a release install (`scoop install mjolnir` or `brew install mjolnir`, see [getting_started.md](getting_started.md)), or `cargo build --release -p blam-cli` from a clone |
 | Blender 4.0+ addon | `scripts\install-blender-tools.ps1` (installs and enables it, plus blender-mcp), or install `tools/blender/mjolnir_level` by hand ([its README](../tools/blender/mjolnir_level/README.md)) |
 | `MJOLNIRLevelLoader` mod | the launcher installs it, with its native DLL, when it installs multiplayer or a map. `scripts\install-bridge.ps1 -Mods MJOLNIRLevelLoader` copies the repository's Lua instead and replaces the whole folder, removing the installed `levels/`, `registry/`, `variants/` and native DLL (build the DLL first with `native\map_registry\build.ps1` to keep it) |
 | Mesh catalog (for the decor library) | `mjolnir mesh list --paks <Paks> --out mesh-catalog.json` (~3 min) |
@@ -121,7 +121,12 @@ grows palettes when a structure's tag isn't in them yet, rewrites the
 insertion-point-0 player starts, and writes the result through the same
 byte-exact container verification `mjolnir pack` uses. `--install-test` puts
 the three `pakchunk998-MJOLNIRLEVEL-*` files in `Paks` and copies the level
-file to the loader's `levels/` directory.
+file to the loader's `levels/` directory. Those are loose files: if the same
+map is also installed from the hub, the hub's copy wins, and
+`mjolnir dev list` names the loose containers that are losing. For those,
+bake with `--out-dir <dir>` as well and run
+`mjolnir dev install <dir>/<container>_P.utoc`, which installs a container
+above hub content. `--install-test` is still what copies the level file.
 
 To iterate on **decor only**, edit the level file in place and run
 `mjolnir_level_reload` in the in-game console — no restart. Scenario-side
@@ -133,6 +138,14 @@ loader's `levels/<CANVAS>.level.json`, or the shipped mission keeps the
 level's decor.
 
 ## 3 — Play
+
+A level baked with `--standalone` is a map of its own. After sign-in it is
+listed under **MULTIPLAYER → HOST GAME**, other players join from the lobby,
+and `mjolnir_auto host <CODE> slayer private` hosts it from the console. To
+publish it for players to download, see
+[custom_map_walkthrough.md](custom_map_walkthrough.md) and
+[map_distribution.md](map_distribution.md). The rest of this section is for a
+canvas override.
 
 Start the game and launch the canvas mission **through the game's own menu**
 (Campaign → mission select, or the debug map menu via `mjolnir_debug_ui`).

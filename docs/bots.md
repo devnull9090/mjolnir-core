@@ -398,8 +398,11 @@ mjolnir level bake examples/levels/bloodgulch_bots.bake.level.json --standalone 
 ```
 
 Every machine in the match needs the same scenario. The test install put the
-result beside the hub's as `pakchunk997-MJOLNIRBOTS-BGL_9_P` (the `_9_P`
-outranks the hub release's containers).
+result beside the hub's as `pakchunk997-MJOLNIRBOTS-BGL_9_P`, whose `_9_P`
+outranked the hub release's containers at the time. On launcher 0.24.0 and
+newer every hub container sorts above a hand-named one, so install a local
+build with `mjolnir dev install <container> --name <name>`, which loads above
+the hub release ([chunk_numbering.md](chunk_numbering.md)).
 
 ### Giving a published map bots
 
@@ -428,12 +431,13 @@ so is a container with more than one BSP or world.
 ## Not done
 
 - Spartan bots all wear the default armour colour.
-- Slayer's own score counts player kills only: the HUD's board counts bot
-  kills, but a round does not end when a bot reaches the score.
+- Slayer's own script counts player kills only. The HUD's board counts bot
+  kills, and the host's HUD ends the match when a bot or a bot's team reaches
+  the score.
 - Team games: a bot keeps its side when players join or leave (the teams
   can end uneven). A fireteam client's view of the sides
-  (the roster's letters, its own copy of the units' teams) is not tested on
-  two PCs.
+  (the roster's letters, its own copy of the units' teams) was tested on two
+  PCs on 2026-11-07 (Team Slayer, 4 bots): both boards agree.
 - Players' campaign teams: in a team game with bots a player's unit is
   covenant (red) or flood (blue) instead of no campaign team. Nothing else
   seen reads it in a Megalo game (player against player follows the

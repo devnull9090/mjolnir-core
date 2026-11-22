@@ -72,3 +72,15 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
+
+      # Semantic docs search reads a Vectorize index of the docs' chunks. The
+      # Worker fills it from the /docs-search.json it was just deployed with,
+      # and does nothing when the index already holds this build. The site is
+      # live either way (search falls back to keywords), so a failure here is
+      # reported and does not fail the deploy.
+      - name: Sync the docs search index
+        continue-on-error: true
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 600 \
+            --retry 3 --retry-delay 20 --retry-all-errors \
+            -X POST https://mjolnircore.com/api/v1/docs/search/sync

@@ -285,7 +285,9 @@ against a hub session.
 
 **Done.** `schema.sql` is gone, replaced by numbered, forward-only `wrangler d1 migrations` in
 [`hub/migrations/`](../hub/migrations) — through `0006_device_scopes.sql` at the time of
-writing. Apply them with `pnpm db:migrate` locally, `pnpm db:migrate:prod` against the deployed
+writing, and `0027_release_requires.sql` as of 2026-11-21. The table below covers the
+mod-distribution tables only; lobbies, map listings, matches and stats, player reports, crash
+and bench reports and release reviews each have their own migration. Apply them with `pnpm db:migrate` locally, `pnpm db:migrate:prod` against the deployed
 database.
 
 New and changed tables, abbreviated. The migrations are the authority; this is the shape they
@@ -315,7 +317,9 @@ Two details worth fixing now rather than later:
 - **Rank by Wilson lower bound, not mean.** A single 5★ must not outrank two hundred 4.8★
   ratings. Store the raw scores, compute the bound in a rollup.
 - **Download counts belong in Analytics Engine, not D1.** A counter row per download will
-  contend badly. Write events to Analytics Engine, roll up into D1 hourly.
+  contend badly. Write events to Analytics Engine, roll up into D1 hourly. **Not built
+  (2026-11-21):** downloads are D1 counters (`mods.download_count`,
+  `mod_releases.download_count`); Analytics Engine remains the plan if they contend.
 
 ### Two kinds of download count
 
@@ -412,6 +416,9 @@ holds the archive: it scans the stored object as a stream, feeding the unzip 256
 (PRs #209 and #210), and a request may now use up to five minutes of CPU (`limits.cpu_ms` in
 `hub/wrangler.jsonc`, PR #211).
 
+**Update 2026-11-21:** the multipart cap is now 1 GiB (`MAX_MULTIPART_ARCHIVE_BYTES`): Pelican
+Warfare is 681 MB packed.
+
 **Not built:** `GET /v1/collections/{slug}` (Phase 4) and `GET /v1/builds`.
 
 `POST /v1/conflicts/check` is the endpoint third-party managers will actually integrate against,
@@ -419,7 +426,7 @@ and it is the reason to publish a spec at all. Make it good.
 
 ### Auth
 
-- **Humans:** Discord OAuth → short-lived JWT in an `HttpOnly; Secure; SameSite=Lax` cookie.
+- **Humans:** Discord OAuth → a 7-day JWT in an `HttpOnly; Secure; SameSite=Lax` cookie.
 - **Tools:** API keys, `Authorization: Bearer mjc_...`, hash stored, scoped
   (`mods:read`, `mods:write`, `ratings:write`, `comments:write`, `lobbies:write`), revocable,
   rate-limited per key (admins excepted).
@@ -527,7 +534,10 @@ API keys and scopes, `POST /v1/conflicts/check`, the spec rendered at `/docs/api
 CORS, cursor pagination, and the moderation queue with reports and an audit log. Still missing
 from this phase: the "worked integration example" alongside the spec.
 
-Publishing stays unmoderated, and reporting is the brake that makes that safe: once three
+Tag and texture mods publish without review once their signed archive passes the scan. A map,
+or any release carrying sound banks, from an author below trust level 2 waits for a moderator
+([`mod_signing_design.md`](mod_signing_design.md), [`map_distribution.md`](map_distribution.md)).
+For everything published, reporting is the brake: once three
 distinct accounts hold open reports against one mod (or its releases), it is automatically
 hidden — delisted, page 404s, downloads stop — until a moderator restores or removes it from
 the hidden-mod queue. The flip is audit-logged as `mod_auto_hidden`. Transparency is the other

@@ -74,6 +74,7 @@ and only a map archive carries one. The layout and the install are in
 | `size` | no | `small`, `medium` or `large`. |
 | `players` | no | The player counts the map suits, `min` and `max` from 1 to 16, `min` no greater than `max`. |
 | `vehicles` | no | Whether the map has vehicles. |
+| `game` | no | `halo1` or `halo2`: the game the map comes from. The map select filters on it. |
 | `origin` | no | `custom_edition` for a converted Halo Custom Edition map, `original` for one made for Campaign Evolved. `classic` marks the converted stock maps; moderators set it, and a manifest that claims it is rejected (`bad_manifest`). |
 
 The optional fields fill the map's catalog listing, which players filter by.
@@ -147,7 +148,7 @@ design, threat model and rollout:
 
 | Check | Failure |
 |---|---|
-| Valid zip, decompressed total ≤ 768 MiB | `bad_zip` |
+| Valid zip, decompressed total ≤ 2 GiB | `bad_zip` |
 | The stored archive is the one uploaded | `hash_mismatch` |
 | No `..`, absolute, or drive-letter paths | `path_traversal` |
 | `mjolnir.json` present and valid | `no_manifest`, `bad_manifest` |
@@ -158,12 +159,17 @@ design, threat model and rollout:
 | `changes.json`, when present, valid and ≤ 512 KiB | `bad_changes` (absent is the `no_changes` warning) |
 | A map archive carries `map/level.json` and `map/registration.json`, both valid JSON | `map_file_missing`, `bad_map_file` |
 | A map's `code` is not already held by another mod | `map_code_taken` |
+| A map whose `level.json` declares baked Flux water carries the `.exr` state it names under `map/flux_state/`, matching its metadata and sealed hashes | `bad_flux_state`, `flux_file_missing` |
+| A Forge pack's utilities and profiles name cooked packages the pack itself carries | `missing_forge_package` |
+| A Forge pack's id is its hub slug, and a release keeps every entry the earlier releases of its version line have (a breaking change takes the next major, or the next minor before 1.0) | `forge_pack_id_mismatch`, `forge_pack_breaking_update` |
 | A `.bnk` sits at `content/<container>/<id>.bnk` beside its container, is a real bank of that id, and isn't one the game ships; at most 32 banks ([rules](map_distribution.md#a-vehicles-banks)) | `forbidden_file`, `bank_no_container`, `bad_bank`, `shipped_bank`, `too_many_banks` |
 
 Warnings never fail a scan: `no_summary` (the manifest has no summary),
 `stray_container` (a `.utoc` outside `content/`), `empty_container`,
-`foreign_container` (a map archive's container not named `-<CODE>_P`), and
-`no_changes`, which a map archive never raises.
+`foreign_container` (a map archive's container not named `-<CODE>_P`),
+`needs_new_launcher` (a shader library outside chunks 900 to 999, or one another
+mod also carries: only a current launcher installs it), and `no_changes`, which
+a map archive never raises.
 
 On a passing scan the hub records every chunk ID the containers claim into
 the **conflict index** (`release_chunks`), and the release — plus its mod, if
@@ -182,7 +188,7 @@ PUT  /api/v1/releases/{id}/archive         <raw .mjolnir bytes>   (≤ 90 MiB)
 POST /api/v1/releases/{id}/complete        → published | pending | rejected + findings
 ```
 
-An archive over 90 MiB, up to 400 MiB, goes up in parts instead of the single
+An archive over 90 MiB, up to 1 GiB, goes up in parts instead of the single
 `PUT`: `POST /api/v1/releases/{id}/archive/multipart` returns an `upload_id`;
 each part (5 to 64 MiB, every part but the last the same size, numbered from 1)
 goes to `PUT …/archive/multipart/{upload_id}/{n}`;

@@ -7,8 +7,8 @@ packs, a palette and keyboard controls.
 
 This guide uses **Foundry Wide 0.2** and MJOLNIRForge's placement controls.
 Forge editing is host-only. Use the matching maps and runtime together;
-the utility pieces require MJOLNIRForge 0.4.0, MJOLNIRLobby 0.19.2 and
-MJOLNIRLevelLoader 0.9.8 or newer.
+everything in this guide works with mods 0.45.0 or newer (MJOLNIRForge 0.4.2,
+MJOLNIRLobby 0.21.0), which the launcher installs and keeps current.
 
 ![Foundry Wide's modular construction and utility pieces, rendered in Blender](images/forge-showcase/foundry-wide.webp)
 
