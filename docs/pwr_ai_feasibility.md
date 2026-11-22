@@ -465,3 +465,30 @@ as the waves doc plans.
 | `ghidra_375470.c` | the `havok proxies` array creation |
 | `water.json` | flux source heights and lake bounds used for the water estimate |
 | `tags/`, `shipped/`, `gptd/`, `src/`, `PWR.umap` | extracted game and map content (local only) |
+
+## Format study, first pass (2026-11-22)
+
+`crates/blam-sbsp/examples/pf_objects.rs` compares a scenario's pathfinding
+with its structure BSP's instances. On B40 BSP 8 (`BSP_01_1_Start`, 632 sectors,
+1,807 vertices, 30 object refs, 841 instanced geometry refs):
+
+- **Vertices are world space.** Object 0's slice of `vertices` (from its
+  `vertex offset` 64) lies around (69, 98, 48) wu, beside definition 2's
+  vertices placed by its instance (scale 0.328 at the origin), not in any
+  definition's local frame.
+- **Instances do not map one to one onto objects.** Read as a short, the
+  4-byte `instanced geometry refs` elements name only 16 of the 30 objects, and
+  object 0 is named by almost every instance (definitions 0 to 180), though its
+  single `bsps` entry has 148 2D refs (74 none, 4 into `bsp2d nodes`, 39
+  distinct sectors). So either that field is not the object index as read, or
+  an object groups many instances.
+- **Object refs carry an `object id` struct** (element 24 bytes: flags,
+  `bsps`, object id), which suggests they may also stand for scenario objects
+  (machines, scenery) and not only instanced geometry.
+
+So the "one object ref per terrain definition" plan above is not yet backed
+by the format. Before a generator writes object refs, the simulation's reader
+must be traced (Ghidra: where `instanced geometry refs` and `object refs[].bsps`
+are consumed when an AI looks up its sector), and the generator must reproduce
+B40's own tables from B40's collision before it is pointed at PWR. A generator
+built on a guess risks the crash the Blood Gulch object-ref attempt hit.
