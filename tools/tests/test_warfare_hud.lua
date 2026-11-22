@@ -10,6 +10,13 @@ local function sample(tick, phase, red, blue, instance, stage)
 end
 
 local parsed = assert(Warfare.parse(sample(100)))
+-- Moving zones: the chosen candidate rides above the packed state.
+local moved = Warfare.site(2 + 16 * 20 + 3 * 1024)
+eq(moved.candidate, 3); eq(moved.owner, 2); eq(moved.progress, 3)
+eq(Warfare.site(1).candidate, 0, "a classic value has candidate 0")
+local spots = Warfare.candidates('{"warfare": {"protocol": 20569, "capture_candidates": [[[1, 2, 3], [4, 5, 6]], [], [[7.5, -8, 9e1]]]}}')
+eq(#spots[1], 2); eq(#spots[2], 0); eq(spots[3][1].x, 7.5); eq(spots[3][1].z, 90)
+eq(#Warfare.candidates("{}")[1], 0, "no candidates on a classic map")
 eq(parsed.reinforcement.interval, 60, "wave timing parsed"); eq(parsed.reinforcement.flight, 30)
 eq(Warfare.parse(sample(100):gsub("reinforcement 60 30", "reinforcement 30 60")), nil, "a flight longer than its interval")
 eq(Warfare.parse(sample(100):gsub("reinforcement 60 30", "reinforcement 60")), nil, "torn wave timing")

@@ -25,10 +25,32 @@ end
 local function clock(seconds)
     return string.format("%d:%02d", math.floor(seconds / 60), seconds % 60)
 end
+-- Moving zones add CANDIDATE_STRIDE * the site's chosen candidate on top.
+Warfare.CANDIDATE_STRIDE = 1024
 function Warfare.site(value)
+    local candidate = math.floor(value / Warfare.CANDIDATE_STRIDE)
+    value = value % Warfare.CANDIDATE_STRIDE
     local k = math.floor(value / 16)
     return { owner = value % 4, red = math.floor(value / 4) % 2 == 1, blue = math.floor(value / 8) % 2 == 1,
-        progress = k > 0 and (k - Warfare.PROGRESS_STEPS - 1) or nil }
+        progress = k > 0 and (k - Warfare.PROGRESS_STEPS - 1) or nil, candidate = candidate }
+end
+
+--- Each site's extra spots from the level's `warfare.capture_candidates`
+--- (Unreal cm, one list per site; candidate k is entry k). Empty without them.
+function Warfare.candidates(text)
+    local out = { {}, {}, {} }
+    local list = type(text) == "string" and text:match('"capture_candidates"%s*:%s*(%b[])') or nil
+    if not list then return out end
+    local n, c = "([-%d.eE+]+)", "%s*,%s*"
+    local site = 0
+    for group in list:sub(2, -2):gmatch("%b[]") do
+        site = site + 1
+        if site > 3 then break end
+        for x, y, z in group:gmatch("%[%s*" .. n .. c .. n .. c .. n .. "%s*%]") do
+            out[site][#out[site] + 1] = { x = tonumber(x), y = tonumber(y), z = tonumber(z) }
+        end
+    end
+    return out
 end
 
 local function integer(s, low, high)
@@ -222,12 +244,29 @@ function Warfare.new(deps)
     if deps.Spectate and deps.bipedAt then self.spectate = deps.Spectate.new({ bipedAt = deps.bipedAt }) end
     local pending, refreshedAt, line
 
+    --- Where site `i` is this match: its chosen candidate (candidate 0 is the
+    --- classic spot), or nil when the snapshot names one this map lacks.
+    function self.spot(i)
+        local classic = self.hills[i]
+        local site = self.snapshot and self.snapshot.sites and self.snapshot.sites[i]
+        local k = site and site.candidate or 0
+        if not classic or k == 0 then return classic end
+        local c = self.candidates and self.candidates[i] and self.candidates[i][k]
+        return c and { x = c.x, y = c.y, z = c.z, r = classic.r } or nil
+    end
+
+    --- The three sites where this match put them (for the zone tiles).
+    function self.spots()
+        return { self.spot(1), self.spot(2), self.spot(3) }
+    end
+
     function self.start(code)
         self.code = code
         self.hills = deps.Hill.parse(deps.readLevel(code))
         -- This mode has exactly three authored sites. Never draw an invented
         -- location if level metadata is absent or an incompatible map loads.
         if #self.hills ~= 3 then self.hills = {} end
+        self.candidates = Warfare.candidates(deps.readLevel(code))
         for i = 1, 3 do self.fields[i] = deps.Hill.field("mjolnir_warfare_" .. i) end
         line = deps.Hill.field("mjolnir_warfare_status")
         return #self.hills
@@ -373,8 +412,9 @@ function Warfare.new(deps)
                 if text then line.say(text .. "   /   M: MAP") else line.hideLine() end
             end
             for i, field in ipairs(self.fields) do
-                local spot = self.hills[i]
-                if s and s.phase == 2 and spot and not match.over then
+                local spot = self.spot(i)
+                -- From insertion on: the zones may have moved, so riders see where to steer.
+                if s and (s.phase == 1 or s.phase == 2) and spot and not match.over then
                     local owner = s.owner[i]
                     field.draw(world, now, i, spot)
                     field.paint(COLOUR[owner], now)

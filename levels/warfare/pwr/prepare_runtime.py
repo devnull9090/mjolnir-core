@@ -19,11 +19,21 @@ layout=load_layout()
 PELICAN_TAG = r"objects\mjolnir\warfare\pelican\pwr_pelican"
 
 
+def candidate_spots():
+    """Extra capture spots per site (metres), from layout.json; empty without moving zones."""
+    return layout.document().get("capture_candidates_m") or [[], [], []]
+
+
 def apply(source):
     level = copy.deepcopy(source)
     level["title"] = layout.TITLE
     level["description"] = "A 2 km alpine vehicle battlefield with Forerunner bases, river crossings and Pelican insertion. Terrains powered by QuadSpinner Gaea."
     level["warfare"] = {"protocol": layout.PROTOCOL, "layout_revision": layout.REVISION}
+    # Moving zones: each site's extra spots, Unreal cm, for the HUD's fields.
+    # The markers below carry them to the simulation (spawn order site + 3 * k).
+    candidates = candidate_spots()
+    if any(candidates):
+        level["warfare"]["capture_candidates"] = [[layout.ue(p) for p in site] for site in candidates]
     level["variant"] = "warfare"
     level["modes"] = ["koth"]
     # Presentation reads the established Hill metadata, never Blam tag memory.
@@ -72,7 +82,10 @@ def apply(source):
     for vehicle_set in level.get("vehicle_sets", []):
         for key in ("default", "allowed"):
             vehicle_set[key] = int(vehicle_set.get(key, 0)) | 4
-    for index, pos in enumerate(layout.CAPTURES):
+    hills = [(index, pos) for index, pos in enumerate(layout.CAPTURES)]
+    for site, extra in enumerate(candidates):
+        hills += [(site + 3 * (k + 1), pos) for k, pos in enumerate(extra)]
+    for index, pos in hills:
         objects.append({"tag":r"objects\multi\ctf\flag_stand","group":"scenery","pos":layout.ue(pos),"rot":[0,0,0],
                         "set":{"multiplayer data.megalo label":"koth_hill",
                                "multiplayer data.owner team":"eighth party",
@@ -135,15 +148,19 @@ def apply(source):
 
 def validate(level):
     blam=level["blam"]
-    assert level["warfare"] == {"protocol":layout.PROTOCOL,"layout_revision":layout.REVISION}
+    expected = {"protocol":layout.PROTOCOL,"layout_revision":layout.REVISION}
+    if any(candidate_spots()):
+        expected["capture_candidates"] = [[layout.ue(p) for p in site] for site in candidate_spots()]
+    assert level["warfare"] == expected
     flags={f["name"]:f for f in blam["cutscene_flags"] if f.get("name","").startswith("pwr_")}
     assert len(flags)==12, "Expected warmup, homes, drops, three captures and four flight endpoint flags"
     transports=[v for v in blam["vehicles"] if v.get("tag")==PELICAN_TAG]
     assert len(transports)==2
     assert all(v["placed"] is False and not v.get("set") for v in transports)
     markers=[o for o in blam["objects"] if o.get("set",{}).get("multiplayer data.megalo label")=="koth_hill"]
-    assert len(markers)==3
-    assert [m["set"]["multiplayer data.spawn order"] for m in markers]==["0","1","2"]
+    orders=[int(m["set"]["multiplayer data.spawn order"]) for m in markers]
+    assert orders[:3]==[0,1,2] and len(orders)==len(set(orders))==3+sum(len(s) for s in candidate_spots())
+    assert all(o < 18 for o in orders), "spawn order site + 3 * candidate, at most six candidates"
     assert all(m["set"]["multiplayer data.owner team"]=="eighth party" for m in markers)
     assert level["koth_hills"]==[layout.ue(pos)+[layout.CAPTURE_RADIUS*100] for pos in layout.CAPTURES]
     spawns=[o for o in blam["objects"] if o.get("tag")==r"objects\multi\spawning\player_spawn"]

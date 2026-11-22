@@ -36,17 +36,32 @@ pub const RED_SCORE: u8 = 7;
 pub const BLUE_SCORE: u8 = 8;
 pub const FIRST_OWNER: u8 = 9;
 pub const HILL_LABEL: &str = "koth_hill";
+/// Moving zones: each site may have several candidate markers. A marker's
+/// spawn sequence is `site + SITES * candidate`, so the classic 0, 1, 2 are
+/// candidate 0 and a map with one marker per site plays as before. The host
+/// picks one candidate per site when insertion launches and deletes the rest.
+pub const SITES: i16 = 3;
+pub const MAX_CANDIDATES: i16 = 6;
+/// A site's published value adds `CANDIDATE_STRIDE * candidate` (see SiteState).
+pub const CANDIDATE_STRIDE: i32 = 1024;
+/// Global objects 2..4 hold each site's chosen marker; object number 5 is a
+/// marker's random draw.
+const CHOSEN: u8 = 2;
+const DRAW: u8 = 5;
 /// Capture progress is published in this many steps toward either team.
 pub const PROGRESS_STEPS: i16 = 16;
 
 /// A site's public slot (FIRST_OWNER + site) packs its whole state for the HUD:
-/// `owner + 4 * (red_present + 2 * blue_present) + 16 * (progress + PROGRESS_STEPS + 1)`,
+/// `owner + 4 * (red_present + 2 * blue_present) + 16 * (progress + PROGRESS_STEPS + 1)
+/// + CANDIDATE_STRIDE * candidate`,
 /// owner 0 neutral / 1 red / 2 blue, progress in steps of PROGRESS_STEPS toward red
 /// (positive) or blue (negative). Coarse steps keep the replicated value from changing
 /// every tick. A value below 16 carries no progress (an older variant, or before combat):
 /// the owner is still its low two bits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SiteState {
+    /// Which of the site's candidate markers this match uses (0 on a map with one).
+    pub candidate: i32,
     pub owner: i32,
     pub red_present: bool,
     pub blue_present: bool,
@@ -55,8 +70,11 @@ pub struct SiteState {
 
 impl SiteState {
     pub fn decode(value: i32) -> Self {
+        let candidate = value / CANDIDATE_STRIDE;
+        let value = value % CANDIDATE_STRIDE;
         let k = value >> 4;
         Self {
+            candidate,
             owner: value & 3,
             red_present: value & 4 != 0,
             blue_present: value & 8 != 0,
@@ -104,6 +122,18 @@ fn add_var(a: Var, b: Var) -> Item {
     Item::Do(Action::ModifyVariable { a, b, op: Op::Add })
 }
 
+fn seq() -> Var {
+    Var::Number(Number::SpawnSequence(object::CURRENT))
+}
+
+fn chosen(site: i16) -> Var {
+    obj(object::global(CHOSEN + site as u8))
+}
+
+fn draw(of: u8) -> Var {
+    Var::Number(Number::ObjectNumber { object: of, index: DRAW })
+}
+
 fn hill_number(index: u8) -> Var {
     Var::Number(Number::ObjectNumber {
         object: object::global(0),
@@ -147,8 +177,8 @@ impl Variant {
             vars: Variables {
                 global_numbers: 12,
                 global_number_priorities: [2, 2, 2, 2, 1, 0, 0, 2, 2, 2, 2, 2],
-                global_objects: 2,
-                object_numbers: 5,
+                global_objects: 5,
+                object_numbers: 6,
                 player_numbers: 1,
                 ..Variables::default()
             },
@@ -230,10 +260,66 @@ impl Variant {
                 modify(number(CLOCK), 1, Op::Subtract),
             ],
         );
+        // The host's random numbers come from one LCG whose seed may repeat
+        // from launch to launch, so warmup draws one every tick: how long the
+        // warmup lasted scrambles the pick. Slot 5 is scratch outside combat.
+        b.trigger(
+            TriggerKind::Do,
+            ATTR_NORMAL,
+            vec![
+                eq(number(PHASE), constant(0)),
+                Item::Do(Action::RandomNumber { cap: Number::Constant(1000), out: Number::GlobalNumber(HEALTH) }),
+            ],
+        );
+        // Choose: every candidate draws a number; per site the highest wins.
+        let mut choose = vec![Item::Do(Action::RandomNumber {
+            cap: Number::Constant(1000),
+            out: Number::ObjectNumber { object: object::CURRENT, index: DRAW },
+        })];
+        for j in 0..SITES * MAX_CANDIDATES {
+            let site = j % SITES;
+            let first = b.sub(
+                TriggerKind::Do,
+                vec![eq(chosen(site), obj(object::NONE)), set(chosen(site), obj(object::CURRENT))],
+            );
+            let better = b.sub(
+                TriggerKind::Do,
+                vec![
+                    compare(draw(object::CURRENT), draw(object::global(CHOSEN + site as u8)), Compare::Greater),
+                    set(chosen(site), obj(object::CURRENT)),
+                ],
+            );
+            let consider = b.sub(TriggerKind::Do, vec![eq(seq(), constant(j)), call(first), call(better)]);
+            choose.push(call(consider));
+        }
+        let choose = b.sub(TriggerKind::EachObjectWithLabel(label), choose);
+        // The flank sites move together: the last site takes the first site's
+        // candidate index when it has one, so a map whose third site mirrors
+        // its first (PWR's C mirrors A across the bases' midline) stays fair in
+        // every draw. Without a matching candidate its own draw stands.
+        let last = SITES - 1;
+        let mut follow = Vec::new();
+        for k in 0..MAX_CANDIDATES {
+            let take = b.sub(
+                TriggerKind::Do,
+                vec![
+                    eq(seq(), constant(last + SITES * k)),
+                    eq(Var::Number(Number::SpawnSequence(object::global(CHOSEN))), constant(SITES * k)),
+                    set(chosen(last), obj(object::CURRENT)),
+                ],
+            );
+            follow.push(call(take));
+        }
+        let follow = b.sub(TriggerKind::EachObjectWithLabel(label), follow);
         let launch = b.sub(
             TriggerKind::Do,
             vec![
                 compare(number(CLOCK), constant(0), Compare::LessOrEqual),
+                set(chosen(0), obj(object::NONE)),
+                set(chosen(1), obj(object::NONE)),
+                set(chosen(2), obj(object::NONE)),
+                call(choose),
+                call(follow),
                 set(number(PHASE), constant(1)),
                 set(number(PHASE_TICKS), constant(0)),
                 set(number(SUBSECOND), constant(0)),
@@ -306,17 +392,6 @@ impl Variant {
         }
         let scan = b.sub(TriggerKind::EachPlayer, scan);
         let mut update = vec![
-            eq(number(PHASE), constant(2)),
-            compare(
-                Var::Number(Number::SpawnSequence(object::CURRENT)),
-                constant(0),
-                Compare::GreaterOrEqual,
-            ),
-            compare(
-                Var::Number(Number::SpawnSequence(object::CURRENT)),
-                constant(3),
-                Compare::Less,
-            ),
             set(obj(object::global(0)), obj(object::CURRENT)),
             set(hill_number(2), constant(0)),
             set(hill_number(3), constant(0)),
@@ -405,18 +480,54 @@ impl Variant {
             update.push(call(present));
         }
         update.push(add_var(hill_number(4), hill_number(0)));
-        for site in 0..3u8 {
+        for j in SITES..SITES * MAX_CANDIDATES {
+            let candidate = b.sub(
+                TriggerKind::Do,
+                vec![eq(seq(), constant(j)), modify(hill_number(4), (CANDIDATE_STRIDE * i32::from(j / SITES)) as i16, Op::Add)],
+            );
+            update.push(call(candidate));
+        }
+        for site in 0..SITES {
             let publish = b.sub(
                 TriggerKind::Do,
                 vec![
-                    eq(
-                        Var::Number(Number::SpawnSequence(object::CURRENT)),
-                        constant(i16::from(site)),
-                    ),
-                    set(number(FIRST_OWNER + site), hill_number(4)),
+                    eq(obj(object::CURRENT), chosen(site)),
+                    set(number(FIRST_OWNER + site as u8), hill_number(4)),
                 ],
             );
             update.push(call(publish));
+        }
+        let site_update = b.sub(TriggerKind::Do, update);
+        let mut hills = vec![eq(number(PHASE), constant(2))];
+        for site in 0..SITES {
+            let gate = b.sub(TriggerKind::Do, vec![eq(obj(object::CURRENT), chosen(site)), call(site_update)]);
+            hills.push(call(gate));
+        }
+        // Insertion: publish the chosen candidates (owner neutral, no progress)
+        // so the HUD and tactical map show where to steer the parachute.
+        let mut announce = vec![eq(number(PHASE), constant(1))];
+        // From insertion on, the unchosen candidates go (a later tick than the pick).
+        let mut prune = vec![compare(number(PHASE), constant(1), Compare::GreaterOrEqual)];
+        for j in 0..SITES * MAX_CANDIDATES {
+            let site = j % SITES;
+            let tell = b.sub(
+                TriggerKind::Do,
+                vec![
+                    eq(seq(), constant(j)),
+                    eq(obj(object::CURRENT), chosen(site)),
+                    set(number(FIRST_OWNER + site as u8), constant((CANDIDATE_STRIDE * i32::from(j / SITES)) as i16)),
+                ],
+            );
+            announce.push(call(tell));
+            let drop = b.sub(
+                TriggerKind::Do,
+                vec![
+                    eq(seq(), constant(j)),
+                    compare(obj(object::CURRENT), chosen(site), Compare::NotEqual),
+                    Item::Do(Action::DeleteObject(Object::Ref(object::CURRENT))),
+                ],
+            );
+            prune.push(call(drop));
         }
         b.trigger(
             TriggerKind::Do,
@@ -426,7 +537,9 @@ impl Variant {
                 modify(number(SUBSECOND), 1, Op::Add),
             ],
         );
-        b.trigger(TriggerKind::EachObjectWithLabel(label), ATTR_NORMAL, update);
+        b.trigger(TriggerKind::EachObjectWithLabel(label), ATTR_NORMAL, hills);
+        b.trigger(TriggerKind::EachObjectWithLabel(label), ATTR_NORMAL, announce);
+        b.trigger(TriggerKind::EachObjectWithLabel(label), ATTR_NORMAL, prune);
         b.trigger(
             TriggerKind::Do,
             ATTR_NORMAL,
@@ -537,9 +650,12 @@ mod tests {
 
     #[test]
     fn site_state_decodes_packed_and_plain_owner_values() {
-        assert_eq!(SiteState::decode(2), SiteState { owner: 2, red_present: false, blue_present: false, progress: None });
+        assert_eq!(SiteState::decode(2), SiteState { candidate: 0, owner: 2, red_present: false, blue_present: false, progress: None });
         let packed = 1 + 4 * 3 + 16 * (5 + PROGRESS_STEPS as i32 + 1);
-        assert_eq!(SiteState::decode(packed), SiteState { owner: 1, red_present: true, blue_present: true, progress: Some(5) });
+        assert_eq!(SiteState::decode(packed), SiteState { candidate: 0, owner: 1, red_present: true, blue_present: true, progress: Some(5) });
+        let moved = packed + 5 * CANDIDATE_STRIDE;
+        assert_eq!(SiteState::decode(moved), SiteState { candidate: 5, ..SiteState::decode(packed) },
+            "the chosen candidate rides above the state and leaves it intact");
         let blue = 16 * (-(PROGRESS_STEPS as i32) + PROGRESS_STEPS as i32 + 1) + 2;
         assert_eq!(SiteState::decode(blue).progress, Some(-(PROGRESS_STEPS as i32)));
     }

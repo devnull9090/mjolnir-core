@@ -303,6 +303,10 @@ pub struct Canvas {
 pub struct WarfareMetadata {
     pub protocol: u16,
     pub layout_revision: u16,
+    /// Moving zones: extra capture spots per site, Unreal cm (the HUD's fields;
+    /// the simulation reads `koth_hill` markers with spawn order site + 3 * k).
+    #[serde(default)]
+    pub capture_candidates: Option<Vec<Vec<[f64; 3]>>>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]

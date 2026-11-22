@@ -2242,7 +2242,7 @@ do
             local pawn = pc.Pawn
             if pawn and pawn:IsValid() then at = pawn:K2_GetActorLocation() end
         end
-        tiles.tick(w and not Match.over and w.snapshot or nil, w and w.hills, at, HudHidden, now())
+        tiles.tick(w and not Match.over and w.snapshot or nil, w and (w.spots and w.spots() or w.hills), at, HudHidden, now())
     end
     WarfareSites.frame = tiles.frame
     function WarfareSites.changed(i, owner, previous, site)

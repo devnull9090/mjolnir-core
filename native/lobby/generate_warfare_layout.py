@@ -8,6 +8,8 @@ import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# Spawn sequences site + 3 * candidate; blam-megalo warfare.rs MAX_CANDIDATES.
+MAX_CANDIDATES = 6
 MANIFEST = ROOT / "levels/warfare/pwr/layout.json"
 HEADER = Path(__file__).with_name("warfare_layout.h")
 
@@ -84,6 +86,21 @@ def validate(data):
         # A flight ends (and its transport can be recycled) before the next one leaves.
         if not (10 <= flight <= duration and flight + 10 <= interval <= 600):
             raise ValueError("invalid reinforcement timing")
+    candidates = data.get("capture_candidates_m")
+    if candidates is not None:
+        if not isinstance(candidates, list) or len(candidates) != 3:
+            raise ValueError("capture_candidates_m lists extra spots for each of the three sites")
+        spots = [tuple(vector(c, "capture")) for c in data["captures_m"]]
+        for site, extra in enumerate(candidates):
+            if not isinstance(extra, list) or len(extra) > MAX_CANDIDATES - 1:
+                raise ValueError(f"site {site} may have at most {MAX_CANDIDATES - 1} extra candidates")
+            for value in extra:
+                point = vector(value, "candidate")
+                if any(not play[0][i] < point[i] < play[1][i] for i in range(3)):
+                    raise ValueError("capture candidates must be inside the play volume")
+                spots.append(tuple(point))
+        if len(set(spots)) != len(spots):
+            raise ValueError("capture candidates must be distinct")
     if len({tuple(v) for v in points}) != 4:
         raise ValueError("four distinct flight flags are required by the runtime map guard")
     markers = marker_points(data)
@@ -137,6 +154,19 @@ def generate(data):
         route = data["flights_m"][team]
         lines.append("    {" + vec(route["start"]) + ", " + vec(route["end"]) + "},")
     markers = marker_points(data)
+    extra = data.get("capture_candidates_m") or [[], [], []]
+    lines += ["};",
+              "/* Moving zones: candidate 0 is the classic capture marker; the rest come",
+              " * from capture_candidates_m (marker spawn sequence site + 3 * candidate). */",
+              f"#define WARFARE_MAX_CANDIDATES {MAX_CANDIDATES}",
+              "static const int warfare_candidate_counts[3] = {"
+              + ", ".join(str(1 + len(e)) for e in extra) + "};",
+              "static const float warfare_candidates[3][WARFARE_MAX_CANDIDATES][3] = {"]
+    for site in range(3):
+        rows = [vector(data["captures_m"][site], "capture")] + [vector(c, "candidate") for c in extra[site]]
+        rows = [[r[0], r[1], r[2] + 1.2] for r in rows]
+        rows += [[0.0, 0.0, 0.0]] * (MAX_CANDIDATES - len(rows))
+        lines.append("    {" + ", ".join(vec(r) for r in rows) + "},")
     lines += ["};", f"#define WARFARE_LAYOUT_MARKERS {len(markers)}",
               "#define WARFARE_LAYOUT_MARKER_MASK ((1u << WARFARE_LAYOUT_MARKERS) - 1u)",
               "static const float warfare_layout_markers[WARFARE_LAYOUT_MARKERS][3] = {"]

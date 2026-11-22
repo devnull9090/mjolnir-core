@@ -4,7 +4,7 @@ Design for the second round of Pelican Warfare (PWR) features, agreed
 2026-11-22. It extends [the prototype](pelican_warfare.md); read that first
 for the slot layout, the native adapter and the HUD bridge.
 
-Four features, in build order (1 and 2 are built; 3 and 4 are designs):
+Four features, in build order (1-3 are built; 4 is a design, see [AI feasibility](pwr_ai_feasibility.md)):
 
 1. **Warmup countdown**: a large centred countdown before insertion.
 2. **Reinforcement waves**: the dead wait, spectate their team, and fly back
@@ -129,21 +129,46 @@ to watch. On three copies on one PC the simulation ran at about a third of real
 speed and no descent ever registered a landing (all timed out at stage 6); the
 solo run landed normally, so that looks like the rig, not the mode.
 
-## 3. Moving zones
+## 3. Moving zones (built)
 
-- The scenario carries several candidate `koth_hill` markers per site. A
-  marker's spawn sequence names its site and candidate: `site * 10 + candidate`
-  (sites 0-2, candidates 0-9).
-- At the start of warmup the host picks one candidate per site with *Random
-  Number*, deletes the other candidates, and keeps the choice. The site loop
-  accepts spawn sequences 0-29 and maps them to sites by range.
-- The choice is published inside each site's packed state:
-  `state + 1024 * candidate` (`SiteState` stays within 16 bits).
-- Native and the HUD read candidate positions from the layout
-  (`captures_m` becomes a list of candidates per site). The holographic fields,
-  waypoints and tactical map follow the chosen candidate.
-- Candidates are authored map data. Any map whose scenario carries candidate
-  markers gets moving zones; a map with one marker per site behaves as today.
+- **Markers.** Each site may have up to six candidate `koth_hill` markers. A
+  marker's spawn order is `site + 3 * candidate`, so the classic 0, 1 and 2 are
+  candidate 0 and a map with one marker per site plays exactly as before
+  (including today's published PWR).
+- **The pick** (`warfare.rs`). Every warmup tick draws a *Random Number*
+  (action 25) to stir the host's LCG, whose seed may repeat between launches.
+  At launch each candidate draws a number and the highest wins per site. The
+  last site then takes the first site's candidate index when it has one: on
+  PWR, C's candidates mirror A's across the line between the homes, so every
+  draw is equally fair to both teams. From insertion on the unchosen markers
+  are deleted; only the chosen ones capture and score.
+- **Publishing.** Each site's slot adds `1024 * candidate` to its packed state
+  (`SiteState.candidate`), from insertion on, so riders can steer toward where
+  the zones went.
+- **Positions.** `layout.json` `capture_candidates_m` holds each site's extra
+  spots (metres). `prepare_runtime.py` turns them into the extra markers and
+  `warfare.capture_candidates` (Unreal cm) in the level file, which the HUD
+  reads for the holo fields, waypoints and zone tiles. The native layout
+  header carries them for the tactical map.
+- **Choosing spots** (`plan_capture_candidates.py`). It searches the accepted
+  runtime terrain's masks for 20 m discs that are flat (under 3 m of rise over
+  26 m), walkable, dry, off the shore and nearly tree-free, at least 150 m from
+  other sites, 100 m from the site's own candidates and 160 m from both homes.
+  A is searched on red's half and mirrored for C; B runs along the centre line.
+  It writes `capture_candidates_m` with `--write` and a preview map.
+- **The map.** The candidates are scenario markers, so the map needs one
+  rebake. Only the scenario tag changes: a standalone bake of
+  `river-basin/native/native-level.json` (patched by `prepare_runtime.py`) with
+  the release's own `pwr.sbsp` and `LPE.umap`, against the rehearsal Paks,
+  differed from the sealed chunk 997 in `PWR-scenario.uasset/.ubulk` only. The
+  map registry DLL must be rebuilt too: it validates variants with its own copy
+  of the Megalo crate, and an old one refuses a variant that uses *Random Number*.
+
+Verified 2026-11-22 in a solo match on the rebaked scenario: A took candidate
+3, B candidate 2 and C candidate 3 (following A), announced at launch; the
+tactical map and all three holo fields stood at the new spots and nothing
+remained at the classic ones. Not yet played: a full match across several draws,
+two machines, and the zone tiles' "you are here" rim at a moved zone.
 
 ## 4. Covenant waves
 

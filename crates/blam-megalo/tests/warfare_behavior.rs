@@ -6,10 +6,16 @@ use blam_megalo::warfare::*;
 
 struct World {
     globals: [i32; 12],
-    points: [[i32; 5]; 3],
+    /// Each marker's object numbers, spawn sequence and whether it still exists.
+    points: Vec<[i32; 6]>,
+    seqs: Vec<i32>,
+    alive: Vec<bool>,
+    /// Global objects 2..4: each site's chosen marker (-1 none).
+    chosen: [i32; 3],
+    rng: u32,
     score: [i32; 2],
     connected: [bool; 2],
-    alive: [bool; 2],
+    alive_player: [bool; 2],
     seated: [bool; 2],
     at: [Option<usize>; 2],
     current_player: usize,
@@ -23,10 +29,15 @@ impl World {
     fn new() -> Self {
         Self {
             globals: [0; 12],
-            points: [[0; 5]; 3],
+            points: vec![[0; 6]; 3],
+            seqs: vec![0, 1, 2],
+            alive: vec![true; 3],
+            // A classic map: one marker per site, already chosen.
+            chosen: [0, 1, 2],
+            rng: 12345,
             score: [0; 2],
             connected: [true; 2],
-            alive: [true; 2],
+            alive_player: [true; 2],
             seated: [false; 2],
             at: [None; 2],
             current_player: 0,
@@ -36,12 +47,22 @@ impl World {
             ended: false,
         }
     }
+    /// A map with these marker spawn sequences, nothing chosen yet.
+    fn with_markers(seqs: &[i32]) -> Self {
+        let mut w = World::new();
+        w.points = vec![[0; 6]; seqs.len()];
+        w.seqs = seqs.to_vec();
+        w.alive = vec![true; seqs.len()];
+        w.chosen = [-1; 3];
+        w
+    }
     fn object(&self, o: Object) -> i32 {
         match o {
             Object::Ref(object::NONE) => -1,
             Object::Ref(object::CURRENT) => self.current_object as i32,
             Object::Ref(1) => self.saved_object,
             Object::Ref(2) => self.vehicle,
+            Object::Ref(k @ 3..=5) => self.chosen[(k - 3) as usize],
             Object::PlayerBiped(player::CURRENT) => 100 + self.current_player as i32,
             _ => panic!("unsupported test object {o:?}"),
         }
@@ -50,10 +71,10 @@ impl World {
         match v {
             Var::Number(Number::Constant(x)) => i32::from(*x),
             Var::Number(Number::GlobalNumber(i)) => self.globals[*i as usize],
-            Var::Number(Number::ObjectNumber { index, .. }) => {
-                self.points[self.saved_object as usize][*index as usize]
+            Var::Number(Number::ObjectNumber { object, index }) => {
+                self.points[self.object(Object::Ref(*object)) as usize][*index as usize]
             }
-            Var::Number(Number::SpawnSequence(_)) => self.current_object as i32,
+            Var::Number(Number::SpawnSequence(o)) => self.seqs[self.object(Object::Ref(*o)) as usize],
             Var::Number(Number::TeamScore(i)) => self.score[*i as usize],
             Var::Number(Number::ScoreToWin) => i32::from(variant.score_to_win),
             Var::Object(o) => self.object(*o),
@@ -84,10 +105,12 @@ impl World {
     fn set(&mut self, a: &Var, x: i32) {
         match a {
             Var::Number(Number::GlobalNumber(i)) => self.globals[*i as usize] = x,
-            Var::Number(Number::ObjectNumber { index, .. }) => {
-                self.points[self.saved_object as usize][*index as usize] = x
+            Var::Number(Number::ObjectNumber { object, index }) => {
+                let at = self.object(Object::Ref(*object)) as usize;
+                self.points[at][*index as usize] = x
             }
             Var::Object(Object::Ref(1)) => self.saved_object = x,
+            Var::Object(Object::Ref(k @ 3..=5)) => self.chosen[(*k - 3) as usize] = x,
             _ => panic!("unsupported test assignment {a:?}"),
         }
     }
@@ -104,7 +127,7 @@ impl World {
             }
             Action::GetHealth { out, .. } => self.set(
                 &Var::Number(out.clone()),
-                if self.alive[self.current_player] {
+                if self.alive_player[self.current_player] {
                     100
                 } else {
                     0
@@ -130,6 +153,13 @@ impl World {
                 );
             }
             Action::ApplyPlayerTraits { .. } => (),
+            Action::RandomNumber { cap, out } => {
+                self.rng = self.rng.wrapping_mul(0x19660d).wrapping_add(0x3c6ef35f);
+                let cap = self.value(&Var::Number(cap.clone()), v);
+                let x = (((self.rng >> 16) as i32) * cap) >> 16;
+                self.set(&Var::Number(out.clone()), x);
+            }
+            Action::DeleteObject(Object::Ref(object::CURRENT)) => self.alive[self.current_object] = false,
             Action::EndRound => self.ended = true,
             _ => panic!("unsupported test action {a:?}"),
         }
@@ -163,9 +193,11 @@ impl World {
                 }
             }
             TriggerKind::EachObjectWithLabel(_) => {
-                for p in 0..3 {
-                    self.current_object = p;
-                    self.body(t, v);
+                for p in 0..self.seqs.len() {
+                    if self.alive[p] {
+                        self.current_object = p;
+                        self.body(t, v);
+                    }
                 }
             }
             _ => panic!("unsupported test trigger"),
@@ -288,10 +320,10 @@ fn mounted_capture_variant_counts_a_living_driver() {
     world.globals[PHASE as usize] = 2;
     world.at[0] = Some(1);
     world.seated[0] = true;
-    world.alive[0] = false;
+    world.alive_player[0] = false;
     world.ticks(10, &rules);
     assert_eq!(world.points[1][0], 0);
-    world.alive[0] = true;
+    world.alive_player[0] = true;
     world.ticks(10, &rules);
     assert_eq!(world.points[1][0], 1);
 }
@@ -302,10 +334,10 @@ fn dead_players_cannot_capture_and_score_or_clock_ends_the_round() {
     let mut w = World::new();
     w.globals[PHASE as usize] = 2;
     w.at[0] = Some(1);
-    w.alive[0] = false;
+    w.alive_player[0] = false;
     w.ticks(20, &v);
     assert_eq!(w.points[1][1], 0);
-    w.alive[0] = true;
+    w.alive_player[0] = true;
     w.seated[0] = true;
     w.ticks(20, &v);
     assert_eq!(
@@ -338,7 +370,7 @@ fn published_site_state_carries_owner_presence_and_stepped_progress() {
     w.globals[PHASE as usize] = 2;
     w.ticks(1, &v);
     let empty = SiteState::decode(w.globals[FIRST_OWNER as usize]);
-    assert_eq!(empty, SiteState { owner: 0, red_present: false, blue_present: false, progress: Some(0) });
+    assert_eq!(empty, SiteState { candidate: 0, owner: 0, red_present: false, blue_present: false, progress: Some(0) });
     // Red alone: progress climbs in steps toward red; full at capture.
     w.at[0] = Some(0);
     w.ticks(20, &v);
@@ -403,4 +435,76 @@ fn warmup_counts_down_whole_seconds_and_restarts_when_a_player_leaves() {
     w.ticks(1, &v);
     assert_eq!(w.globals[PHASE as usize], 2);
     assert_eq!(w.globals[ACTIVE_SECONDS as usize], 0);
+}
+
+#[test]
+fn each_site_picks_one_candidate_at_launch_and_the_rest_are_removed() {
+    let v = Variant::warfare(Warfare {
+        tick_rate: 10,
+        warmup_seconds: 1,
+        insertion_seconds: 1,
+        capture_seconds: 1,
+        ..Warfare::default()
+    })
+    .unwrap();
+    // Site 0 has three candidates (0, 3, 6), site 1 two (1, 4), site 2 one (2).
+    let seqs = [0, 1, 2, 3, 4, 6];
+    // A mirrored map: site 2 has the same candidates as site 0 and follows it.
+    for seed in 0..40u32 {
+        let mut w = World::with_markers(&[0, 1, 2, 3, 5, 6, 8]);
+        w.rng = seed.wrapping_mul(2654435761);
+        w.ticks(10, &v);
+        let (a, c) = (w.seqs[w.chosen[0] as usize], w.seqs[w.chosen[2] as usize]);
+        assert_eq!(c, a + 2, "C takes A's candidate: A seq {a}, C seq {c}");
+    }
+    let mut picks = std::collections::BTreeSet::new();
+    for seed in 0..40u32 {
+        let mut w = World::with_markers(&seqs);
+        w.rng = seed.wrapping_mul(2654435761);
+        w.ticks(10, &v);
+        assert_eq!(w.globals[PHASE as usize], 1, "launched");
+        let chosen = w.chosen;
+        assert!(chosen.iter().all(|&c| c >= 0), "every site has a marker: {chosen:?}");
+        for (site, &c) in chosen.iter().enumerate() {
+            assert_eq!(w.seqs[c as usize] % SITES as i32, site as i32, "the pick belongs to its site");
+        }
+        assert_eq!(w.seqs[chosen[2] as usize], 2, "a single candidate is always used");
+        picks.insert(w.seqs[chosen[0] as usize]);
+        // The pick is announced during insertion: candidate index, neutral, no progress.
+        w.ticks(1, &v);
+        for site in 0..3 {
+            let state = SiteState::decode(w.globals[FIRST_OWNER as usize + site]);
+            assert_eq!(state.candidate, w.seqs[chosen[site] as usize] / SITES as i32);
+            assert_eq!((state.owner, state.progress), (0, None));
+        }
+        // Unchosen markers are gone; the chosen remain.
+        for (i, alive) in w.alive.iter().enumerate() {
+            assert_eq!(*alive, chosen.contains(&(i as i32)), "marker {i} seq {}", w.seqs[i]);
+        }
+    }
+    assert!(picks.len() >= 2, "different warmups give different sites: {picks:?}");
+}
+
+#[test]
+fn only_the_chosen_marker_captures_and_publishes_its_candidate() {
+    let v = variant();
+    // Site 0: candidates 0 and 3; marker 3 (seq 3, candidate 1) is chosen.
+    let mut w = World::with_markers(&[0, 1, 2, 3]);
+    w.chosen = [3, 1, 2];
+    w.alive[0] = false;
+    w.globals[PHASE as usize] = 2;
+    w.at[0] = Some(3);
+    w.ticks(10, &v);
+    assert_eq!(w.points[3][0], 1, "red took the chosen marker");
+    let a = SiteState::decode(w.globals[FIRST_OWNER as usize]);
+    assert_eq!((a.candidate, a.owner, a.red_present), (1, 1, true));
+    assert_eq!(w.score, [1, 0]);
+    // Standing on the removed classic spot does nothing.
+    let mut w = World::with_markers(&[0, 1, 2, 3]);
+    w.chosen = [3, 1, 2];
+    w.globals[PHASE as usize] = 2;
+    w.at[0] = Some(0);
+    w.ticks(20, &v);
+    assert_eq!(w.points[0][0], 0);
+    assert_eq!(SiteState::decode(w.globals[FIRST_OWNER as usize]).owner, 0);
 }

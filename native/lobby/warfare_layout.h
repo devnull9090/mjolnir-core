@@ -4,7 +4,7 @@
 #define MJOLNIR_WARFARE_LAYOUT_H
 #define WARFARE_MAGIC 20569
 #define WARFARE_LAYOUT_REVISION 3
-#define WARFARE_LAYOUT_SHA256 "e49bdf7b4f814c2c00cb69e3383f6b6588864ef1e27ec6239c2749591163c677"
+#define WARFARE_LAYOUT_SHA256 "7a5ba2dca24adedbf1de47b66590c12d61cdf13d58c8e8ed2252963609e3a75b"
 #define WARFARE_METRES_PER_WU 3.048f
 #define WARFARE_INSERTION_SECONDS 60.0f
 #define WARFARE_FORCED_EXIT_SECONDS 54.0f
@@ -25,6 +25,15 @@ typedef struct { float start[3], end[3]; } warfare_route;
 static const warfare_route warfare_routes[2] = {
     {{-850.0f, -180.0f, 550.0f}, {850.0f, -180.0f, 550.0f}},
     {{850.0f, 180.0f, 550.0f}, {-850.0f, 180.0f, 550.0f}},
+};
+/* Moving zones: candidate 0 is the classic capture marker; the rest come
+ * from capture_candidates_m (marker spawn sequence site + 3 * candidate). */
+#define WARFARE_MAX_CANDIDATES 6
+static const int warfare_candidate_counts[3] = {4, 3, 4};
+static const float warfare_candidates[3][WARFARE_MAX_CANDIDATES][3] = {
+    {{-232.0f, -156.0f, 111.034342f}, {-120.0f, -60.0f, 112.856f}, {-170.0f, 260.0f, 116.481f}, {-330.0f, 370.0f, 115.665f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}},
+    {{0.0f, 510.0f, 130.42744f}, {5.0f, 215.0f, 116.481f}, {5.0f, -560.0f, 104.165f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}},
+    {{240.0f, -170.0f, 113.464621f}, {130.0f, -60.0f, 113.466f}, {180.0f, 260.0f, 120.856f}, {340.0f, 370.0f, 125.098f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}},
 };
 #define WARFARE_LAYOUT_MARKERS 10
 #define WARFARE_LAYOUT_MARKER_MASK ((1u << WARFARE_LAYOUT_MARKERS) - 1u)
