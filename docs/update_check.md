@@ -138,7 +138,9 @@ picks up skips it, since nothing can change under a running game.
    **Try again** too.
 
 The gate covers launches through the launcher. A game started from Steam
-directly still gets only the in-game prompt below, which can be put off.
+directly gets the in-game prompt below, which can be put off, but cannot
+play multiplayer with unsupported mods (see "Multiplayer needs an
+unmodified game").
 
 While it checks, the dialog shows every item it looks at as a live
 checklist under one progress bar (`launch/Checklist.tsx`): the core, each
@@ -231,7 +233,9 @@ too. Names are compared case-insensitively. These are known:
 - **the game's own:** `pakchunk<N>[optional]-Windows` or `-WinGDK`, and
   `global.utoc`/`global.ucas`, in Paks itself only. No store puts a file list
   in the install, so this is a name rule, and both stores' paks follow it.
-- **MJOLNIR's:** `pakchunk9NN-MJOLNIR…`. That covers the hub's containers
+- **MJOLNIR's:** `pakchunk<N>-MJOLNIR…`, in Paks itself only (MJOLNIR
+  installs and mounts nothing in a subfolder; a `pakchunk1-MJOLNIRx` in
+  `~mods` used to pass). That covers the hub's containers
   (`pakchunk9NN-MJOLNIRHUB-<slug>-<j>_P`, and their `_<n>_P` patch names)
   and those MJOLNIR's tools place (MJOLNIRREG, MJOLNIRMENU, MJOLNIRLAND, …).
 
@@ -271,6 +275,32 @@ A move back that would land on a file of the same name (the player put the
 mod back by hand) keeps the set-aside copy and its ledger entry, and says
 so. Folders the moves emptied are removed with `remove_dir`, which only ever
 removes an empty folder.
+
+## Multiplayer needs an unmodified game
+
+A mod works in a match: in the 2026-11-21 playtest players with a
+faster-firing weapon mod fired faster in matches. So in game the unsupported-mods
+finding is a gate (`mods/MJOLNIRLobby/Scripts/outdated.lua`,
+`Outdated.mpBlock`):
+
+- **No joining and no public listing** (`Games.join`, `Games.setPublic`)
+  while the last check found unsupported mods, or before a check has
+  answered. The check is asked for if none is running; one that cannot run
+  (no launcher) keeps the player out with a line saying to start from the
+  launcher.
+- **The host sends back** (its 5 s watch, `Live.modsToRemove`) a member
+  whose game reports mods, one that sends no report for 90 s, and one still
+  "unchecked" after 240 s. Every client sends its verdict (`modcheck|clean`,
+  `modcheck|unchecked`, `modcheck|mods:<n>`) each 20 s and whenever it
+  changes. This is what covers joins that skip FIND GAMES (Steam invites).
+- **A client leaves a host with mods.** The host tells each member its own
+  verdict (`hostcheck|…`) when it changes.
+
+Limits: the kick is the lobby's own (the kicked game's MJOLNIR Lobby leaves),
+and the verdict is what the player's game says about itself. This stops
+paks and UE4SS mods dropped into the game folder, which is what the launcher
+sets aside. It does not stop someone who edits MJOLNIR Lobby's scripts or
+its answer file, or changes the game's memory.
 
 ## Testing
 

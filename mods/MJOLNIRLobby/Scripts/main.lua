@@ -954,6 +954,57 @@ Net.on("maps", function(f, sender)
     Live.memberMaps[sender or "?"] = { has = set, at = os.time() }
 end)
 
+-- Mods (outdated.lua, "Multiplayer needs an unmodified game"): each client
+-- tells the host what its mod check said, from the identity loop (each
+-- second, sent when it changes and at least every 20 s; not tied to the
+-- hub roster, so a hub outage does not get honest players sent back); the host keeps each member's verdict and when it first saw them,
+-- and its watch sends back a member that reports mods, or reports nothing
+-- or only "unchecked" for longer than the grace below. The host tells each
+-- member its own verdict, and a member leaves a host with mods.
+Live.memberMods = {}       -- host: [name] = { verdict, at }
+Live.memberSeen = {}       -- host: [name] = os.time() first seen this session
+Live.toldHost = {}         -- host: [name] = the verdict this host last told them
+local MODS_SILENT_GRACE = 90      -- seconds a member may send no verdict
+local MODS_UNCHECKED_GRACE = 240  -- seconds a member may stay "unchecked"
+
+function Live.sendModCheck()
+    if Net.isHost() then return end
+    local v = Outdated.verdict()
+    if v == Live.sentMods and os.time() - (Live.sentModsAt or 0) < 20 then return end
+    Live.sentMods, Live.sentModsAt = v, os.time()
+    Net.toHost("modcheck", v)
+end
+
+Net.on("modcheck", function(f, sender)
+    if not Net.isHost() then return end
+    Live.memberMods[sender or "?"] = { verdict = f[1] or "", at = os.time() }
+end)
+
+--- The host watch's mod pass over `players` (remotePlayers()): who to send
+--- back, as { player, why }. Forgets members who left.
+function Live.modsToRemove(players, now)
+    local out, present = {}, {}
+    for _, p in ipairs(players) do
+        present[p.name] = true
+        Live.memberSeen[p.name] = Live.memberSeen[p.name] or now
+        local seen = now - Live.memberSeen[p.name]
+        local m = Live.memberMods[p.name]
+        if m and Outdated.verdictHasMods(m.verdict) then
+            out[#out + 1] = { player = p, why = Outdated.modsLine(m.verdict:match("%d+")) }
+        elseif not m and seen > MODS_SILENT_GRACE then
+            out[#out + 1] = { player = p, why = "Your MJOLNIR Lobby did not say whether your game has mods. Update MJOLNIR from the launcher and join again." }
+        elseif m and m.verdict ~= "clean" and seen > MODS_UNCHECKED_GRACE then
+            out[#out + 1] = { player = p, why = "Your game could not check itself for mods. Start it from the MJOLNIR launcher and join again." }
+        end
+    end
+    for name in pairs(Live.memberSeen) do
+        if not present[name] then
+            Live.memberSeen[name], Live.memberMods[name], Live.toldHost[name] = nil, nil, nil
+        end
+    end
+    return out
+end
+
 local function percent(event)
     if not (event and event.received and event.total and event.total > 0) then return nil end
     return math.min(100, event.received * 100 / event.total)
@@ -4728,6 +4779,16 @@ local function watchHost()
                     if bans[string.lower(p.name)] then kick(p, "You are banned from this host's games.") end
                 end
             end
+            -- Mods: send back members whose game has them (or will not
+            -- say), and tell each the host's own verdict once it changes.
+            local players = remotePlayers()
+            for _, r in ipairs(Live.modsToRemove(players, os.time())) do kick(r.player, r.why) end
+            local mine = Outdated.verdict()
+            for _, p in ipairs(players) do
+                if Live.toldHost[p.name] ~= mine and Net.toClient(p.pc, "hostcheck", mine) then
+                    Live.toldHost[p.name] = mine
+                end
+            end
         end)
         UI.reportSlow("host watch", started)
         ExecuteInGameThreadWithDelay(5000, poll)
@@ -4964,6 +5025,22 @@ local function initialize()
         end
         ExecuteInGameThreadWithDelay(200, leave)
     end)
+    -- The host's own verdict. A host with mods sends its guests home; a guest
+    -- of an older host hears nothing and stays.
+    Net.on("hostcheck", function(f)
+        if Net.isHost() or not Outdated.verdictHasMods(f[1]) then return end
+        -- Once per leave: the host repeats itself only when its verdict changes.
+        if os.time() - (Live.leftModdedHostAt or 0) < 30 then return end
+        Live.leftModdedHostAt = os.time()
+        log("mods: the host's game reports " .. tostring(f[1]) .. "; leaving")
+        Live.notice = Live.newNotice({ text = "The host's game has mods MJOLNIR did not install, so you were taken out of their game." })
+        if inFrontend() then
+            Live.leaveFireteam()
+        else
+            pcall(function() FindFirstOf("BlamCampaignFlowGameSubsystem"):LeaveGame() end)
+        end
+    end)
+
     -- The host leaving its match by hand: the standings that leaves behind
     -- open the lobby, not a vote (Live.quitEnded). The pause menu's SAVE AND
     -- EXIT, once its dialog says YES, calls EndCampaign (traced in game,
@@ -5061,7 +5138,10 @@ local function initialize()
         isPublic = function() return Games.isPublic() end,
         -- The host's roster comes every few seconds: the client's maps go
         -- back with it (Live.sendMaps).
-        onIds = function() Live.sendMaps() end,
+        onIds = function()
+            Live.sendMaps()
+            Live.sendModCheck()
+        end,
         onBanned = function(name, why)
             for _, player in ipairs(remotePlayers()) do
                 if player.name == name then kick(player, why) end
@@ -5080,6 +5160,8 @@ local function initialize()
         local started = os.clock()
         local ok, err = pcall(Identity.tick, Net.isHost())
         if not ok then log("identity: " .. tostring(err)) end
+        ok, err = pcall(Live.sendModCheck)
+        if not ok then log("mods: " .. tostring(err)) end
         UI.reportSlow("identity", started)
         ExecuteInGameThreadWithDelay(1000, identityLoop)
     end
@@ -5114,6 +5196,9 @@ local function initialize()
     end
     ExecuteInGameThreadWithDelay(2000, function() registerInstalled(0) end)
     Outdated.init({ json = Json, ui = UI, log = log, nativeDir = MOD_DIR .. "\\native\\" })
+    -- No joining or public listing while the mod check finds mods or has
+    -- not answered (outdated.lua).
+    Games.gate = Outdated.mpBlock
     math.randomseed(os.time())
     watchMainMenu()
     watchPostGame()

@@ -227,6 +227,70 @@ function Outdated.tick(menu)
     end
 end
 
+-------------------------------------------------------------------------------
+-- Multiplayer needs an unmodified game
+-------------------------------------------------------------------------------
+-- A mod MJOLNIR did not install (a pak with faster weapons, a UE4SS script)
+-- works in a match: the joiner's own tags drive its own shots. So the
+-- launcher's finding is a gate, not only advice: no joining, no public
+-- listing and no staying in another's match while the last check found any,
+-- and none before a check has answered (fail closed). Every machine tells
+-- its host what its check said (`Outdated.verdict`), and the host sends back
+-- whoever reports mods or reports nothing (main.lua, the host watch); a
+-- client leaves a host that reports mods. A determined cheat can edit this
+-- script or the answer file; this stops mods dropped into the game folder,
+-- the ones the launcher sets aside.
+
+local VERDICT_CLEAN = "clean"
+local VERDICT_UNCHECKED = "unchecked"
+
+--- This game's mod check as one word for the wire: "clean", "unchecked"
+--- (no answer yet, or no answer at all) or "mods:<n>".
+function Outdated.verdict()
+    local r = state.result
+    if type(r) ~= "table" then return VERDICT_UNCHECKED end
+    local u = type(r.unsupported) == "table" and #r.unsupported or 0
+    return u > 0 and ("mods:" .. u) or VERDICT_CLEAN
+end
+
+--- Whether a verdict from the wire is a game with mods.
+function Outdated.verdictHasMods(v)
+    return type(v) == "string" and v:match("^mods:%d+$") ~= nil
+end
+
+--- The one line a player is shown when their mods keep them out.
+function Outdated.modsLine(n)
+    n = tonumber(n) or 0
+    return string.format(
+        "Your game has %d mod%s MJOLNIR did not install. Multiplayer needs an unmodified game: open the MJOLNIR launcher and play from there, and it moves them aside while you play.",
+        n, n == 1 and "" or "s")
+end
+
+--- Why this game may not join or list a multiplayer game now, or nil when
+--- it may. Asks for a check when none has answered.
+function Outdated.mpBlock()
+    local r = state.result
+    if type(r) == "table" then
+        local u = type(r.unsupported) == "table" and #r.unsupported or 0
+        if u == 0 then return nil end
+        -- Shown once more on this visit: the screen lists them and offers
+        -- the launcher.
+        state.shownVisit = false
+        return Outdated.modsLine(u)
+    end
+    if not state.asked and nativeDir then
+        local ok, why = askLauncher("check")
+        if ok then
+            state.asked = os.time()
+        else
+            log("update check: " .. tostring(why))
+            return "MJOLNIR could not check your game folder for mods (" .. tostring(why)
+                .. "). Multiplayer needs that check: start the game from the MJOLNIR launcher."
+        end
+    end
+    return "Checking your game folder for mods. Try again in a moment."
+end
+
 --- deps: { json, ui, log, nativeDir }.
 function Outdated.init(deps)
     Json, UI, log, nativeDir = deps.json, deps.ui, deps.log, deps.nativeDir
