@@ -62,6 +62,27 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.24.3",
+      "tag": "launcher-v0.24.3",
+      "title": "Updated maps show their new game types",
+      "date": "2026-11-21",
+      "summary": "A map update that adds game types now reaches the game's map list, so King, Oddball and Race appear on the eleven Halo: Combat Evolved maps updated on 21 November.",
+      "body": "### Fixed\n\n- **An updated map lists its new game types.** The game's multiplayer menu\n  reads each map's game types from a list the launcher writes. The launcher\n  wrote that list again only when you installed or removed a map, or when the\n  game itself was updated. An update to a map you already had left the old\n  list in place, so the map loaded the new version but the menu still offered\n  the old game types. The eleven Halo: Combat Evolved maps updated on\n  21 November (Blood Gulch, Battle Creek, Danger Canyon, Death Island,\n  Gephyrophobia, Ice Fields, Infinity, Sidewinder, Timberland, Rat Race and\n  Yoyorast Island) showed only Slayer and Capture the Flag for this reason.\n  The launcher now writes the list again whenever a map's files change. The\n  first start from this version takes a few seconds longer, once, while it\n  brings every installed map up to date.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "An updated map lists its new game types. The game's multiplayer menu reads each map's game types from a list the launcher writes. The launcher wrote that list again only when you installed or removed a map, or when the game itself was updated. An update to a map you already had left the old list in place, so the map loaded the new version but the menu still offered the old game types. The eleven Halo: Combat Evolved maps updated on 21 November (Blood Gulch, Battle Creek, Danger Canyon, Death Island, Gephyrophobia, Ice Fields, Infinity, Sidewinder, Timberland, Rat Race and Yoyorast Island) showed only Slayer and Capture the Flag for this reason. The launcher now writes the list again whenever a map's files change. The first start from this version takes a few seconds longer, once, while it brings every installed map up to date."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.24.3",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.24.3.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.24.3"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.24.2",
       "tag": "launcher-v0.24.2",
       "title": "Pelican Warfare installs from inside the game",

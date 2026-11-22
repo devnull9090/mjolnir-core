@@ -272,13 +272,22 @@ enable or disable. The build is `mjolnir level register`:
 3. write `pakchunk996-MJOLNIRREG_P` and `maps.json`.
 
 The launcher links `blam-pack` for this, so it never runs the CLI. It
-rebuilds only when the set of enabled maps or the game build changed since
-the last rebuild, which it records in `MJOLNIRMaps/.mjolnirhub-registered.json`.
-The game build is a fingerprint of the shipped containers' names, sizes and
-times. Launching the game checks it, so a game update gets a new
-registration before the game reads the old one. A rebuild takes under a
-second. A registration built by hand (`mjolnir level register`, no record)
-is left alone until the launcher has a map to register.
+rebuilds only when the set of enabled maps, a map's `registration.json` or
+the game build changed since the last rebuild, which it records in
+`MJOLNIRMaps/.mjolnirhub-registered.json`. The game build is a fingerprint
+of the shipped containers' names, sizes and times. Launching the game checks
+it, so a game update gets a new registration before the game reads the old
+one. A rebuild takes about a second. A registration built by hand
+(`mjolnir level register`, no record) is left alone until the launcher has a
+map to register.
+
+`maps.json` also carries each map's game types, which come from its
+`level.json`, not its registration. When an update to an installed map
+changes only its level file (new game types, for one), the registration
+stands and the launcher writes `maps.json` alone again. The record keeps the
+size and time of every enabled map's `level.json` for this. A record written
+before launcher 0.24.3 has neither fingerprint, so the first launch after
+that update rebuilds once.
 
 Map folders the launcher writes carry a `.mjolnirhub` marker. It removes
 only those. Uninstalling UE4SS from the launcher also removes the
