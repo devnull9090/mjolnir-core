@@ -122,7 +122,7 @@ def one(pack, a, defaults):
     z.extractall(unpacked)
     names = z.namelist()
     known = {"mjolnir.json", "signature.json", "docs/README.md", "map/level.json", "map/registration.json",
-             "map/bots.json"}
+             "map/bots.json", "map/vehicle_sounds.json"}
     with open(os.path.join(unpacked, "map", "level.json"), encoding="utf-8") as stream:
         level = json.load(stream)
     water = flux_members(z, level)
@@ -145,6 +145,15 @@ def one(pack, a, defaults):
         index = (blam.get("active_bsps") or [None])[0]
     if index is None:
         sys.exit(f"{code}: the level names no BSP (single_bsp / active_bsps)")
+    # A level's own script compiles beside its level; the pack carries only
+    # the compiled result, so the source comes from this repository, as
+    # add_objectives.py takes it (Yoyorast's gates and buttons, yoy.hsc).
+    script = blam.get("script")
+    if script:
+        source = os.path.join(REPO, "tools", "level", "data", script)
+        if not os.path.exists(source):
+            sys.exit(f"{code}: blam.script {script} is not in tools/level/data")
+        shutil.copyfile(source, os.path.join(w, script))
     bake_file = os.path.join(w, f"{code.lower()}.level.json")
     with open(bake_file, "w", encoding="utf-8") as stream:
         json.dump(bake_level, stream, indent=1)
@@ -229,6 +238,9 @@ def one(pack, a, defaults):
     shutil.copyfile(os.path.join(unpacked, "map", "level.json"), os.path.join(stage, f"{code.lower()}.level.json"))
     shutil.copyfile(os.path.join(unpacked, "map", "registration.json"), os.path.join(stage, f"{code}.registration.json"))
     shutil.copyfile(bots_file, os.path.join(stage, f"{code}.bots.json"))
+    # A custom vehicle's engine sounds (Yoyorast's Mongoose), packed as is.
+    if "map/vehicle_sounds.json" in names:
+        shutil.copyfile(os.path.join(unpacked, "map", "vehicle_sounds.json"), os.path.join(stage, "vehicle_sounds.json"))
     if foliage:
         shutil.copyfile(os.path.join(unpacked, "map", foliage), os.path.join(stage, foliage))
     if os.path.isdir(os.path.join(unpacked, "map", "decals")):
