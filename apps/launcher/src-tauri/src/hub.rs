@@ -321,6 +321,10 @@ const PROJECT: &str = "Meteorite";
 struct Library {
     cooked: u32,
     number: u32,
+    /// Whether the engine opens it under `number`: it is named for the
+    /// number in its container's file name. One that is not never opens,
+    /// whatever else carries the number.
+    opens: bool,
 }
 
 /// The shader library of the cached container `stem`, when it has one, and
@@ -339,9 +343,6 @@ fn library_of(stem: &str, utoc: &Path, local: u32) -> Option<Library> {
         return None;
     }
     let (cooked, _) = crate::chunk_numbers::split_number(stem)?;
-    if crate::chunk_numbers::fixed_number(stem).is_some() {
-        return Some(Library { cooked, number: cooked });
-    }
     let named_for_cooked = toc
         .chunk_ids
         .iter()
@@ -351,8 +352,9 @@ fn library_of(stem: &str, utoc: &Path, local: u32) -> Option<Library> {
                 .iter()
                 .any(|f| ue_iostore::shader_library::library_id(PROJECT, cooked, f) == *id)
         });
-    let number = if named_for_cooked { local } else { cooked };
-    Some(Library { cooked, number })
+    let fixed = crate::chunk_numbers::fixed_number(stem).is_some();
+    let number = if named_for_cooked && !fixed { local } else { cooked };
+    Some(Library { cooked, number, opens: named_for_cooked })
 }
 
 /// One container the active profile mounts: where the cache holds it, and
@@ -1672,6 +1674,152 @@ fn patch_name(base: &str, n: u32) -> String {
     }
 }
 
+/// What a live install that cannot finish under the running game tells the
+/// player. The map stays installed and enabled, so the launch writes it into
+/// Paks with everything else.
+const RELAUNCH: &str = "Quit the game and start it again from the MJOLNIR launcher; the map will be ready.";
+
+/// The Paks half of a live install: the containers of `inst`, and of any
+/// pack it needs that this install added, written beside what the game has
+/// mounted, and every other copy of `inst` taken away. Returns the `.pak`
+/// files for the game to mount and to unmount.
+///
+/// Whatever can refuse is decided before the first byte is written, and a
+/// write that fails takes back the containers this call created, so a
+/// refusal leaves Paks as it was. Part of a map's containers would be
+/// mounted by the next game started without the launcher.
+fn write_live(
+    paks: &Path,
+    plan: &[Mount],
+    before: &HubState,
+    state: &HubState,
+    inst: &InstalledHubMod,
+    updated: bool,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let required = dependency_closure(state, &inst.slug)?;
+    let exists = |base: &str| ["utoc", "ucas", "pak"].iter().any(|ext| paks.join(format!("{base}.{ext}")).exists());
+    let mut order: Vec<&Mount> = plan.iter().filter(|m| required.contains(&m.slug)).collect();
+    order.sort_by_key(|m| m.slug == inst.slug);
+    let mut todo = Vec::new();
+    for m in order {
+        let present = ["utoc", "ucas", "pak"].iter().all(|ext| m.in_paks(paks, ext).is_file());
+        if present && (m.slug != inst.slug || !updated) {
+            continue;
+        }
+        if m.slug != inst.slug {
+            // Only a pack first installed by this operation may be added
+            // live. Existing data could already be loaded by the simulation.
+            if before.installed.iter().any(|i| i.slug == m.slug)
+                || !state.installed.iter().any(|i| i.slug == m.slug && i.forge_pack.is_some())
+            {
+                return Err(format!("{} is installed, but {} needs its assets restored first. {RELAUNCH}", inst.name, m.slug));
+            }
+            if exists(&m.base) {
+                return Err(format!("{} is installed, but {} already has files in the game. {RELAUNCH}", inst.name, m.slug));
+            }
+        }
+        // A library the engine will open under its number needs that number
+        // free of any other library (`library_free`). Paks written for
+        // another profile than this one can hold one there; a launch
+        // rewrites it. A library not named for its number opens nowhere, so
+        // it has nothing to collide with, here as on a launch.
+        if let Some(lib) = m.library.filter(|l| l.opens) {
+            if let Err(error) = crate::forge_shaders::library_free(paks, &m.slug, lib.number) {
+                return Err(format!(
+                    "{} is installed, but cannot load while the game is running: {error} {RELAUNCH}",
+                    inst.name
+                ));
+            }
+        }
+        todo.push(m);
+    }
+
+    let mut mount = Vec::new();
+    let mut unmount = Vec::new();
+    // The containers this call brings into Paks. The game mounts nothing
+    // before the install reports done, so they can be taken back.
+    let mut created: Vec<String> = Vec::new();
+    let written = (|| -> Result<(), String> {
+        for m in &todo {
+            // All of a container or none of it: the engine holds a mounted
+            // `.ucas` open (its `.utoc` it reads once), so the `.ucas` is
+            // tried for writing before anything is copied, and copied first.
+            let write = |base: &str| -> Result<(), String> {
+                let ucas = paks.join(format!("{base}.ucas"));
+                if ucas.exists() {
+                    fs::OpenOptions::new().write(true).open(&ucas).map_err(|e| format!("{}: {e}", m.slug))?;
+                }
+                m.write(paks, base).map(|_| ())
+            };
+            if !exists(&m.base) {
+                created.push(m.base.clone());
+                write(&m.base)?;
+                mount.push(engine_pak(&m.base));
+                continue;
+            }
+            // Its usual name, unless the game holds the old release there open.
+            if write(&m.base).is_ok() {
+                mount.push(engine_pak(&m.base));
+                continue;
+            }
+            let mut n = 1;
+            while paks.join(format!("{}.utoc", patch_name(&m.base, n))).exists() {
+                n += 1;
+            }
+            let base = patch_name(&m.base, n);
+            created.push(base.clone());
+            write(&base)?;
+            mount.push(engine_pak(&base));
+            unmount.push(engine_pak(&m.base));
+            for older in 1..n {
+                unmount.push(engine_pak(&patch_name(&m.base, older)));
+            }
+        }
+        Ok(())
+    })();
+    if let Err(error) = written {
+        for base in &created {
+            for ext in ["pak", "utoc", "ucas"] {
+                let _ = fs::remove_file(paks.join(format!("{base}.{ext}")));
+            }
+        }
+        return Err(error);
+    }
+
+    // Any other copy of this mod in Paks: under another load-order number (a
+    // profile that changed since Paks was written) or an earlier update's
+    // patch name. Both mounted would mix two releases' packages, so it goes:
+    // deleted when the game does not hold it, unmounted by the game when it
+    // does (and deleted by the next launch, `paks_strays`).
+    let keep: BTreeSet<String> = mount
+        .iter()
+        .map(|p| p.trim_start_matches("../../../Meteorite/Content/Paks/").trim_end_matches(".pak").to_string())
+        .chain(plan.iter().filter(|m| m.slug == inst.slug).map(|m| m.base.clone()))
+        .collect();
+    let prefix = format!("-{MARKER}-{}-", sanitize(&inst.slug));
+    if let Ok(rd) = fs::read_dir(paks) {
+        for entry in rd.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(base) = name.strip_suffix(".pak") else { continue };
+            let Some(at) = base.find(&prefix) else { continue };
+            let rest = &base[at + prefix.len()..];
+            let ours = rest
+                .strip_suffix("_P")
+                .is_some_and(|r| r.split('_').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())));
+            if !ours || keep.contains(base) || !base.starts_with("pakchunk") {
+                continue;
+            }
+            let gone = ["ucas", "utoc", "pak"]
+                .iter()
+                .all(|ext| fs::remove_file(paks.join(format!("{base}.{ext}"))).is_ok());
+            if !gone {
+                unmount.push(engine_pak(base));
+            }
+        }
+    }
+    Ok((mount, unmount))
+}
+
 /// Install the hub's map `code` for a game that is running, and put its
 /// containers and data where the game reads them. With `release`, that exact
 /// release (the one a host runs, which may be older or newer than this PC's);
@@ -1748,102 +1896,20 @@ pub fn install_live(
     save_state(&state)?;
 
     let paks = paks_dir()?;
-    let mut mount = Vec::new();
-    let mut unmount = Vec::new();
-    let required = dependency_closure(&state, &inst.slug)?;
-    let mut live_mounts = mounts(&state)?;
+    let live_mounts = mounts(&state)?;
     if let Err(error) = check_forge_shader_mounts(&paks, &live_mounts, false) {
         save_state(&before_state)?;
         return Err(error);
     }
-    live_mounts.sort_by_key(|m| m.slug == inst.slug);
-    for m in live_mounts.iter().filter(|m| required.contains(&m.slug)) {
-        let present = ["utoc", "ucas", "pak"].iter().all(|ext| m.in_paks(&paks, ext).is_file());
-        if present && (m.slug != inst.slug || !updated) {
-            continue;
+    // A refusal from here leaves the map installed and enabled: what the
+    // running game cannot take, the next launch from the launcher writes.
+    let (mount, unmount) = match write_live(&paks, &live_mounts, &before_state, &state, &inst, updated) {
+        Ok(lists) => lists,
+        Err(error) => {
+            remove_superseded_caches(&before_state, &state);
+            return Err(error);
         }
-        if m.slug != inst.slug {
-            // Only a pack first installed by this operation may be added
-            // live. Existing data could already be loaded by the simulation.
-            if before_state.installed.iter().any(|i| i.slug == m.slug)
-                || !state.installed.iter().any(|i| i.slug == m.slug && i.forge_pack.is_some())
-            {
-                return Err(format!("{} needs its assets restored. Restart through the launcher before joining.", m.slug));
-            }
-            for ext in ["utoc", "ucas", "pak"] {
-                if m.in_paks(&paks, ext).exists() {
-                    return Err(format!("{} already has files in the game. Restart through the launcher before joining.", m.slug));
-                }
-            }
-        }
-        // A library mounted while the game runs must not share its number
-        // with one the game already has open under another mod's name: the
-        // second would never open. Paks written for another profile than this
-        // one can hold that; a restart through the launcher rewrites it.
-        if let Some(lib) = m.library {
-            if let Err(error) = crate::forge_shaders::library_free(&paks, &m.slug, lib.number) {
-                save_state(&before_state)?;
-                return Err(format!("{error} Restart through the launcher before joining."));
-            }
-        }
-        // All of a container or none of it: the engine holds a mounted
-        // `.ucas` open (its `.utoc` it reads once), so the `.ucas` is tried
-        // for writing before anything is copied, and copied first.
-        let write = |base: &str| -> Result<(), String> {
-            let ucas = paks.join(format!("{base}.ucas"));
-            if ucas.exists() {
-                fs::OpenOptions::new().write(true).open(&ucas).map_err(|e| e.to_string())?;
-            }
-            m.write(&paks, base).map(|_| ())
-        };
-        // Its usual name, unless the game holds the old release there open.
-        if write(&m.base).is_ok() {
-            mount.push(engine_pak(&m.base));
-            continue;
-        }
-        let mut n = 1;
-        while paks.join(format!("{}.utoc", patch_name(&m.base, n))).exists() {
-            n += 1;
-        }
-        let base = patch_name(&m.base, n);
-        write(&base).map_err(|e| format!("{}: {e}", m.slug))?;
-        mount.push(engine_pak(&base));
-        unmount.push(engine_pak(&m.base));
-        for older in 1..n {
-            unmount.push(engine_pak(&patch_name(&m.base, older)));
-        }
-    }
-    // Any other copy of this mod in Paks: under another load-order number (a
-    // profile that changed since Paks was written) or an earlier update's
-    // patch name. Both mounted would mix two releases' packages, so it goes:
-    // deleted when the game does not hold it, unmounted by the game when it
-    // does (and deleted by the next launch, `paks_strays`).
-    let keep: BTreeSet<String> = mount
-        .iter()
-        .map(|p| p.trim_start_matches("../../../Meteorite/Content/Paks/").trim_end_matches(".pak").to_string())
-        .chain(mounts(&state)?.into_iter().filter(|m| m.slug == inst.slug).map(|m| m.base))
-        .collect();
-    let prefix = format!("-{MARKER}-{}-", sanitize(&inst.slug));
-    if let Ok(rd) = fs::read_dir(&paks) {
-        for entry in rd.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let Some(base) = name.strip_suffix(".pak") else { continue };
-            let Some(at) = base.find(&prefix) else { continue };
-            let rest = &base[at + prefix.len()..];
-            let ours = rest
-                .strip_suffix("_P")
-                .is_some_and(|r| r.split('_').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())));
-            if !ours || keep.contains(base) || !base.starts_with("pakchunk") {
-                continue;
-            }
-            let gone = ["ucas", "utoc", "pak"]
-                .iter()
-                .all(|ext| fs::remove_file(paks.join(format!("{base}.{ext}"))).is_ok());
-            if !gone {
-                unmount.push(engine_pak(base));
-            }
-        }
-    }
+    };
     crate::maps::add_live(
         &paks,
         &crate::maps::Enabled {
@@ -4018,6 +4084,12 @@ mod tests {
     /// A container holding one package and a shader library named for
     /// `number`, as a cook writes it.
     fn library_container(dir: &Path, stem: &str, number: u32) {
+        container(dir, stem, Some(number));
+    }
+
+    /// A container holding one package and, with `library`, a shader library
+    /// named for that number.
+    fn container(dir: &Path, stem: &str, library: Option<u32>) {
         use ue_iostore::pack::{build_indexed, Entry};
         let template = ue_iostore::toc::Toc {
             version: 8,
@@ -4045,13 +4117,14 @@ mod tests {
             chunk_meta: Vec::new(),
             trailing: Vec::new(),
         };
-        let library = ue_iostore::shader_library::library_id(PROJECT, number, "PCD3D_SM6-PCD3D_SM6");
         let package = ue_iostore::toc::ChunkId { id: 0x1234_5678_9abc_def0, index: 0, pad: 0, kind: 1 };
-        let entries = [
-            Entry { id: package, data: vec![7; 300], meta: vec![0; 24] },
-            Entry { id: library, data: vec![9; 100], meta: vec![0; 24] },
-        ];
-        let names = [("M_Test.uasset".to_string(), 0usize), ("ShaderArchive.ushaderbytecode".to_string(), 1)];
+        let mut entries = vec![Entry { id: package, data: vec![7; 300], meta: vec![0; 24] }];
+        let mut names = vec![("M_Test.uasset".to_string(), 0usize)];
+        if let Some(number) = library {
+            let id = ue_iostore::shader_library::library_id(PROJECT, number, "PCD3D_SM6-PCD3D_SM6");
+            entries.push(Entry { id, data: vec![9; 100], meta: vec![0; 24] });
+            names.push(("ShaderArchive.ushaderbytecode".to_string(), 1));
+        }
         let built = build_indexed(&template, 5, &entries, Some(("../../../Meteorite/Content/", &names)));
         fs::write(dir.join(format!("{stem}.utoc")), &built.utoc).unwrap();
         fs::write(dir.join(format!("{stem}.ucas")), &built.ucas).unwrap();
@@ -4069,7 +4142,7 @@ mod tests {
         let cached = fs::read(cache.join(format!("{stem}.utoc"))).unwrap();
 
         let library = library_of(stem, &cache.join(format!("{stem}.utoc")), 10042);
-        assert_eq!(library, Some(Library { cooked: 968, number: 10042 }));
+        assert_eq!(library, Some(Library { cooked: 968, number: 10042, opens: true }));
         let m = Mount {
             slug: "tst".into(),
             cache: cache.clone(),
@@ -4095,16 +4168,17 @@ mod tests {
         let fixed = "pakchunk988-MJOLNIRMAT-Windows";
         library_container(&cache, fixed, 988);
         let library = library_of(fixed, &cache.join(format!("{fixed}.utoc")), 10043);
-        assert_eq!(library, Some(Library { cooked: 988, number: 988 }));
+        assert_eq!(library, Some(Library { cooked: 988, number: 988, opens: true }));
         let m = Mount { container: fixed.into(), base: format!("pakchunk988-{MARKER}-rt-7_1028_P"), library, ..m };
         assert_eq!(m.utoc().unwrap(), fs::read(cache.join(format!("{fixed}.utoc"))).unwrap());
 
         // A library not named for the number in its own file name cannot be
-        // renamed from it, so it keeps that number as before.
+        // renamed from it, so it keeps that number as before. The engine
+        // looks for the library of that number, so this one never opens.
         let odd = "pakchunk970-MJOLNIRROCK-TST_P";
         library_container(&cache, odd, 969);
         let library = library_of(odd, &cache.join(format!("{odd}.utoc")), 10044);
-        assert_eq!(library, Some(Library { cooked: 970, number: 970 }));
+        assert_eq!(library, Some(Library { cooked: 970, number: 970, opens: false }));
 
         // No library, nothing to rename; nothing readable, nothing at all.
         assert_eq!(library_of("MJOLNIRMAP-BGL_P", Path::new("does-not-exist.utoc"), 10045), None);
@@ -4137,6 +4211,149 @@ mod tests {
         for id in before.chunk_ids.iter().filter(|c| c.kind != ue_iostore::shader_library::LIBRARY) {
             assert!(after.find_chunk_by_hash(id).is_some());
         }
+    }
+
+    /// Every file in `dir`, by name.
+    fn listing(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap())
+            .map(|e| (e.file_name().to_string_lossy().into_owned(), fs::read(e.path()).unwrap()))
+            .collect()
+    }
+
+    /// A map as a live install finds it once it is downloaded: three cached
+    /// containers, the plan that names them in Paks, and the state. One
+    /// container has no library, one has a library a launcher can rename
+    /// (cooked as 965, local number 10001), and one has a library that is
+    /// not named for the number in its file name, so it keeps that number
+    /// (985) and never opens.
+    struct LiveMap {
+        root: PathBuf,
+        paks: PathBuf,
+        cache: PathBuf,
+        state: HubState,
+        plan: Vec<Mount>,
+    }
+
+    impl LiveMap {
+        fn new(tag: &str) -> Self {
+            let root = std::env::temp_dir().join(format!("mjolnir-live-{tag}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&root);
+            let (cache, paks) = (root.join("cache"), root.join("paks"));
+            fs::create_dir_all(&cache).unwrap();
+            fs::create_dir_all(&paks).unwrap();
+            let stems = [
+                ("pakchunk951-MJOLNIRSITE-NEW_P", None),
+                ("pakchunk965-MJOLNIRLAND-NEW_P", Some(965)),
+                ("pakchunk985-MJOLNIRCOOK-NEW_P", Some(43579)),
+            ];
+            let mut plan = Vec::new();
+            for (j, (stem, library)) in stems.iter().enumerate() {
+                container(&cache, stem, *library);
+                let local = crate::chunk_numbers::local_number(j);
+                let library = library_of(stem, &cache.join(format!("{stem}.utoc")), local);
+                let number = library.map_or(local, |l| l.number);
+                plan.push(Mount {
+                    slug: "new-map".into(),
+                    cache: cache.clone(),
+                    container: stem.to_string(),
+                    base: format!("pakchunk{number}-{MARKER}-new-map-{j}_{}_P", crate::chunk_numbers::suffix(j)),
+                    library,
+                });
+            }
+            assert_eq!(plan[1].library, Some(Library { cooked: 965, number: 10001, opens: true }));
+            assert_eq!(plan[2].library, Some(Library { cooked: 985, number: 985, opens: false }));
+            LiveMap { root, paks, cache, state: plan_state(&[("new-map", true, 3)]), plan }
+        }
+
+        /// Another mod's container already in Paks, as the game has it open.
+        fn mounted(&self, stem: &str, library: Option<u32>) {
+            container(&self.paks, stem, library);
+            fs::write(self.paks.join(format!("{stem}.pak")), ue_iostore::pak::stub_for(stem)).unwrap();
+        }
+
+        fn write(&self) -> Result<(Vec<String>, Vec<String>), String> {
+            let inst = &self.state.installed[0];
+            write_live(&self.paks, &self.plan, &HubState::default(), &self.state, inst, false)
+        }
+    }
+
+    impl Drop for LiveMap {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    /// The CE runtime's menu container and a map's cooked textures both go
+    /// into Paks under 985. The menu container has no shader library, so the
+    /// game has opened nothing under that number, and the map mounts live.
+    #[test]
+    fn a_live_install_mounts_beside_a_container_that_only_shares_its_number() {
+        let map = LiveMap::new("beside");
+        let runtime = format!("pakchunk985-{MARKER}-mjolnir-ce-runtime-11_1044_P");
+        map.mounted(&runtime, None);
+        let before = listing(&map.paks);
+
+        crate::forge_shaders::library_free(&map.paks, "new-map", 985).unwrap();
+        let (mount, unmount) = map.write().unwrap();
+        assert_eq!(
+            mount,
+            [
+                format!("../../../Meteorite/Content/Paks/pakchunk10000-{MARKER}-new-map-0_1000_P.pak"),
+                format!("../../../Meteorite/Content/Paks/pakchunk10001-{MARKER}-new-map-1_1004_P.pak"),
+                format!("../../../Meteorite/Content/Paks/pakchunk985-{MARKER}-new-map-2_1008_P.pak"),
+            ]
+        );
+        assert!(unmount.is_empty(), "{unmount:?}");
+        for m in &map.plan {
+            for ext in ["utoc", "ucas", "pak"] {
+                assert!(m.in_paks(&map.paks, ext).is_file(), "{}.{ext}", m.base);
+            }
+        }
+        let after = listing(&map.paks);
+        for (name, bytes) in &before {
+            assert_eq!(after.get(name), Some(bytes), "{name} changed");
+        }
+        // Asked again, everything is there and nothing is mounted twice.
+        assert_eq!(map.write().unwrap(), (Vec::new(), Vec::new()));
+
+        // A container that does carry a library has the number open.
+        map.mounted(&format!("pakchunk985-{MARKER}-other-map-0_1100_P"), Some(985));
+        let error = crate::forge_shaders::library_free(&map.paks, "new-map", 985).unwrap_err();
+        assert!(error.contains("other-map"), "{error}");
+    }
+
+    /// Paks written for another profile can hold another mod's library under
+    /// the number this map's library takes. The map cannot load beside it,
+    /// and the refusal comes before anything is written.
+    #[test]
+    fn a_refused_live_install_leaves_paks_as_it_was() {
+        let map = LiveMap::new("refused");
+        map.mounted(&format!("pakchunk10001-{MARKER}-stale-map-0_1004_P"), Some(10001));
+        let before = listing(&map.paks);
+        let error = map.write().unwrap_err();
+        assert!(error.starts_with("new-map is installed, but cannot load while the game is running"), "{error}");
+        assert!(error.contains("stale-map") && error.ends_with(RELAUNCH), "{error}");
+        assert_eq!(listing(&map.paks), before);
+
+        // The same number under a container with no library is free.
+        let free = LiveMap::new("refused-free");
+        free.mounted(&format!("pakchunk10001-{MARKER}-stale-map-0_1004_P"), None);
+        assert_eq!(free.write().unwrap().0.len(), 3);
+    }
+
+    /// A write that fails part way (a full disk, a cache file gone) takes
+    /// back the containers already written.
+    #[test]
+    fn a_failed_live_write_takes_back_what_it_wrote() {
+        let map = LiveMap::new("failed");
+        map.mounted(&format!("pakchunk985-{MARKER}-mjolnir-ce-runtime-11_1044_P"), None);
+        let before = listing(&map.paks);
+        fs::remove_file(map.cache.join("pakchunk985-MJOLNIRCOOK-NEW_P.ucas")).unwrap();
+        let error = map.write().unwrap_err();
+        assert!(error.starts_with("new-map: "), "{error}");
+        assert_eq!(listing(&map.paks), before);
     }
 
     #[test]
@@ -4469,6 +4686,126 @@ mod tests {
         assert!(err.contains("restart the game"), "{err}");
         assert!(!load_state().installed.iter().any(|m| m.slug == "bad-arena"));
         assert_eq!(load_state().installed.iter().find(|m| m.slug == "alloy").unwrap().version, "1.0.0");
+        stop.store(true, Ordering::Relaxed);
+        server.join().unwrap();
+    }
+
+    /// The whole live install against a local hub and a fake game folder, in
+    /// a subprocess as above: a map whose container shares a number with one
+    /// already in Paks installs and is handed to the game, and a map that is
+    /// refused stays installed, so the launch that follows writes it.
+    #[test]
+    fn a_map_installs_live_and_a_refused_one_stays_installed() {
+        let root = std::env::temp_dir().join(format!("mjolnir-live-install-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let game = root.join("game");
+        fs::create_dir_all(game.join("Meteorite/Content/Paks")).unwrap();
+        fs::create_dir_all(game.join("Meteorite/Binaries/Win64/ue4ss")).unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "hub::tests::live_install_child", "--ignored", "--nocapture"])
+            .env("MJOLNIR_TEST_CONFIG_DIR", root.join("config"))
+            .env(crate::GAME_DIR_ENV, &game)
+            .env("NO_PROXY", "127.0.0.1,localhost")
+            .output().unwrap();
+        assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture; run a_map_installs_live_and_a_refused_one_stays_installed"]
+    fn live_install_child() {
+        use std::io::Write;
+        use std::sync::atomic::Ordering;
+        assert!(std::env::var_os("MJOLNIR_TEST_CONFIG_DIR").is_some(), "must run in isolated fixture");
+        let game = PathBuf::from(std::env::var_os(crate::GAME_DIR_ENV).expect("must run in a fake game folder"));
+        let paks = paks_dir().unwrap();
+        assert!(paks.starts_with(&game), "{} is not the fake game folder", paks.display());
+        let scratch = config_dir().join("built");
+        fs::create_dir_all(&scratch).unwrap();
+        // A map pack: its containers, each with the library it was cooked with.
+        let pack = |code: &str, name: &str, containers: &[(&str, Option<u32>)]| {
+            let manifest = serde_json::json!({"schema_version":1,"name":name,"version":"1.0.0","type":"map","map":{"code":code}});
+            let mut members = vec![
+                ("mjolnir.json".to_string(), manifest.to_string().into_bytes()),
+                ("map/level.json".to_string(), b"{}".to_vec()),
+                ("map/registration.json".to_string(), serde_json::json!({"code":code,"from":"B40"}).to_string().into_bytes()),
+            ];
+            for (stem, library) in containers {
+                container(&scratch, stem, *library);
+                for ext in ["utoc", "ucas"] {
+                    members.push((format!("content/{stem}.{ext}"), fs::read(scratch.join(format!("{stem}.{ext}"))).unwrap()));
+                }
+            }
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            for (name, bytes) in members {
+                zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+                zip.write_all(&bytes).unwrap();
+            }
+            zip.finish().unwrap().into_inner()
+        };
+        let mut routes = std::collections::BTreeMap::<String, Vec<u8>>::new();
+        let mut serve = |code: &str, slug: &str, archive: Vec<u8>| {
+            routes.insert(format!("/maps/{code}"), serde_json::json!({"slug":slug,"release":{"file_size":archive.len()}}).to_string().into_bytes());
+            routes.insert(format!("/mods/{slug}"), serde_json::json!({"name":slug,"type":"map"}).to_string().into_bytes());
+            routes.insert(format!("/mods/{slug}/releases"), serde_json::json!({"releases":[{"id":format!("{slug}-1"),"version":"1.0.0","channel":"stable"}]}).to_string().into_bytes());
+            routes.insert(format!("/releases/{slug}-1"), serde_json::json!({"status":"published","sha256":sha256_hex(&archive)}).to_string().into_bytes());
+            routes.insert(format!("/releases/{slug}-1/download"), archive);
+        };
+        // NEW's cooked textures keep 985 in Paks: their library is named for
+        // the number they were cooked under, not the one in the file name.
+        serve("NEW", "new-map", pack("NEW", "New map", &[
+            ("pakchunk951-MJOLNIRSITE-NEW_P", None),
+            ("pakchunk965-MJOLNIRLAND-NEW_P", Some(965)),
+            ("pakchunk985-MJOLNIRCOOK-NEW_P", Some(43579)),
+        ]));
+        serve("OTH", "other-map", pack("OTH", "Other map", &[("pakchunk965-MJOLNIRLAND-OTH_P", Some(965))]));
+        let (stop, server) = local_hub(routes);
+        let mounted = |stem: &str, library: Option<u32>| {
+            container(&paks, stem, library);
+            fs::write(paks.join(format!("{stem}.pak")), ue_iostore::pak::stub_for(stem)).unwrap();
+        };
+        let ours = |slug: &str| listing(&paks).into_keys().filter(|n| n.contains(&format!("-{MARKER}-{slug}-"))).collect::<Vec<_>>();
+        let enabled = |slug: &str| {
+            let state = load_state();
+            state.installed.iter().any(|m| m.slug == slug)
+                && state.profiles.iter().find(|p| p.name == state.active).unwrap().entries.iter().any(|e| e.slug == slug && e.enabled)
+        };
+
+        // The runtime's menu container, which every player has, under 985
+        // with no library.
+        mounted(&format!("pakchunk985-{MARKER}-mjolnir-ce-runtime-11_1044_P"), None);
+        let done = install_live("NEW", None, &|_, _| {}).unwrap();
+        assert_eq!(done.slug, "new-map");
+        assert_eq!(done.mount.len(), 3, "{:?}", done.mount);
+        assert!(done.mount.contains(&format!("../../../Meteorite/Content/Paks/pakchunk985-{MARKER}-new-map-2_1008_P.pak")), "{:?}", done.mount);
+        assert!(done.unmount.is_empty(), "{:?}", done.unmount);
+        assert_eq!(ours("new-map").len(), 9);
+        assert!(enabled("new-map"));
+        assert!(game.join("Meteorite/Binaries/Win64/ue4ss/MJOLNIRMaps/NEW/level.json").is_file());
+
+        // OTH's library takes local number 10003, which Paks (written for
+        // another profile) holds under another mod's library.
+        let stale = format!("pakchunk10003-{MARKER}-stale-map-0_1012_P");
+        mounted(&stale, Some(10003));
+        let before = listing(&paks);
+        // The first try downloads the map; the second finds it installed.
+        for downloads in [true, false] {
+            let reads = std::cell::Cell::new(0);
+            let error = install_live("OTH", None, &|_, _| reads.set(reads.get() + 1)).unwrap_err();
+            assert!(error.starts_with("other-map is installed, but cannot load while the game is running"), "{error}");
+            assert!(error.ends_with(RELAUNCH), "{error}");
+            assert_eq!(listing(&paks), before, "a refusal changed Paks");
+            assert!(enabled("other-map"), "the refused map was forgotten");
+            assert_eq!(reads.get() > 0, downloads, "{} download reads", reads.get());
+        }
+        // The launch the message asks for writes Paks from the profile's
+        // plan, which now holds the map, and clears every hub container
+        // outside it, the stale one among them.
+        let plan = mounts(&load_state()).unwrap();
+        assert!(plan.iter().any(|m| m.base == format!("pakchunk10003-{MARKER}-other-map-0_1012_P")));
+        assert!(paks_strays(&plan, &paks).unwrap().contains(&format!("{stale}.utoc")));
+        assert_eq!(ours("other-map"), Vec::<String>::new());
+        assert_eq!(ours("new-map").len(), 9);
         stop.store(true, Ordering::Relaxed);
         server.join().unwrap();
     }

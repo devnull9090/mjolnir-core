@@ -115,13 +115,23 @@ pub fn check(
     Ok(())
 }
 
-/// Whether chunk `number` is free in Paks for `slug`'s library: no container
-/// there carries the number except the launcher's own copies of `slug`. Two
-/// libraries under one number cannot both open, so a container written while
-/// the game runs checks this first (a launch rewrites every hub container
-/// and has nothing to check).
+/// Whether chunk `number` is free in Paks for `slug`'s library, for a
+/// container written while the game runs (a launch rewrites every hub
+/// container and has nothing to check).
+///
+/// The engine opens one library per chunk number: a pak that mounts looks for
+/// the library named for the number in its file name, unless one has already
+/// opened under that number (ShaderCodeLibrary.cpp, `FNamedShaderLibrary::
+/// OnPakFileMounted` and its `PresentChunks`). So the number is taken only by
+/// a container that carries a shader library. One that merely shares the
+/// number, as the CE runtime's menu container shares 985 with a map's cooked
+/// textures, has opened nothing, and a library mounted beside it opens.
+///
+/// A container whose `.utoc` cannot be read counts as carrying one, since
+/// nothing says otherwise. The launcher's own copies of `slug` are its to
+/// replace and never count.
 pub fn library_free(paks: &Path, slug: &str, number: u32) -> Result<(), String> {
-    let mut taken = Vec::new();
+    let mut stems = std::collections::BTreeSet::new();
     for entry in fs::read_dir(paks).map_err(|e| format!("Cannot check shader chunks: {e}"))? {
         let name = entry.map_err(|e| e.to_string())?.file_name().to_string_lossy().into_owned();
         let Some((stem, ext)) = name.rsplit_once('.') else { continue };
@@ -129,14 +139,17 @@ pub fn library_free(paks: &Path, slug: &str, number: u32) -> Result<(), String> 
             && chunk(stem) == Some(number)
             && !hub_copy_of(stem, slug, number)
         {
-            taken.push(name);
+            stems.insert(stem.to_string());
         }
     }
-    taken.sort();
-    match taken.first() {
-        None => Ok(()),
-        Some(name) => Err(format!("{slug} needs shader chunk {number}, already used by {name}.")),
+    for stem in stems {
+        let carries = ue_iostore::toc::Toc::read(paks.join(format!("{stem}.utoc")))
+            .map_or(true, |toc| ue_iostore::shader_library::has_library(&toc));
+        if carries {
+            return Err(format!("{slug} needs shader chunk {number}, which {stem} already has open."));
+        }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -328,7 +341,8 @@ mod tests {
         f.put("pakchunk10121-MJOLNIRHUB-ce-blood-gulch-0_1484_P.utoc");
         f.put("pakchunk10120-notes.txt");
         library_free(&f.0, "tst-proving-ground", 10120).unwrap();
-        // Another mod's container under the number is not.
+        // Another mod's container under the number is not, when nothing shows
+        // it has no library (hub.rs tests the ones that can be read).
         f.put("pakchunk10120-MJOLNIRHUB-ce-blood-gulch-1_1488_P.utoc");
         let error = library_free(&f.0, "tst-proving-ground", 10120).unwrap_err();
         assert!(error.contains("ce-blood-gulch"), "{error}");

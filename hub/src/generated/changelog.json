@@ -62,6 +62,29 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.24.2",
+      "tag": "launcher-v0.24.2",
+      "title": "Pelican Warfare installs from inside the game",
+      "date": "2026-11-21",
+      "summary": "Joining a Pelican Warfare match without the map now downloads and loads it in game, and a map that cannot load right away stays installed.",
+      "body": "### Fixed\n\n- **Pelican Warfare installs in game.** When you join a match on a map you do\n  not have, the game downloads it and loads it with no restart. Pelican Warfare\n  was the exception: after the 685 MB download the install stopped with\n  \"needs shader chunk 985, already used by\" a file of the CE runtime. One of the\n  map's files shares its number with a runtime file, and the launcher took that\n  for a clash between two shader libraries. The runtime file has no shader\n  library, so there is none, and the map now loads like any other.\n- **A map that cannot load right away stays installed.** When a downloaded map\n  really could not be loaded into the running game, the launcher forgot it, so\n  restarting did not help and the download was wasted. The map now stays\n  installed. The message tells you to quit and start the game again from the\n  launcher, and the map is ready when you do.\n- **No half-installed maps.** An in-game install that is refused or fails part\n  way no longer leaves some of the map's files in the game folder.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Pelican Warfare installs in game. When you join a match on a map you do not have, the game downloads it and loads it with no restart. Pelican Warfare was the exception: after the 685 MB download the install stopped with \"needs shader chunk 985, already used by\" a file of the CE runtime. One of the map's files shares its number with a runtime file, and the launcher took that for a clash between two shader libraries. The runtime file has no shader library, so there is none, and the map now loads like any other.",
+            "A map that cannot load right away stays installed. When a downloaded map really could not be loaded into the running game, the launcher forgot it, so restarting did not help and the download was wasted. The map now stays installed. The message tells you to quit and start the game again from the launcher, and the map is ready when you do.",
+            "No half-installed maps. An in-game install that is refused or fails part way no longer leaves some of the map's files in the game folder."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.24.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.24.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.24.2"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.24.1",
       "tag": "launcher-v0.24.1",
       "title": "Large maps download on any connection",

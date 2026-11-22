@@ -120,6 +120,17 @@ What it leaves out, because the game is running:
   naming the range and the installed version.
 - It doesn't rebuild the registration container: it is mounted.
 
+It decides everything that can stop it before it writes a container, so a
+refusal leaves Paks as it was, and a write that fails takes back what it
+wrote. A map that downloaded but cannot be loaded into the running game (a
+pack it needs is already loaded in another version, or Paks written for
+another profile holds another mod's shader library under its number) stays
+installed and enabled. The message then says to quit and start the game
+again from the launcher, and that launch writes the map with everything
+else. A container that only shares a chunk number with one already mounted
+is not such a case
+([docs/chunk_numbering.md](chunk_numbering.md)).
+
 Progress goes to `<file>` as one JSON object, replaced as it changes:
 
 - `{"stage":"start","code":...}` first.
