@@ -306,6 +306,8 @@ jobs:
         run: python -m unittest discover -s tools/level -p test_machine_containers.py
       - name: Cladding rock material tests
         run: python -m unittest discover -s tools/level -p test_clad_materials.py
+      - name: Release loss guard tests
+        run: python -m unittest discover -s tools/level -p test_release_loss.py
 
       - name: Check Forge packs and maps for colliding and z-fighting pieces
         run: python -m unittest discover -s tools/forge -p test_check_overlaps.py
