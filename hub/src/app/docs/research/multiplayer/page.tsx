@@ -139,7 +139,9 @@ export default function MultiplayerResearchPage() {
             <p className="mt-2 text-sm leading-6 text-text-muted">
               <strong className="text-foreground">Update 2026-10-21:</strong> the Megalo engine now
               starts for converted maps (native/map_registry, mods-v0.7.0), and Slayer and CTF ship
-              as variant files since mods-v0.9.0. No other mode ships a variant file.
+              as variant files since mods-v0.9.0. The mods release has since added Team Slayer,
+              Assault, King, Oddball, Juggernaut, Stalker, Reverse Tag, Race, Rally and Pelican
+              Warfare: seventeen variants in all.
             </p>
           </div>
         </div>

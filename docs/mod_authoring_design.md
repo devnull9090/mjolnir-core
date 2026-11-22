@@ -53,7 +53,8 @@ edit in the editor ──► edits.json (autosave, per edit)
   hub's limits client-side (50 MiB, manifest rules) so most rejections happen before any
   upload. **Update 2026-10-21:** the hub now takes 90 MiB in one upload (PR #184) and 400 MiB in
   parts (PR #210). The editor still checks against 50 MiB and uploads in one request, so it is
-  stricter than the hub rather than a mirror of it.
+  stricter than the hub rather than a mirror of it. **Update 2026-11-21:** the hub's cap for an
+  upload in parts is now 1 GiB.
 
 ## Publishing auth
 

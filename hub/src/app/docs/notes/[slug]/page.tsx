@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ExternalLink, FileText } from "lucide-react";
-import { getDocNote, getDocNotes } from "@/lib/docs";
+import { getDocNote, getDocNotes, getDocSection } from "@/lib/docs";
 import { Markdown } from "../../_components/Markdown";
 
 /**
@@ -23,7 +23,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const note = getDocNote(slug);
-  if (!note) return { title: "Research note | MJOLNIR Docs" };
+  if (!note) return { title: "Documentation | MJOLNIR Docs" };
   return {
     title: `${note.title} | MJOLNIR Docs`,
     description: note.summary.slice(0, 200),
@@ -34,15 +34,16 @@ export default async function DocNotePage({ params }: { params: Promise<{ slug: 
   const { slug } = await params;
   const note = getDocNote(slug);
   if (!note) notFound();
+  const section = getDocSection(note.section);
 
   return (
     <main id="main" className="mx-auto max-w-4xl">
       <Link
-        href="/docs/notes"
+        href={section ? `/docs/notes#${section.id}` : "/docs/notes"}
         className="inline-flex items-center gap-2 text-sm text-text-muted hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
-        Research notes
+        {section?.title ?? "Documentation"}
       </Link>
 
       <header className="mt-6 border-b border-border pb-9">
@@ -55,7 +56,14 @@ export default async function DocNotePage({ params }: { params: Promise<{ slug: 
                 {note.meta.map(({ label, value }) => (
                   <div key={label} className="contents">
                     <dt className="py-1 font-semibold text-text-dim">{label}</dt>
-                    <dd className="break-all py-1 font-mono text-xs text-text-muted sm:text-sm">
+                    {/* A hash or a build string is set in mono and may break anywhere; a sentence is not. */}
+                    <dd
+                      className={
+                        value.length > 90
+                          ? "break-words py-1 text-sm leading-6 text-text-muted"
+                          : "break-all py-1 font-mono text-xs text-text-muted sm:text-sm"
+                      }
+                    >
                       {value}
                     </dd>
                   </div>
@@ -65,11 +73,9 @@ export default async function DocNotePage({ params }: { params: Promise<{ slug: 
           </div>
         </div>
         <p className="mt-6 text-xs leading-6 text-text-dim">
-          Raw investigation log, rendered from the repository. Curated summaries live under{" "}
-          <Link href="/docs" className="text-gold hover:underline">
-            Documentation
-          </Link>
-          .
+          Rendered from the repository, where it is written as the work happens: it keeps its
+          history, and a status line above says when it describes a design rather than something
+          shipped.
         </p>
       </header>
 

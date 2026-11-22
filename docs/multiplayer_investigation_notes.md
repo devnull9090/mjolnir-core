@@ -1,6 +1,5 @@
 # MJOLNIR Multiplayer Investigation — Session Notes
-**Date**: 2026-07-25 ~11:50 PM PST
-**Conversation ID**: `f74b07be-cdb9-4b3f-ac8b-b193380aa670`
+**Date:** 2026-07-25 to 2026-08-20
 **Status:** Research history, 2026-07-25 to 2026-08-20, superseded turns included. Multiplayer later shipped another way: converted CE maps, each a scenario of its own, run under the simulation's Megalo engine and are hosted from MJOLNIRLobby's MULTIPLAYER menu (mods-v0.7.0, PR #106; the `.mglo` game types ship in the release from mods-v0.9.0, PR #119; [`re/megalo_engine.md`](re/megalo_engine.md)).
 
 > **Build label:** each section is only true of the build it was measured on: CU2 for the
@@ -289,7 +288,7 @@ $strings | Where-Object { $_ -match 'BlamEngine|HaloSimulation|Simulation|GameVa
 
 ---
 
-## 🎯 WHAT TO DO NEXT (Priority Order)
+## 🎯 What was planned next on 2026-07-25 (history)
 
 **Update 2026-10-21:** item 2's first bullet and items 3 and 5 were done in the 2026-07-26
 follow-up below: the Ghidra pass on `CreateBlamEngineShell` (`tools/ghidra/AnalyzeBlamShell.java`),

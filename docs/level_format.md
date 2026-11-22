@@ -4,8 +4,10 @@ The interchange format of the level authoring pipeline: what the Blender exporte
 `mjolnir level bake` turns into a scenario override, and what the `MJOLNIRLevelLoader` UE4SS mod
 reads at runtime. One file describes one custom level.
 
-Custom levels v1 are **map variants**: a shipped campaign scenario's world and BSP stay as the
-canvas, and the level is everything placed on top. That split exists because the Blam simulation
+A level is baked one of two ways. Every published map is a **standalone scenario** with its own
+BSP and world ([map_distribution.md](map_distribution.md)). The older lane, still used for
+authoring and tests, is the **map variant**: a shipped campaign scenario's world and BSP stay as
+the canvas, and the level is everything placed on top. That split exists because the Blam simulation
 collides only with its own world — BSP plus Blam objects — and ignores Unreal geometry entirely
 (verified 2026-08-19, [multiplayer_investigation_notes.md](multiplayer_investigation_notes.md)).
 The format therefore carries two kinds of content:
@@ -109,7 +111,7 @@ map). Author around your own origin in Blender; move the whole level by editing 
 format, but it has fallen behind the keys below and nothing in the repository reads it.
 `mjolnir level validate <file>` checks a file the way the bake reads it (`LevelFile` in
 `crates/blam-cli/src/level.rs`): no unknown keys, one of the 13 canvas scenarios, a slug `name`,
-known palette types, and `scenery` or `crates` objects. The keys a remastered map adds for the
+known palette types, and `scenery`, `crates`, `machines` or `controls` objects. The keys a remastered map adds for the
 loader alone are unknown to it (see *Keys a converted map adds*).
 
 ## Section notes

@@ -27,7 +27,7 @@ const inventory: Array<[string, string, string]> = [
   ["collision_model", "coll", "424"],
   ["physics_model", "phmo", "421"],
   ["squad_template", "sqtm", "343"],
-  ["model_animation_graph", "jmad", "176"],
+  ["model_animation_graph", "jmad", "178"],
   ["character", "char", "132"],
   ["scenario_structure_bsp", "sbsp", "122"],
   ["weapon", "weap", "75"],
@@ -53,7 +53,10 @@ export default function TagDataPage() {
       <header className="border-b border-border pb-9">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <EvidenceBadge level="Verified" />
-          <span className="text-xs text-text-dim">Build 2026.06.26.1097863.1, CU2</span>
+          <span className="text-xs text-text-dim">
+            Measured on build 2026.06.26.1097863.1 (CU2). The current build, CU4, ships 12,292 tags
+            in the same 101 groups; the per-group table below is CU4&apos;s.
+          </span>
         </div>
         <div className="flex items-start gap-4">
           <Package className="mt-1 h-7 w-7 shrink-0 text-gold" />

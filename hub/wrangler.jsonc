@@ -32,6 +32,25 @@
       "bucket_name": "mjolnir-releases"
     }
   ],
+  // Semantic docs search (src/lib/api/docs-search.ts): Workers AI embeds the
+  // docs' chunks and a query, Vectorize holds the vectors. The index has to
+  // exist before a deploy that names it, or the deploy is refused:
+  //   wrangler vectorize create mjolnir-docs --dimensions=1024 --metric=cosine
+  // 1024 is what @cf/baai/bge-m3 embeds to; another model means another index.
+  // `remote` is read by local dev only: neither has a local simulation, so a
+  // dev session that asks for remote bindings (MJ_REMOTE_BINDINGS=1, see
+  // next.config.ts) reaches the real ones, and any other leaves them unconnected.
+  "ai": {
+    "binding": "AI",
+    "remote": true
+  },
+  "vectorize": [
+    {
+      "binding": "DOCS_INDEX",
+      "index_name": "mjolnir-docs",
+      "remote": true
+    }
+  ],
   "vars": {
     "SITE_URL": "https://mjolnircore.com",
     // Content uploads must carry a verifiable author signature: the

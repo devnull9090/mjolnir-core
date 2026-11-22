@@ -1,0 +1,148 @@
+{
+  "about": "What mjolnircore.com/docs publishes, and where. hub/scripts/sync-docs.mjs reads this and fails when a Markdown file in docs/ is in no section and not under repoOnly, so a new doc is either placed on the site or kept off it on purpose. A section of kind \"guide\" is served under /docs/guides; every other section under /docs/notes.",
+  "sections": [
+    {
+      "id": "guides",
+      "kind": "guide",
+      "title": "Guides",
+      "blurb": "Task-shaped: follow one start to finish and you have done the thing.",
+      "docs": [
+        "getting_started.md",
+        "making_your_first_mod.md",
+        "tag_editing_guide.md",
+        "texture_swapping.md",
+        "level_authoring.md",
+        "custom_map_walkthrough.md",
+        "forge_guide.md",
+        "forge_pack_authoring.md",
+        "game_automation.md"
+      ]
+    },
+    {
+      "id": "multiplayer",
+      "title": "Multiplayer",
+      "blurb": "How the multiplayer that ships works: the menu and lobby, finding and hosting games, game types, the HUD, bots, stats and what keeps players in step.",
+      "docs": [
+        "multiplayer_menu.md",
+        "multiplayer_servers.md",
+        "game_modes.md",
+        "custom_game_types.md",
+        "multiplayer_hud.md",
+        "multiplayer_postgame.md",
+        "match_stats.md",
+        "player_identity.md",
+        "bots.md",
+        "sound_mixer.md",
+        "koth_visuals.md",
+        "pelican_warfare.md",
+        "pwr_tactical_map.md",
+        "live_map_install.md",
+        "update_check.md",
+        "crash_reports.md",
+        "discord_presence.md",
+        "game_pass.md",
+        "fireteam_join_and_cap.md"
+      ]
+    },
+    {
+      "id": "forge",
+      "title": "Forge",
+      "blurb": "The in-game map editor, the piece packs it places, and how layouts are saved and shared.",
+      "docs": [
+        "forge.md",
+        "forge_packs.md",
+        "forge_pack_design.md",
+        "forge_blocks.md",
+        "forge_canvas.md",
+        "forge_pack_materials.md",
+        "forge_pack_utilities.md",
+        "forge_layout_sharing.md",
+        "forge_editor_mode.md"
+      ]
+    },
+    {
+      "id": "maps",
+      "title": "Maps and levels",
+      "blurb": "Converting Halo CE and Halo 2 maps, building new levels, collision, water, custom vehicles, and how maps reach players.",
+      "docs": [
+        "level_format.md",
+        "ce_map_conversion.md",
+        "h2_map_conversion.md",
+        "map_distribution.md",
+        "chunk_numbering.md",
+        "ce_custom_content.md",
+        "custom_vehicles.md",
+        "ce_native_support.md",
+        "ce_terrain_collision.md",
+        "new_scenario_loading.md",
+        "heightfield_landscape.md",
+        "heightfield_collision.md",
+        "flux_water.md",
+        "custom_ui.md",
+        "h2_cache_format.md",
+        "h2_shader_census.md"
+      ]
+    },
+    {
+      "id": "internals",
+      "title": "Game internals",
+      "blurb": "Reverse-engineering notes on the game itself: tag data, containers, textures, audio, the simulation DLL, scripting and reading the running game. Working logs, superseded turns included.",
+      "docs": [
+        "build_lock.md",
+        "game_update_pipeline.md",
+        "tag_data_pipeline.md",
+        "tag_body_format.md",
+        "tag_table_and_string_ids.md",
+        "iostore_packaging.md",
+        "ue_texture_format.md",
+        "ue_mesh_write.md",
+        "wwise_audio_format.md",
+        "jmad_format.md",
+        "halosimulation_tag_release.md",
+        "blam_console.md",
+        "blam_script.md",
+        "game_state_reader.md",
+        "guobjectarray_reader.md",
+        "live_tag_locating.md",
+        "multiplayer_investigation_notes.md"
+      ]
+    },
+    {
+      "id": "project",
+      "title": "Project",
+      "blurb": "The mod format, the hub, signing, contributing code mods, performance and security notices.",
+      "docs": [
+        "mjolnir_format.md",
+        "mod_authoring_design.md",
+        "mod_signing_design.md",
+        "hub_architecture.md",
+        "contributing_code_mods.md",
+        "performance.md",
+        "security_advisory_arrayref.md"
+      ]
+    }
+  ],
+  "repoOnly": {
+    "credits.md": "maintainer process",
+    "forge_pack_validation.md": "evidence log",
+    "h2_lifts_release.md": "release log",
+    "host_game_settings.md": "plan; cites sources we keep out of the site",
+    "lua_native_audit.md": "internal audit",
+    "multi_instance.md": "test rig",
+    "multiplayer_ctf_plan.md": "superseded plan",
+    "multiplayer_release_plan.md": "finished plan",
+    "pipeline_test_map.md": "test map notes",
+    "playtest_2026-10-03.md": "playtest log",
+    "playtest_stock_modes.md": "playtest log",
+    "playtest_yoyorast.md": "playtest log",
+    "probe_log_2026-09-02.md": "probe log",
+    "pwr_mature_pine.md": "asset build notes",
+    "pwr_pcg.md": "asset build notes",
+    "pwr_surface_materials.md": "asset build notes",
+    "pwr_terrain_finalization.md": "asset build notes",
+    "pwr_terrain_preservation.md": "asset build notes",
+    "remaster_asset_inventory.md": "asset inventory",
+    "two_pc_run_2026-11-07.md": "test log",
+    "two_pc_test.md": "test log"
+  }
+}

@@ -1,12 +1,6 @@
 # Driving the Game From Outside
 
-**Status:** Working. Verified end to end on 2026-07-27 against
-`2026.06.26.1097863.1-Rel-i343-Meteorite-2606-CU2` (Steam).
-
-> **Build label:** this note is stamped CU2; the installed build is CU4
-> (`2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4`). The tools have driven CU4 since
-> 2026-08-18; the Hazards below say what changed. See [`build_lock.md`](build_lock.md) for
-> what else has been re-verified against CU4.
+**Status:** Working on CU4 (`2026.08.11.1121610.2-Rel-i343-Meteorite-2607-CU4`, Steam), which the tools have driven since 2026-08-18. First verified end to end on 2026-07-27 on CU2; the Hazards below say what changed. See [`build_lock.md`](build_lock.md).
 
 Every experiment in this repository used to end at the same place: build the thing, then sit in
 front of the game and type at it. Load a level, alt-tab, run a command, read a number off the
@@ -42,7 +36,8 @@ dangerous.
 node tools/mcp/game/cli.mjs status
 ```
 
-If it says the bridge mod is not installed:
+If it says the bridge mod is not installed, install MJOLNIRBridge from the launcher's **My Mods**
+page (*Available to install*), or from a clone:
 
 ```powershell
 .\scripts\install-bridge.ps1
@@ -233,8 +228,9 @@ builds it. Run `native/test_input/build.ps1`, then `scripts/install-bridge.ps1` 
 If the DLL is missing the tool fails; it never falls back to SendInput by itself. The reply counts
 the simulation's reads during the call: zero means no simulation is running, or the hook is not on
 the object it reads. This route reaches the player only: menus are Unreal widgets and never see it.
-It was built from reading the exe, with an offline test against the exe on disk. Its first run in
-the game is still to come, and that the focus check is the viewport's is inferred, not measured.
+It was built from reading the exe, with an offline test against the exe on disk. It has driven
+the player in real matches since the two-PC run of 2026-11-07, and `tools/bot` plays whole matches
+through it.
 
 **`method: "sendinput"` steals focus, and needs an unlocked machine.** It is for menus and other
 screens that need the real cursor. Posted messages do not work and the window has to be in front.

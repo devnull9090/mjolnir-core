@@ -1362,6 +1362,68 @@
         ],
         "additionalProperties": false
       },
+      "DocsSearch": {
+        "type": "object",
+        "properties": {
+          "semantic": {
+            "type": "boolean",
+            "description": "False when this deployment has no semantic index, or it failed: use keyword results alone."
+          },
+          "hits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "example": "sound-mixer#what-it-changes#0",
+                  "description": "doc slug, heading anchor, part"
+                },
+                "score": {
+                  "type": "number",
+                  "description": "Cosine similarity of the section to the query."
+                },
+                "relevance": {
+                  "type": "number",
+                  "description": "The similarity on a 0 to 1 scale, 1 being a strong match. Sections below 0.1 are left out."
+                }
+              },
+              "required": [
+                "key",
+                "score",
+                "relevance"
+              ]
+            }
+          }
+        },
+        "required": [
+          "semantic",
+          "hits"
+        ]
+      },
+      "DocsSearchSync": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "indexed"
+            ]
+          },
+          "build": {
+            "type": "string"
+          },
+          "chunks": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "build",
+          "chunks"
+        ]
+      },
       "MediaList": {
         "type": "object",
         "properties": {
@@ -7329,6 +7391,89 @@
           },
           "404": {
             "description": "No published Forge pack release.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/docs/search": {
+      "get": {
+        "tags": [
+          "docs"
+        ],
+        "summary": "Find docs sections by meaning",
+        "description": "Embeds `q` and returns the nearest sections of the published docs, best first, as keys into /docs-search.json (`slug#anchor#part`). The docs search palette merges these with its own keyword ranking. Answers `semantic: false` with no hits when the deployment has no semantic index.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "how do I add bots to my map"
+            },
+            "required": true,
+            "name": "q",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Hits, or none.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocsSearch"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/docs/search/sync": {
+      "post": {
+        "tags": [
+          "docs"
+        ],
+        "summary": "Bring the semantic index up to the deployed docs",
+        "description": "Reads this deployment's /docs-search.json and, when the semantic index holds another build, embeds every chunk, replaces the index's contents and removes what is left of the old build. A no-op when the index is current. Takes no body and no credentials: the content comes from the deployment, never the caller, so all a caller chooses is when. Reindexes by callers who are not admins share a small hourly budget. Called by the deploy workflow after each deploy.",
+        "responses": {
+          "200": {
+            "description": "The index holds this build.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocsSearchSync"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many syncs this hour.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The sync failed part way; calling again resumes it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "This deployment has no semantic index.",
             "content": {
               "application/json": {
                 "schema": {

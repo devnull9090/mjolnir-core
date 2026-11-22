@@ -1,6 +1,6 @@
 # Forge building blocks
 
-**Status:** 2026-11-01. Two shipped blocks are included on newly baked maps
+**Status:** 2026-11-01, a research note. Three reference packs exist today (Foundry with 24 pieces, Foundry Wide with 38, Roadworks with 10); the 18-piece set below is the first Foundry build, which this note validated. For the pack format see [forge_packs.md](forge_packs.md); to make a pack, [forge_pack_authoring.md](forge_pack_authoring.md). Two shipped blocks are included on newly baked maps
 (a Covenant crate and the Covenant portable shield). The original 18-piece
 Foundry source set and community pack catalog, packaging, dependency and layout
 binding support are implemented. See [forge_packs.md](forge_packs.md) for the

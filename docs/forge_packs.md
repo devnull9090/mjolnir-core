@@ -208,7 +208,9 @@ published catalog, release version, archive SHA-256 and dependencies. The mod
 detail page displays piece names, dimensions and snap. Choosing the Forge
 category alone does not put an unvalidated archive in the Forge catalog.
 Publishing still uses the existing registered author-key requirements and
-review rules; this work does not deploy the Hub or publish a release.
+review rules. Forge packs are live: the hub lists them at
+[/forge](https://mjolnircore.com/forge), and launcher 0.21.0 or newer installs
+them with the maps and layouts that need them.
 
 ## Build the Foundry content
 

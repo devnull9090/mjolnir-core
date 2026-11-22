@@ -5,9 +5,8 @@ layouts for play. **F3** selects physics modes, **F4** sets the position grid
 and **F10** selects rotation increments. Custom packs add modular building
 pieces and utilities. Forge editing is host-only.
 
-Use **MJOLNIRForge 0.4.0**, **MJOLNIRLobby 0.19.2** and
-**MJOLNIRLevelLoader 0.9.8** or newer together, with the matching CE runtime
-and map dependencies.
+Use the mods the launcher installs (mods 0.45.0 or newer: **MJOLNIRForge 0.4.2**,
+**MJOLNIRLobby 0.21.0**), with the matching CE runtime and map dependencies.
 
 New to building? Start with [Your first Forge build](forge_guide.md), a raised
 courtyard walkthrough with doors, lifts and teleporters. This page is the
@@ -222,8 +221,9 @@ of the piece's catalog, so use the red or blue variant for team bases.
 
 ### Automatic doors and lifts
 
-Use MJOLNIRForge **0.4.0**, MJOLNIRLobby **0.19.2** and
-MJOLNIRLevelLoader **0.9.8** or newer together for these utilities.
+These utilities need MJOLNIRForge **0.4.0**, MJOLNIRLobby **0.19.3** and
+MJOLNIRLevelLoader **0.9.8** at least; the mods the launcher installs today are
+all newer.
 
 Foundry Wide's door frames and moving panels are separate pieces. Place the
 panel in its closed position inside the matching frame. Use **F3** to keep it

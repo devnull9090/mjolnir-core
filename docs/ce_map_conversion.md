@@ -954,8 +954,8 @@ distance), at the same numbers in CU4's decoder.
 
 `tools/level/ce_objectives.py` places CE's `HillFlag` polygons and
 `OddballSpawn` flags as labelled markers and adds `koth` and `oddball` to the
-map's `modes` when it has them. [game_modes.md](game_modes.md), section 3.4,
-has the rules, the tests and what shipping them takes.
+map's `modes` when it has them. King and Oddball ship since mods 0.44.0;
+[game_modes.md](game_modes.md), section 3.4, has the rules and the tests.
 
 ## Playing it
 
@@ -990,7 +990,8 @@ loading screen (waiting for the player pawn left converted maps black for
 
 `python tools/level/upgrade_ce_map.py <CODE>` takes a converted map through
 the B30 pipeline, for each map in `tools/level/ce_upgrade_maps.json` (TST,
-BGL, DTI, YOY, ICE, SDW, TMB, INF, GPH, BCK, RAT, DCN). Its stages, which
+BGL, DTI, YOY, ICE, SDW, TMB, INF, GPH, BCK, RAT, DCN, and the Halo 2 maps COA,
+CNT, ASC and ZAN). Its stages, which
 `--stages` picks from: `land` (a Landscape from the ground's heights),
 `foliage` (the game's grass and debris), `swap` (B30's own rocks and trees
 for CE's natural scenery), `collision` (their hulls, `b30_collision.py`, in
@@ -1173,6 +1174,8 @@ rebuilds.
   and `--score N --out .../MJOLNIRLevelLoader/variants/slayer.mglo` changes
   the score to win). Without the file the map runs the empty default
   variant: players spawn, nothing scores. `--mode tick` scores every player
-  every tick, a smoke test for the interpreter. Team Slayer, Oddball and
-  King have entries in the lobby's mode list but no variant yet, so the
-  lobby does not offer them.
+  every tick, a smoke test for the interpreter. **Update 2026-11-21:** the mods release
+  now ships seventeen variants: Slayer, Team Slayer, CTF, Assault, King, Crazy
+  King, Team King, Oddball, Team Oddball, Juggernaut, Stalker, Reverse Tag,
+  Race, Team Race, Rally, Team Rally and Pelican Warfare. The lobby offers a
+  game type on a map whose `modes` lists it.

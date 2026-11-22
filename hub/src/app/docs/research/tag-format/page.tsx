@@ -181,7 +181,7 @@ blocks: camera_track_control_point_block  max 16
 
       <section className="border-t border-border py-9" aria-labelledby="open-heading">
         <h2 id="open-heading" className="text-xl font-bold">
-          What is not solved yet
+          Open questions, since solved
         </h2>
         <p className="mt-3 text-sm leading-6 text-text-muted">
           <strong className="text-foreground">Update 2026-10-21:</strong> both are solved. The

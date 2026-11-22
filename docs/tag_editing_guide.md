@@ -31,7 +31,8 @@ names, types, offsets — never values.
 
 ### What you need
 
-- Halo Campaign Evolved installed (Steam). That is all.
+- Halo Campaign Evolved installed. That is all. The editor finds a Steam install by itself; for the
+  Xbox app build, point its setup form at the game folder ([`game_pass.md`](game_pass.md)).
 
 ```powershell
 $env:HCE_PAKS = "C:\Program Files (x86)\Steam\steamapps\common\Halo Campaign Evolved\Meteorite\Content\Paks"
@@ -230,9 +231,9 @@ container load it. See [`getting_started.md`](getting_started.md).
 
 ### Editing a tag that is already a file
 
-Every command above reaches its tag through the shipped containers, which means Oodle. If you
-have no `oo2core` DLL, or you want to work on a tag you extracted earlier, `tag-file` takes the
-bytes directly — a tag's layout comes from its own header, so nothing external is needed:
+Every command above reaches its tag through the shipped containers. To work on a tag that is
+already a file (one you extracted earlier, or the payload of an override you built), `tag-file`
+takes the bytes directly — a tag's layout comes from its own header, so nothing external is needed:
 
 ```powershell
 mjolnir tag-file --file ar.tag                      # print every field
@@ -285,8 +286,8 @@ pnpm install
 pnpm tauri dev
 ```
 
-On first run it looks for your installation and the Oodle DLL. If it cannot find them, point
-it at the two paths above. The game field takes anything that names the install — the folder
+On first run it looks for your installation. If it cannot find it, point it at the game folder;
+the Oodle DLL field is optional, since a decoder is built in. The game field takes anything that names the install — the folder
 named after the game, the Steam library holding it, the `Meteorite\Content\Paks` folder, or a
 container inside it — and resolves the rest itself.
 
@@ -668,7 +669,9 @@ mjolnir poke --group biped --tag spartans --field "jump velocity" --value 25 --l
 On a build without a table profile the `located` line reports the sweep instead — how many
 independent byte runs agreed and how much memory was read. `mjolnir live status`, `live tags`
 and `live string-ids` read the same tables on their own: what is loaded, and which `string id`
-names the running game will accept.
+names the running game will accept. `live objects`, `live players`, `live arrays` and
+`live engine` read the running match itself: every object with its weapon and ammunition, the
+players, the simulation's tables, and the game engine in charge.
 
 ### What it is, and is not
 

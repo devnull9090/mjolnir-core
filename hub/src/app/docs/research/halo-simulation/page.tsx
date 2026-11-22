@@ -157,7 +157,7 @@ export default function HaloSimulationPage() {
         <div className="flex items-center gap-3">
           <AlertTriangle className="h-5 w-5 text-gold" />
           <h2 id="limits-heading" className="text-xl font-bold">
-            Current limits
+            Limits at CU2, and what answered them
           </h2>
         </div>
         <p className="mt-4 text-sm leading-6 text-text-muted">
