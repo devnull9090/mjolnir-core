@@ -39,9 +39,11 @@ float2 hwDx = ddx(hwXY), hwDy = ddy(hwXY);
     float cover = step(.5, sm.b)*(1.-smoothstep(2.0,7.0,bank+fringe))*(1.-smoothstep(1.8,4.4,level));
     [branch] if (cover>.001)
     {
-        float2 uv = hwXY/2.85 + float2(.343,.718);
-        float3 stone = Texture2DSampleGrad(PathGravel,SiteEarthSampler,uv,hwDx/2.85,hwDy/2.85).rgb;
-        float2 grain = Texture2DSampleGrad(PathGravelNormal,SiteEarthSampler,uv,hwDx/2.85,hwDy/2.85).rg*2.-1.;
+        // The river cobble scan (the outlet's), not the shared path gravel: that slot also
+        // draws road shoulders, and a beach stone there outlined every road from the air.
+        float2 uv = hwXY/2.6 + float2(.343,.718);
+        float3 stone = Texture2DSampleGrad(RiverCobble,SiteEarthSampler,uv,hwDx/2.6,hwDy/2.6).rgb;
+        float2 grain = (Texture2DSampleGrad(RiverCobbleN,SiteEarthSampler,uv,hwDx/2.6,hwDy/2.6).rg*2.-1.)*float2(1,-1);
         float3 earth = Texture2DSampleGrad(SiteEarth,SiteEarthSampler,hwXY/5.7,hwDx/5.7,hwDy/5.7).rgb;
         float wet = 1.-smoothstep(-.35,.95,level+.13*fringe);
         // More gravel toward the water, where the current sorts it; damp earth, not ochre, above.

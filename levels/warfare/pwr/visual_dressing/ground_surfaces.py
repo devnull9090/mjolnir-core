@@ -24,10 +24,8 @@ S["GrassO"] = "Wild_Grass_and_Weeds_rm5krfp0/T_Wild_Grass_NSVT_ORHG"
 S["MidD"] = "Stones_on_Soil_rmsijrp0/T_Soil_Stone_NSVT_A30_D"
 S["MidN"] = "Stones_on_Soil_rmsijrp0/T_Soil_Stone_NSVT_N"
 S["MidO"] = "Stones_on_Soil_rmsijrp0/T_Soil_Stone_NSVT_ORHG"
-# Gravel (SandB): the shore band's stones, road shoulders and riverbed. A30/C10's shoreline
-# beach rocks read as a cobble beach at the water where the ground gravel was a smear.
-S["SandBD"] = "Shoreline_Beach_Rocks_ullmagidy/T_Shoreline_Beach_Rocks_ullmagidy_NSVT_D"
-S["SandBN"] = "Shoreline_Beach_Rocks_ullmagidy/T_Shoreline_Beach_Rocks_ullmagidy_NSVT_N"
+# Gravel (SandB) stays the ground gravel: it also draws road shoulders and tracks, and
+# Shoreline_Beach_Rocks there outlined every road in pale stone from the air (2026-11-23).
 
 # The old grass was a desaturated texture painted green by the tint; A30's is already green.
 pbr["grass_tint"] = [float(v) for v in sys.argv[3].split(",")] if len(sys.argv) > 3 else [1.0, 1.05, 0.9, 1.0]

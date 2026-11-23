@@ -254,9 +254,8 @@ MAP_LOOKS = {
                     "SandD": "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_D",
                     "SandN": "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_N",
                     "SandO": "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_ORHG",
-                    # Gravel: the shore band's stones, road shoulders, riverbed.
-                    "SandBD": "Shoreline_Beach_Rocks_ullmagidy/T_Shoreline_Beach_Rocks_ullmagidy_NSVT_D",
-                    "SandBN": "Shoreline_Beach_Rocks_ullmagidy/T_Shoreline_Beach_Rocks_ullmagidy_NSVT_N",
+                    "SandBD": "Ground_Gravel_uconcitg/T_Ground_Gravel_uconcitg_sbs_NSVT_D",
+                    "SandBN": "Ground_Gravel_uconcitg/T_Ground_Gravel_uconcitg_sbs_NSVT_N",
                     # ORHG where the default grass is OHRG: the shader reads
                     # .r (occlusion) the same and floors grass roughness at
                     # 0.92, so only partial-grass edges see height as rough.

@@ -281,6 +281,11 @@ def collide(a):
     po, pc, ps = lay["planes"]
     planes = np.frombuffer(raw, "<f4", pc * 4, po).reshape(pc, 4).copy()
     sink = SINK_M / METRES_PER_WU
+    flip_bit = int(doc["plane_encoding"]["flip_flag"], 16)
+    mats = {m.get("game_material"): m["index"] for m in doc["materials"] if m.get("game_material")}
+    # The surface's material (i16 at byte 10 of each 12-byte surface): logs are wood, boulders stone.
+    material = np.frombuffer(raw, "<i2", sc * 6, so).reshape(sc, 6)[:, 5].copy()
+    pid_count = np.bincount(surf[:, 0] & 0x7FFFFFFF, minlength=pc)
     report = []
     for sw in swaps:
         old = rows[sw["old"]]
@@ -295,15 +300,21 @@ def collide(a):
         centre = new_wu.mean(axis=0)
         if len(faces) > len(mine):
             raise SystemExit(f"{new['id']}: {len(faces)} faces for {len(mine)} slots")
+        wood = "_log_" in new["id"]
+        want = mats.get("tough_organic_wood" if wood else "hard_terrain_stone")
         for k, s in enumerate(mine):
             loop = surface_loop(s, int(surf[s, 1]), edges)
             if len(loop) != 3:
                 raise SystemExit(f"surface {s} is not a triangle ({len(loop)})")
             pid = int(surf[s, 0]) & 0x7FFFFFFF
+            flipped = bool(int(surf[s, 0]) & flip_bit)
+            if pid_count[pid] != 1:
+                raise SystemExit(f"surface {s} shares plane {pid}")
             p_old = verts[loop]
             n_old = np.cross(p_old[1] - p_old[0], p_old[2] - p_old[0])
             # The scene's own handedness: the stored plane's normal against this loop's cross.
-            same = float(np.dot(n_old, planes[pid, :3])) > 0
+            stored = -planes[pid, :3] if flipped else planes[pid, :3]
+            same = float(np.dot(n_old, stored)) > 0
             if k < len(faces):
                 tri = new_wu[list(faces[k])]
                 nrm = np.cross(tri[1] - tri[0], tri[2] - tri[0])
@@ -315,8 +326,12 @@ def collide(a):
                     tri = tri[[0, 2, 1]]
                 for vid, p in zip(loop, tri):
                     v[vid, :3] = p
-                planes[pid, :3] = nrm
-                planes[pid, 3] = float(np.dot(nrm, tri[0]))
+                # The effective plane faces out of the hull; a flipped index reads it negated.
+                sign = -1.0 if flipped else 1.0
+                planes[pid, :3] = sign * nrm
+                planes[pid, 3] = sign * float(np.dot(nrm, tri[0]))
+                if want is not None:
+                    material[s] = want
             else:
                 for vid in loop:
                     v[vid, 2] -= sink
@@ -325,6 +340,9 @@ def collide(a):
                        "sunk": len(mine) - len(faces)})
     raw[vo:vo + vc * vs] = v.tobytes()
     raw[po:po + pc * ps] = planes.tobytes()
+    surf_bytes = np.frombuffer(raw, "<i2", sc * 6, so).reshape(sc, 6).copy()
+    surf_bytes[:, 5] = material
+    raw[so:so + sc * ss] = surf_bytes.tobytes()
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / doc["bin"]).write_bytes(bytes(raw))
