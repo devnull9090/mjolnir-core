@@ -527,9 +527,42 @@ The remaining steps, in order:
    wu²). Both banks and both bases stay one piece of ground, and Elites
    ordered across the river in both directions arrived without a position
    sample in water. Details in the engine article, "Water".
-3. **Zones and tasks per capture candidate** in place of the bots lane's one
-   map-wide zone (section 4), so squads assault and hold the site in play.
-4. **A second player, and a fight.** One placed squad walking 300 wu across tiles, with the
+3. **Zones and tasks per capture candidate: done (same day).**
+   `blam.bots.objectives: ["koth_hill"]` gives each of the 11 capture spots an
+   area, firing positions inside its boundary and a task `koth_hill_<order>`
+   ([bots.md](bots.md#places-to-hold)). The wave director picks the task for
+   the site the variant chose (site = order mod 3).
+4. **A second player, and a fight: done (same day).** PC 1 hosted and PC 3
+   joined through the hub list, with the same bake on both (hashes checked)
+   and the same lobby (0.31.0). Results below.
+
+### Two PCs, 2026-11-22
+
+The first run under live Warfare rules: two players end the warm-up, the
+Pelicans deploy, and the score bar runs. Seven Elites were placed and sent to
+hills after deployment.
+
+| | |
+|---|---|
+| AI in the joiner's object table | all seven, at every sample over 2.5 minutes |
+| Host and joiner copies apart | median 0.00 to 0.38 wu, never more than 0.44 wu, at 20 wu or 300 wu from the joiner alike |
+| Holding | six of seven held their hills on both PCs; one stood on something not in the BSP and never moved |
+| A fight | PC 3's player, moved beside the Elite on the west hill, lost its shield and then its body in about 10 s and respawned at its base; both PCs showed the same health and shield at every sample |
+| Crash | none on either PC in about ten minutes |
+
+Not shown: a fight the joiner's player starts (it has no input driver in this
+run), AI in vehicles, the Covenant waves, or AI counted in a zone's contest
+(not built).
+
+Two things for later runs:
+
+- **The Elite's maxima read differently on the joiner** (body 50 and shield 79
+  against the host's 75 and 75), though both show 100%. The joiner's unit
+  seems to take its maxima from somewhere other than the character. Harmless
+  so far; worth a look before damage is compared between PCs.
+- **`mjolnir_sim_script` runs 16 lines a call** (`SCRIPT_MAX` in
+  `native/lobby/mjolnir_lobby.c`). A 28-line call placed four of seven squads
+  and dropped the rest without a word. One placed squad walking 300 wu across tiles, with the
    looser and the tighter border setting, to choose between them.
 4. Steps 6 to 10 of the list above (proxy budget, zones and objectives, the
    Spirit, the wave director, tuning).

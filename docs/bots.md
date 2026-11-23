@@ -325,6 +325,43 @@ Every machine in the match needs the characters' containers,
 `pakchunk995-MJOLNIRBOT-<kind>-<level>_P` (15). They ship in the CE runtime
 pack from 1.16.0, which every map with bots requires.
 
+## Places to hold
+
+A game type with zones (King's hills, Pelican Warfare's capture sites) wants
+bots that go to a zone and stay in it. `blam.bots.objectives` names Megalo
+labels, and every placed object with one of them and a cylinder or sphere
+boundary becomes a place to hold:
+
+- **an area** of the bots' zone, after the grid's, named after it;
+- **firing positions** inside its boundary, kept 1 wu in from the rim (an AI
+  stops short of its position: one stopped 0.3 wu outside a hill from a
+  position on the rim), from the finest grid of 1.5 to 3 wu that gives 64 or
+  fewer. A place with fewer than 8 on the main ground is not held, and the
+  bake says so;
+- **a task** `<label>_<spawn order>` over that one area. `(ai_set_task <squad>
+  mjolnir_bots koth_hill_4)` sends a squad there, and it stays.
+
+The grid and its sixteen roaming tasks are as before, and `bots.json`'s
+`areas` and `tasks` still list only the grid, so MJOLNIRHud's roaming bots
+never wander onto a hill by being sent to `area_<k>`. The places follow under
+`holds` (name, area, centre and radius in Unreal cm). A zone's tasks name at
+most 32 areas, so grid areas and places together must fit; a level without
+`objectives` bakes byte-identical to before.
+
+The rule reads the label, not the boundary: across the converted maps, objects
+with a boundary are also flag returns, Oddball spawns, race flags and
+teleporters (5,620 of them unlabelled).
+
+**Pelican Warfare**, 2026-11-22 **[live]**, with `"objectives": ["koth_hill"]`:
+all 11 capture spots held (26 to 46 positions each, 456 in all, 1,727 in the
+zone). Solo, six Elites sent to hills: five walked there (55 to 355 wu, one
+onto the north pad's structure, one across the river) and stayed for the rest
+of the five minutes; the sixth stopped 0.3 wu outside its hill, which led to
+the 1 wu inset. Then with two players (PC 1 hosting, PC 3 joining), seven
+Elites under live Warfare rules: six reached their hills and held them on both
+PCs; one stood at (-18, -20) wu touching no BSP surface, probably on top of a
+placed object, and never moved.
+
 ## Identity: which actor is which bot
 
 Bot actors come from a pool (`BP_EliteBipedActor_C` and friends; a pooled one

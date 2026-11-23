@@ -956,6 +956,10 @@ fn bot_objectives(objects: &[ObjectPlacement], labels: &[String]) -> Result<Vec<
 /// leave the zone's 2048 to the rest of the map.
 const BOT_HOLD_SPACING: [f32; 4] = [1.5, 2.0, 2.5, 3.0];
 const BOT_HOLD_MAX: usize = 64;
+/// How far inside a place's boundary its firing positions stay, wu: an AI
+/// stops short of its position, and one stopped 0.3 wu outside a Pelican
+/// Warfare hill from a position on its rim.
+const BOT_HOLD_INSET: f32 = 1.0;
 
 /// The area tasks the bots' objective always has, `area_0` .. `area_15`:
 /// MJOLNIRHud sends a roaming bot to a random one of them (`Bots.AREAS` in
@@ -3257,9 +3261,12 @@ impl Baker {
                 (o, [x as f32, y as f32, z as f32])
             })
             .collect();
-        let inside = |o: &BotObjective, c: [f32; 3], p: [f32; 3]| {
+        // `inset` keeps a held place's own positions off its rim; the grid
+        // leaves the whole boundary to it.
+        let within = |o: &BotObjective, c: [f32; 3], p: [f32; 3], inset: f32| {
+            let r = (o.radius - inset).max(o.radius / 2.0);
             let (dx, dy, dz) = (p[0] - c[0], p[1] - c[1], p[2] - c[2]);
-            dx * dx + dy * dy <= o.radius * o.radius && dz <= o.up && dz >= -o.down
+            dx * dx + dy * dy <= r * r && dz <= o.up && dz >= -o.down
         };
         let mut held: Vec<(String, Vec<pathfinding::FiringPosition>)> = Vec::new();
         if !holds.is_empty() {
@@ -3272,7 +3279,7 @@ impl Baker {
                 let all = pf.firing_positions(shell, spacing, &components, 0.0);
                 left.retain(|&h| {
                     let (o, c) = holds[h];
-                    let mine: Vec<_> = all.iter().filter(|f| inside(o, c, f.point)).cloned().collect();
+                    let mine: Vec<_> = all.iter().filter(|f| within(o, c, f.point, BOT_HOLD_INSET)).cloned().collect();
                     let last = n + 1 == BOT_HOLD_SPACING.len();
                     if mine.len() <= BOT_HOLD_MAX || last {
                         found[h] = Some(mine.into_iter().take(BOT_HOLD_MAX).collect());
@@ -3298,7 +3305,7 @@ impl Baker {
         let held_count: usize = held.iter().map(|h| h.1.len()).sum();
         let budget = 2048usize.saturating_sub(held_count);
         // The grid leaves the held places to their own areas.
-        let free = |f: &pathfinding::FiringPosition| !holds.iter().any(|&(o, c)| inside(o, c, f.point));
+        let free = |f: &pathfinding::FiringPosition| !holds.iter().any(|&(o, c)| within(o, c, f.point, 0.0));
 
         let mut spacing = bots.spacing as f32;
         let grid = |spacing: f32| -> Vec<pathfinding::FiringPosition> {

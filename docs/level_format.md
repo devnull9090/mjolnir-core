@@ -398,6 +398,8 @@ shell's.
   "spacing": 2.5,                  // firing position grid, wu (widened to fit 2048,
                                    // narrowed to 1 wu for 8 per area)
   "areas": 16,                     // the firing positions' grid of areas
+  "objectives": ["koth_hill"],     // Megalo labels whose objects are places to hold:
+                                   // an area and a task <label>_<spawn order> each
   "types": [                       // kinds of bot, `count` squads each: <name>_<k>
     { "name": "spartan", "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan",
       "weapon": "assault_rifle", "team": "covenant" },
@@ -420,6 +422,12 @@ every area, then `area_0` .. `area_15` sharing the areas out, all with `magic pl
 sight`; MJOLNIRHud orders bots to those sixteen whatever the map has), and one
 `ai user hint data` element with every hint list emptied: the AI reads element
 0 without checking the block has one, and a map that cleared it crashed.
+
+`objectives` makes places to hold ([bots.md](bots.md#places-to-hold)): every
+placed object whose `multiplayer data.megalo label` is listed and whose
+boundary is a cylinder or a sphere gets a zone area after the grid's, firing
+positions inside its boundary, and a task named `<label>_<spawn order>` over
+that one area. `bots.json` lists them under `holds`.
 
 After `single_bsp` it writes the kept BSP's `ai pathfinding data`, generated
 from the `--bsp` payload's collision shell (`blam_sbsp::pathfinding`), and
