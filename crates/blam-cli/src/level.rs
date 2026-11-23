@@ -3757,8 +3757,43 @@ impl Baker {
             .collect::<Result<_>>()?;
         let first = ix.squad + ix.count * bots.kinds().len();
         // Ground round each place: positions on the main ground in a ring
-        // outside its boundary.
+        // outside its boundary, with nothing over them for a body's height.
+        // A rock lying on the terrain is not ground: a squad placed under one
+        // stood on it with no sector, or inside it, and never moved.
         let ring = pf.firing_positions(shell, 1.5, components, 0.0);
+        let rings: Vec<[f32; 4]> = objectives
+            .iter()
+            .map(|o| {
+                let (x, y, _) = ue_to_blam(abs_pos(self.origin, o.pos));
+                let reach = o.radius + w.distance * 1.5 + 1.0;
+                [x as f32 - reach, y as f32 - reach, x as f32 + reach, y as f32 + reach]
+            })
+            .collect();
+        let mut over: Vec<(usize, [f32; 4])> = Vec::new();
+        for surface in 0..shell.surfaces.len() {
+            let poly = blam_sbsp::unpack16::polygon(shell, surface);
+            if poly.is_empty() {
+                continue;
+            }
+            let mut b = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+            for v in &poly {
+                b = [b[0].min(v[0]), b[1].min(v[1]), b[2].max(v[0]), b[3].max(v[1])];
+            }
+            if rings.iter().any(|r| b[0] <= r[2] && b[2] >= r[0] && b[1] <= r[3] && b[3] >= r[1]) {
+                over.push((surface, b));
+            }
+        }
+        const HEADROOM: f32 = 2.5;
+        let clear = |p: [f32; 3]| {
+            !over.iter().any(|&(surface, b)| {
+                p[0] >= b[0]
+                    && p[0] <= b[2]
+                    && p[1] >= b[1]
+                    && p[1] <= b[3]
+                    && blam_sbsp::pathfinding::Pathfinding::surface_z(shell, surface, p[0], p[1])
+                        .is_some_and(|z| z > p[2] + 0.05 && z < p[2] + HEADROOM)
+            })
+        };
         let (mut placed, mut unheld) = (0usize, 0usize);
         for (j, o) in objectives.iter().enumerate() {
             let held = held_names.iter().position(|n| n == &o.name);
@@ -3770,7 +3805,7 @@ impl Baker {
                 .filter_map(|f| {
                     let (dx, dy) = (f.point[0] - c[0], f.point[1] - c[1]);
                     let d = (dx * dx + dy * dy).sqrt();
-                    (d >= lo && d <= hi && (f.point[2] - c[2]).abs() < 4.0).then(|| (dy.atan2(dx), f.point))
+                    (d >= lo && d <= hi && (f.point[2] - c[2]).abs() < 4.0 && clear(f.point)).then(|| (dy.atan2(dx), f.point))
                 })
                 .collect();
             around.sort_by(|a, b| a.0.total_cmp(&b.0));

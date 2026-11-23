@@ -532,13 +532,14 @@ The remaining steps, in order:
    area, firing positions inside its boundary and a task `koth_hill_<order>`
    ([bots.md](bots.md#places-to-hold)). The wave director picks the task for
    the site the variant chose (site = order mod 3).
+4. **A second player, and a fight: done (same day).** PC 1 hosted and PC 3
+   joined through the hub list, with the same bake on both (hashes checked)
+   and the same lobby (0.31.0). Results below.
+
 5. **Wave director: built (same day), solo only.** Waves on the combat
    clock, targeting by live Covenant, the cap, and refilling a site after
    deaths, all live on PC 1 ([pelican_warfare_waves.md](pelican_warfare_waves.md#4-covenant-waves)).
    Still open: the Spirit, the contest, re-tasking on zone events, a joiner.
-4. **A second player, and a fight: done (same day).** PC 1 hosted and PC 3
-   joined through the hub list, with the same bake on both (hashes checked)
-   and the same lobby (0.31.0). Results below.
 
 ### Two PCs, 2026-11-22
 

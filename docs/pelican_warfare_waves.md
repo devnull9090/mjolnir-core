@@ -192,8 +192,9 @@ two machines, and the zone tiles' "you are here" rim at a moved zone.
     site comes before a neutral one, and equal sites take turns;
   - it places that site's free squads, `ai_force_active` and wakes each, up
     to 12 live Covenant in all (the Havok proxy budget is unmeasured);
-  - it stands down while the bots' team table is in force, since that table
-    puts red on the Covenant's side.
+  - it stands down for the rest of the match if the bots' team table is in
+    force, since that table puts red on the Covenant's side (not yet run
+    with bots on).
 - The pure rules (`warfare_wave_due`, `warfare_wave_target`,
   `warfare_wave_size`) are in `warfare_core.h` with `test_warfare.c` cases.
 

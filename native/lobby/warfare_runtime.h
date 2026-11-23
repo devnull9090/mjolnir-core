@@ -175,6 +175,9 @@ static int warfare_wave_living(int place, int k) {
 static void warfare_waves(const warfare_snapshot *s) {
     if (!s->host || s->globals[0] != 2 || warfare.wave_off) return;
     int seconds = s->globals[3];
+    /* Without the evaluator every squad reads "missing": look again later
+     * rather than turning waves off for the match. */
+    if (!hs_evaluate || GetCurrentThreadId() != sim_thread_id) return;
     if (!warfare.wave_probed) {
         warfare.wave_probed = 1;
         int any = 0;
