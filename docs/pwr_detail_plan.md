@@ -81,6 +81,42 @@ which shipped levels use it, and whether PWR already does.
    crash mound, a wind-bent smoke column, and the E30 wreckage crate tags for collision
    that syncs with no code.
 
+## Progress
+
+### Step 1, first half: A30 ground as level data (2026-11-23)
+
+The landscape textures are not baked into `M_PWRPilot`: the loader binds them at load from
+`landscape.pbr.surfaces` (`Land.pbr` in the level loader). So the first half of step 1 is
+level data, with no cook, and lives in PWR's look in `tools/level/build_landscape.py`:
+
+- **Meadow** (`GrassD/N/O`): A30's wild grass and weeds (`T_Wild_Grass_NSVT_D_A30`, its
+  normal and ORHG) in place of a desaturated grass the tint painted green. Up close the flat
+  green felt becomes clover, leaf litter and soil; `grass_tint` goes from 0.40/0.62/0.36 to
+  1.0/1.05/0.9.
+- **Track stone** (`MidD/N/O`): A30's stones on soil in the wheel ruts and shoulders. PWR
+  runs the shader's alpine branch (`Alpine.w > 1.5`), where `SandD` is the track's earth
+  and `MidD` its stone; `SandB*` is not read there. Putting stony soil in `SandD` (the
+  first try) turned the forest tracks grey, so the earth stays.
+- The default grass map is OHRG and A30's is ORHG. The shader reads `.r` (occlusion) the
+  same and floors grass roughness at 0.92, so only partial-grass edges read height as
+  roughness. Nothing visible came of it.
+
+Tested on PC 1 by swapping the loose `level.json` and rehosting, FlyCam shots 1-9 before and
+after in one session (`out/pwr-detail/before2`, `afterB`). Frame cost at 4K, GPU ms:
+
+| shot | before | after |
+| --- | --- | --- |
+| 1 (lake meadow) | 13.00 | 13.03 |
+| 3 (lake shore) | 14.43 | 14.40 |
+| 8 (road) | 11.62 | 11.49 |
+
+Same texture sizes and sampler count, so no cost, as expected.
+
+Still to do for step 1, and these need the shader and a landscape cook: the beach band
+at lake shores (PWR has no sea, so the shader draws no shore band; it needs a shore mask),
+and B40's snow-line surfaces between meadow and snow (`Rip*` holds the snow itself, and
+there is no slot for a band between them).
+
 Each step is its own dressing round through the existing pipeline (the vegetation round
 for landscape and baked plants, the outcrop and decor passes for meshes with hulls,
 level data for effects, lights and sound), sealed as a numbered build and compared with
