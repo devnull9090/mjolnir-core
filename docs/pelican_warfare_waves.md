@@ -279,8 +279,24 @@ Live, solo on PC 1 (test bake 6), the variant with 8 object numbers:
   Covenant 20 s after that, which is the drain then capture (the player had
   been killed off the zone).
 
-Not yet shown: two PCs (the joiner reads the same replicated slots, and its
-parser now takes owner 3).
+Two PCs, 2026-11-22 (PC 1 host, PC 3 joining, both on the branch set with the
+test bake, the zone-bar chunk and a level.json carrying the bake's candidates):
+
+- The variant waited for both players; PC 3 showed the warmup's large
+  countdown and DEPLOYMENT IN, then the insertion's large countdown and
+  CAPTURE as the zones opened.
+- Both machines published the same three zone slots throughout (all three
+  moved to candidate 2). Wave 1's Spirit flew the same path on both, PC 3's
+  copy within about 6 m of the host's, and both removed it together.
+- A went Covenant on both, value for value (10800 ... 11043). PC 3's player
+  then captured C for blue in 15 s, which paid 48 points, the same on both
+  machines. With that player dead, the Covenant drained C and took it, and PC 3's
+  feed said "The Covenant took zone C". PC 3's player respawned into blue's
+  waiting Pelican at its staging point, and saw REINFORCEMENTS DEPART IN.
+- Found: a rider seated during insertion saw INSERTION / SPACE TO JUMP with no
+  countdown (the seated line replaced the text that carried it); fixed after the run.
+- Not shown: whether `object_hide` hides the parked Pelicans on a joiner's
+  screen (the joiner's player died before the camera was in place).
 
 **Spirits bring them** (2026-11-22, not released). The game's own Spirit
 (`objects\vehicles\covenant\tuning_fork\tuning_fork`, the one B40 flies)
