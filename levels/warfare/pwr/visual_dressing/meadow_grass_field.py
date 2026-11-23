@@ -110,12 +110,6 @@ live = (field > 0).ravel()
 margin = np.full(len(xy), np.inf)
 margin[live] = visual_margin(site, xy[live])
 field *= np.clip((margin - ROAD_CLEAR) / 1.5, 0, 1).reshape(1009, 1009)
-# No grass on the bases' paved ground. The landscape fades its natural layers out by the bases
-# mask (tools/level/alpine_ecology.py: available = 1 - smooth(.05, .65, bases)), so past the
-# terrace meshes the ground still reads as paving; the FILL_MIN carpet put tufts across it
-# (the blue base's apron, 2026-11-22). The grass follows the same fade as the ground.
-paved = np.clip((site.ground.sample_mask("bases", *xy.T, bounds_error=False).reshape(1009, 1009) - 0.05) / 0.6, 0, 1)
-field *= 1 - paved * paved * (3 - 2 * paved)
 # No grass under the water the map ships (tools/level/flux_ground.py): the masks above come from
 # the heightfield, which does not know a lake carved after it.
 shipped_map = os.environ.get("PWR_LEVEL_JSON")
