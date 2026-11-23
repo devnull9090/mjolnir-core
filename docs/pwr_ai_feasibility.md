@@ -284,14 +284,15 @@ Two ways to fly the Spirit:
 
 Spike the AI pilot first.
 
-Outcome (2026-11-22): native host flight was built, not the AI pilot. The
-routes start at the box's edge and cross several hundred metres of open air
-over terrain the ground navmesh does not cover, so a pilot would need point
-sets baked per route and a command script per drop, both untested in a
-Megalo game, while the Pelicans' velocity flight was already proven on every
-machine. An awake Spirit with no pilot falls through PWR's terrain, so the
-host holds its velocity for the whole flight, hover included. See
-pelican_warfare_waves.md, "Spirits bring them".
+Outcome (2026-11-22): native host flight was built, and the AI pilot spike
+was not run. A pilot needs point sets, and PWR's scripting data is cleared;
+it needs a command script per drop, and a command script in a Megalo game is
+untested; the Pelicans' velocity flight was already proven on every machine.
+An awake Spirit with no pilot falls through PWR's terrain, so the host holds
+its velocity for the whole flight, hover included. The cost is that it backs
+out of the hover tail-first along its route; an AI pilot, which turns as it
+flies, is the likely fix if that looks wrong. See pelican_warfare_waves.md,
+"Spirits bring them".
 
 ### Who the Covenant fight
 

@@ -257,12 +257,13 @@ automatically.
   world bounds widened to 4 km. So transports start inside the box, low at
   its edge, with `object_hide` until they have climbed. Measured on PWR: 10
   of the 11 spots and both Pelicans have no point at the edge hidden by the
-  ground. Whether `object_hide` hides what Unreal draws is **not shown**:
-  every Pelican actor reads hidden whether we hid it or not (the game culls
-  them itself), a Banshee test used names the map lacks, and from the seat of
-  a "hidden" Pelican its cabin was drawn. A Spirit is shown at its first
-  route point, 30 to 70 m above its start, so even if hiding works it is
-  hidden for under two seconds and then appears in the air at the box's edge.
+  ground. `object_hide` does hide what Unreal draws: from the ground 120 m
+  from the red staging point, looking at it, the parked Pelican was not
+  drawn, appeared at once on `(object_hide pwr_pelican_red false)` and went
+  again on `true` (PC 1, solo). Reading actor `bHidden` cannot show this,
+  because the game culls Pelican actors itself. A Spirit is shown at its
+  first route point, 30 to 70 m above its start, so it is hidden for under
+  two seconds and then appears in the air at the box's edge.
 - **Found on the way:** an unpiloted Spirit falls through PWR's terrain once
   awake, so it is never left without a velocity; unloading from 18 m up
   killed the passengers, hence the 8 m hover.
@@ -294,8 +295,8 @@ Live, solo on PC 1, on a test bake with the routes:
   DLL, the Pelicans park at their flight starts as before: a Pelican made at
   its flight start skips the route.
 
-Not yet shown: two PCs, what any of it looks like from the ground, and
-whether `object_hide` hides anything (above).
+Not yet shown: two PCs (whether a joiner hides the same objects), and the
+Spirit's flight seen from the ground.
 
 **Every place, PC 1, warm-up**: each of the 11 places' four squads placed by
 script, counted after 60 s, then erased. First pass: 10 places 4 of 4, and
