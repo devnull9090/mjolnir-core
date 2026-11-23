@@ -255,9 +255,14 @@ automatically.
   beyond the BSP, whatever the scenario's world bounds say: a Spirit given a
   velocity out there, or loaded with troops, vanished at once, also with
   world bounds widened to 4 km. So transports start inside the box, low at
-  its edge, and are hidden (`object_hide`) until they have climbed. Measured
-  on PWR: 10 of the 11 spots and both Pelicans have no hidden point at the
-  edge and rely on the hiding.
+  its edge, with `object_hide` until they have climbed. Measured on PWR: 10
+  of the 11 spots and both Pelicans have no point at the edge hidden by the
+  ground. Whether `object_hide` hides what Unreal draws is **not shown**:
+  every Pelican actor reads hidden whether we hid it or not (the game culls
+  them itself), a Banshee test used names the map lacks, and from the seat of
+  a "hidden" Pelican its cabin was drawn. A Spirit is shown at its first
+  route point, 30 to 70 m above its start, so even if hiding works it is
+  hidden for under two seconds and then appears in the air at the box's edge.
 - **Found on the way:** an unpiloted Spirit falls through PWR's terrain once
   awake, so it is never left without a velocity; unloading from 18 m up
   killed the passengers, hence the 8 m hover.
@@ -272,16 +277,25 @@ machine. A rider who jumps while it waits leaves through the usual verified
 exit and, being outside the play area, is sent home by their own machine.
 A map whose Pelicans are placed at their flight starts plays as before.
 
-Live, solo on PC 1, on a test bake with the routes: wave 1's Spirit started
-at the west edge 979 m out, climbed, crossed to site A, hovered, unloaded four
-squads (the contest counted 4 on A at once), flew back and was removed; wave
-2's did the same at B. Both Pelicans parked at their staging points with
-their Unreal actors hidden (`bHidden`), climbed to 550 m in the 15 s before
-each wave, reached their flight starts and flew the route on time.
+Live, solo on PC 1, on a test bake with the routes:
 
-Not yet shown: two PCs (whether `object_hide` and the Spirit's flight look the
-same on a joiner), a rider jumping while the Pelican waits, and a look at it
-from the ground. The Spirit flies back out facing the spot, so backwards.
+- Wave 1's Spirit started at the west edge 979 m out, climbed, crossed to
+  site A nose-first (facing and travel both -48 degrees on a later wave),
+  hovered, unloaded four squads (the contest counted 4 on A at once), flew back
+  tail-first and was removed; wave 2's did the same at B.
+- Both Pelicans parked at their staging points, climbed to 550 m in the 15 s
+  before each wave, reached their flight starts and flew the route on time.
+- A rider respawned into the Pelican while it was on its way in, rode the
+  whole flight, left over the middle, opened the canopy and landed. A rider
+  who jumped while it waited at the edge was refused cabin clearance there
+  (outside the play area) and the existing failure path put them at their
+  home within about 2 s.
+- With the published map (Pelicans placed at their flight starts) and the new
+  DLL, the Pelicans park at their flight starts as before: a Pelican made at
+  its flight start skips the route.
+
+Not yet shown: two PCs, what any of it looks like from the ground, and
+whether `object_hide` hides anything (above).
 
 **Every place, PC 1, warm-up**: each of the 11 places' four squads placed by
 script, counted after 60 s, then erased. First pass: 10 places 4 of 4, and
