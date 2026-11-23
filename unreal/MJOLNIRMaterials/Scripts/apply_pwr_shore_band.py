@@ -44,8 +44,9 @@ float2 hwDx = ddx(hwXY), hwDy = ddy(hwXY);
         float2 grain = Texture2DSampleGrad(PathGravelNormal,SiteEarthSampler,uv,hwDx/2.85,hwDy/2.85).rg*2.-1.;
         float3 earth = Texture2DSampleGrad(SiteEarth,SiteEarthSampler,hwXY/5.7,hwDx/5.7,hwDy/5.7).rgb;
         float wet = 1.-smoothstep(-.35,.95,level+.13*fringe);
-        float gravel = saturate(.50+.19*sin(dot(hwXY,float2(.15,.09)))+.24*dot(stone,float3(.25,.55,.20)));
-        float3 beach = lerp(earth*float3(.66,.55,.42),stone*float3(.81,.77,.70),gravel)*lerp(1.,.49,wet);
+        // More gravel toward the water, where the current sorts it; damp earth, not ochre, above.
+        float gravel = saturate(.42+.19*sin(dot(hwXY,float2(.15,.09)))+.24*dot(stone,float3(.25,.55,.20))+.30*(1.-smoothstep(.5,3.5,bank)));
+        float3 beach = lerp(earth*float3(.70,.64,.55),stone*float3(.81,.77,.70),gravel)*lerp(1.,.49,wet);
         originalGround = lerp(originalGround,beach,cover);
         WetNormal = normalize(lerp(WetNormal,normalize(float3(grain*.52,1.)),cover));
         WetRough = lerp(WetRough,lerp(.89,.53,wet),cover);
