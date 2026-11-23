@@ -265,6 +265,22 @@ Covenant with players read CONTESTED. The capture feed says "The Covenant
 took zone B", "Zone A was neutralized by the Covenant", and "Red team cleared
 zone B".
 
+Live, solo on PC 1 (test bake 6), the variant with 8 object numbers:
+
+- Wave 1 unloaded on neutral A. The published state counted the Covenant's
+  progress up and A went to owner 3 about 20 s after they arrived. The tile
+  turned purple and read COVENANT, the world markers went purple, and the
+  feed logged it. Waves 2 and 3 took B and C the same way.
+- With A's squads erased and the player on A's marker, the Covenant's
+  progress ran back down. A went neutral at the first step below full, red
+  captured it, and it paid a point a second.
+- Wave 6 landed four Covenant on red's A. A went neutral 21 s later and
+  Covenant 20 s after that, which is the drain then capture (the player had
+  been killed off the zone).
+
+Not yet shown: two PCs (the joiner reads the same replicated slots, and its
+parser now takes owner 3).
+
 **Spirits bring them** (2026-11-22, not released). The game's own Spirit
 (`objects\vehicles\covenant\tuning_fork\tuning_fork`, the one B40 flies)
 is placed once per capture spot, named `pwr_spirit_<place>`, not placed
