@@ -538,17 +538,22 @@ The remaining steps, in order:
 
 ### Two PCs, 2026-11-22
 
-The first run under live Warfare rules: two players end the warm-up, the
-Pelicans deploy, and the score bar runs. Seven Elites were placed and sent to
-hills after deployment.
+The first run with two players: they end the warm-up, the Pelicans deploy,
+and the score bar runs (a screenshot a few minutes in showed it live). Four
+Elites were placed about 30 s after the join, whether before or after
+deployment was not recorded; three more a few minutes later.
 
 | | |
 |---|---|
-| AI in the joiner's object table | all seven, at every sample over 2.5 minutes |
-| Host and joiner copies apart | median 0.00 to 0.38 wu, never more than 0.44 wu, at 20 wu or 300 wu from the joiner alike |
-| Holding | six of seven held their hills on both PCs; one stood on something not in the BSP and never moved |
-| A fight | PC 3's player, moved beside the Elite on the west hill, lost its shield and then its body in about 10 s and respawned at its base; both PCs showed the same health and shield at every sample |
+| AI in the joiner's object table | the first four at every one of 35 samples over 2.5 minutes; all seven in a listing and a 20 s watch after |
+| Host and joiner copies apart | median 0.00 to 0.38 wu, never more than 0.44 wu. The two tables are read a moment apart, so this is an upper bound; an Elite still walking showed the 0.38. Most samples were 160 to 305 wu from the joiner, only 7 within 60 wu |
+| Holding | six of seven held their hills on both PCs, the west hill's with positions 1 wu in from the rim; one stood on something not in the BSP and never moved |
+| A fight | PC 3's player, moved beside the Elite on the west hill, lost its shield and then its body in about 10 s, and died there; the host logged a death with no player as its cause. It respawned at its base. Both PCs showed the same health and shield at every sample |
 | Crash | none on either PC in about ten minutes |
+
+Both PCs ran the released mods (HUD 0.23.1, LevelLoader 0.21.0, Lobby
+0.31.0), not this branch's countdown and waves. The bot characters, the lobby
+DLL and every HUD, LevelLoader and Lobby file hashed the same on both.
 
 Not shown: a fight the joiner's player starts (it has no input driver in this
 run), AI in vehicles, the Covenant waves, or AI counted in a zone's contest
@@ -557,9 +562,14 @@ run), AI in vehicles, the Covenant waves, or AI counted in a zone's contest
 Two things for later runs:
 
 - **The Elite's maxima read differently on the joiner** (body 50 and shield 79
-  against the host's 75 and 75), though both show 100%. The joiner's unit
-  seems to take its maxima from somewhere other than the character. Harmless
-  so far; worth a look before damage is compared between PCs.
+  against the host's 75 and 75), though both show 100%, with the same
+  character containers on both PCs. The joiner's unit seems to take its
+  maxima from somewhere other than the character. Harmless so far; worth a
+  look before damage is compared between PCs.
+- **The AI nearest the centre platform has stuck in three runs**: on a bank
+  facet with no sector (fixed), standing beside it 9 wu from the player, and
+  here at (-18, -20) wu touching no BSP surface, its height wobbling 0.4 wu.
+  No placed object stands within 8 wu of that spot. Not explained.
 - **`mjolnir_sim_script` runs 16 lines a call** (`SCRIPT_MAX` in
   `native/lobby/mjolnir_lobby.c`). A 28-line call placed four of seven squads
   and dropped the rest without a word. One placed squad walking 300 wu across tiles, with the

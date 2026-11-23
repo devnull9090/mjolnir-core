@@ -951,14 +951,17 @@ fn bot_objectives(objects: &[ObjectPlacement], labels: &[String]) -> Result<Vec<
     Ok(out)
 }
 
-/// The finest and coarsest grids an objective's firing positions use, wu,
-/// and how many one may have: enough to stand a few squads in, few enough to
+/// The grids a place's firing positions are tried on, coarsest first, wu: the
+/// first that gives `BOT_HOLD_WANT` is kept. A Halo 1 hill is 2.3 wu across,
+/// a Pelican Warfare capture site 6.6.
+const BOT_HOLD_SPACING: [f32; 7] = [3.0, 2.5, 2.0, 1.5, 1.0, 0.75, 0.5];
+/// Enough positions to stand a few squads in; at most `BOT_HOLD_MAX`, to
 /// leave the zone's 2048 to the rest of the map.
-const BOT_HOLD_SPACING: [f32; 4] = [1.5, 2.0, 2.5, 3.0];
+const BOT_HOLD_WANT: usize = 32;
 const BOT_HOLD_MAX: usize = 64;
-/// How far inside a place's boundary its firing positions stay, wu: an AI
-/// stops short of its position, and one stopped 0.3 wu outside a Pelican
-/// Warfare hill from a position on its rim.
+/// How far inside a place's boundary its firing positions stay, wu, and at
+/// most a quarter of its radius: an AI stops short of its position, and one
+/// stopped 0.3 wu outside a Pelican Warfare hill from a position on its rim.
 const BOT_HOLD_INSET: f32 = 1.0;
 
 /// The area tasks the bots' objective always has, `area_0` .. `area_15`:
@@ -3264,7 +3267,7 @@ impl Baker {
         // `inset` keeps a held place's own positions off its rim; the grid
         // leaves the whole boundary to it.
         let within = |o: &BotObjective, c: [f32; 3], p: [f32; 3], inset: f32| {
-            let r = (o.radius - inset).max(o.radius / 2.0);
+            let r = o.radius - inset.min(o.radius / 4.0);
             let (dx, dy, dz) = (p[0] - c[0], p[1] - c[1], p[2] - c[2]);
             dx * dx + dy * dy <= r * r && dz <= o.up && dz >= -o.down
         };
@@ -3281,8 +3284,11 @@ impl Baker {
                     let (o, c) = holds[h];
                     let mine: Vec<_> = all.iter().filter(|f| within(o, c, f.point, BOT_HOLD_INSET)).cloned().collect();
                     let last = n + 1 == BOT_HOLD_SPACING.len();
-                    if mine.len() <= BOT_HOLD_MAX || last {
-                        found[h] = Some(mine.into_iter().take(BOT_HOLD_MAX).collect());
+                    if mine.len() >= BOT_HOLD_WANT || last {
+                        // Too many: an even share of them, not the first sectors'.
+                        let step = (mine.len() as f32 / BOT_HOLD_MAX as f32).max(1.0);
+                        let kept = (0..mine.len().min(BOT_HOLD_MAX)).map(|i| mine[(i as f32 * step) as usize]).collect();
+                        found[h] = Some(kept);
                         false
                     } else {
                         true

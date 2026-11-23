@@ -333,10 +333,11 @@ labels, and every placed object with one of them and a cylinder or sphere
 boundary becomes a place to hold:
 
 - **an area** of the bots' zone, after the grid's, named after it;
-- **firing positions** inside its boundary, kept 1 wu in from the rim (an AI
-  stops short of its position: one stopped 0.3 wu outside a hill from a
-  position on the rim), from the finest grid of 1.5 to 3 wu that gives 64 or
-  fewer. A place with fewer than 8 on the main ground is not held, and the
+- **firing positions** inside its boundary, kept 1 wu in from the rim but
+  never more than a quarter of the radius (an AI stops short of its position:
+  one stopped 0.3 wu outside a hill from a position on the rim). Grids from 3
+  wu down to 0.5 wu are tried, coarsest first, until one gives 32; at most 64
+  are kept. A place with fewer than 8 on the main ground is not held, and the
   bake says so;
 - **a task** `<label>_<spawn order>` over that one area. `(ai_set_task <squad>
   mjolnir_bots koth_hill_4)` sends a squad there, and it stays.
@@ -352,6 +353,12 @@ The rule reads the label, not the boundary: across the converted maps, objects
 with a boundary are also flag returns, Oddball spawns, race flags and
 teleporters (5,620 of them unlabelled).
 
+**Blood Gulch** (offline): Halo 1 hills are small, 2.3 wu across with 0.5 wu
+below their marker. With the first rule (a 1.5 wu grid, 1 wu inset) none of
+the ten was held, with 0 to 3 positions each. With the grid going down to 0.5
+wu and the inset capped at a quarter of the radius, all ten are held with 8 to
+39. Without `objectives` its bake is byte-identical to before.
+
 **Pelican Warfare**, 2026-11-22 **[live]**, with `"objectives": ["koth_hill"]`:
 all 11 capture spots held (26 to 46 positions each, 456 in all, 1,727 in the
 zone). Solo, six Elites sent to hills: five walked there (55 to 355 wu, one
@@ -359,8 +366,12 @@ onto the north pad's structure, one across the river) and stayed for the rest
 of the five minutes; the sixth stopped 0.3 wu outside its hill, which led to
 the 1 wu inset. Then with two players (PC 1 hosting, PC 3 joining), seven
 Elites under live Warfare rules: six reached their hills and held them on both
-PCs; one stood at (-18, -20) wu touching no BSP surface, probably on top of a
-placed object, and never moved.
+PCs; one stood at (-18, -20) wu touching no BSP surface, its height wobbling,
+and never moved (no placed object stands within 8 wu of it).
+
+Those runs used a 1.5 wu grid for every place. Under the final rule, ten of
+the eleven come out the same; `koth_hill_5`, on uneven ground, goes from 26
+positions to 64 from a 1 wu grid.
 
 ## Identity: which actor is which bot
 
