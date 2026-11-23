@@ -164,11 +164,13 @@ A plain `round.sh` restores the old `M_PWRPilot` and silently drops the band; on
 bridge decks (the road atlas, offline), no outline from the air, release 48 differs from 46
 only in 965 and 997.
 
-**Gravel (no cook).** The band's stones, road shoulders and riverbed all read the `SandBD/N`
-slot. Seven base-game surfaces were tried in it on PC 1 (bank close-ups, the braid, shots 5, 8
-and 9). `Shoreline_Beach_Rocks_ullmagidy` is the one where cobbles read on the bank; road
-shoulders become a stony verge, the track and the bases are unchanged. It is in
-`ground_surfaces.py` and PWR's look in `build_landscape.py`.
+**Gravel.** The band first drew its stones from the `SandBD/N` slot, which road shoulders,
+tracks and the riverbed share. Of seven base-game surfaces tried there,
+`Shoreline_Beach_Rocks_ullmagidy` was the only one where cobbles read on a bank, but from
+the air it outlined every road and the dirt track in pale stone. So that slot keeps the
+ground gravel, and the band samples the river cobble scan the outlet already uses
+(`RiverCobble`/`RiverCobbleN`), which touches no road. Release 49 (2026-11-23): real cobbles
+at the water on every river and lake, roads unchanged from the air.
 
 **Driftwood and boulders, in recycled collision slots.**
 `levels/warfare/pwr/visual_dressing/riparian_swaps.py` swaps 48 of the 133 shore rocks
@@ -178,17 +180,22 @@ log scans read as twigs) and 24 boulders (mossy boulder, Nordic beach rocks, tun
 boulder). Logs lie along the shore, pitched to the ground under both ends. Each new piece's
 convex hull is capped to the rock's own triangle count (`budget = (slots + 4) / 2 - 8`) and
 written into the rock's triangles; spare triangles sink 30 m. 2,154 triangles written,
-1,490 sunk, the scene's size unchanged. The plan is `levels/warfare/pwr/data/riparian-swaps.json`.
+1,490 sunk, the scene's size unchanged. Log triangles get the scene's `tough_organic_wood`
+material (they sound and spark as wood), boulders `hard_terrain_stone`; a plane index's flip
+flag is honoured (none of the swapped surfaces has it). The plan is `levels/warfare/pwr/data/riparian-swaps.json`.
 
     riparian_swaps.py plan  <level> <shore mask> <terrain> visual-v6/scenery/hulls <new hulls> plan.json
     riparian_swaps.py level <level> plan.json <out level>
     riparian_swaps.py collide <0.1.2 physics> <level> plan.json visual-v6/scenery/hulls <new hulls> <out>
     mjolnir level collision <out>/collision_scene.json ... --out pwr.sbsp   (as cook_riparian_toe.py)
-    mjolnir level bake ... --bsp 8=<that pwr.sbsp> --world <round 48 LPE.umap>
+    mjolnir level bake ... --bsp 8=<that pwr.sbsp> --world <round 49 LPE.umap>
 
 Checked on PC 1 by dropping the player on log root ends 4-4.6 m from where the old rocks
 stood: it came to rest 0.58 and 0.64 m above the ground, on the logs, against bare ground
-3 m away (28.64 wu, heightfield 28.65).
+3 m away (28.64 wu, heightfield 28.65). No new footprint touches the road atlas or comes
+within 4 m of any of the level's 262 gameplay points (15 m for zone candidates). Only the
+tops were tested in game; sides and bullets use the same triangles. GPU at 4K, shots 1, 3, 8:
+12.94 / 14.42 / 11.49 ms.
 
 Next for step 2: the bank shapes themselves (long smooth slopes no texture fixes), and
 logs, driftwood and boulders in recycled collision slots.
