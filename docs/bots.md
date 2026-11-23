@@ -373,6 +373,22 @@ Those runs used a 1.5 wu grid for every place. Under the final rule, ten of
 the eleven come out the same; `koth_hill_5`, on uneven ground, goes from 26
 positions to 64 from a 1 wu grid.
 
+### Waves
+
+`blam.bots.waves` gives every labelled place squads that come to hold it:
+`squads` single-actor squads named `wave_<place>_<k>` (for example
+`wave_koth_hill_4_0`), of the kinds `kinds` names in turn (entries of
+`bots.types`), standing on the main ground in a ring `distance` wu outside
+its boundary, spread round it and facing it. Their **first task is the
+place's**, baked in, so `ai_place` alone sends them: nothing has to follow
+with an order. Their team is the kind's, or `covenant`. A labelled object
+that is not held keeps its squads under `wave_unheld_<j>_<k>`, which no
+director asks for. Without `waves` nothing changes.
+
+Pelican Warfare's director (`warfare_waves` in
+`native/lobby/warfare_runtime.h`) places them; see
+[pelican_warfare_waves.md](pelican_warfare_waves.md#4-covenant-waves).
+
 ## Identity: which actor is which bot
 
 Bot actors come from a pool (`BP_EliteBipedActor_C` and friends; a pooled one

@@ -857,11 +857,34 @@ pub struct Bots {
     /// `<label>_<spawn order>`, that a squad is sent to with `ai_set_task`.
     #[serde(default)]
     pub objectives: Vec<String>,
+    /// Squads that come to a place to hold in waves: for every labelled
+    /// object `objectives` picks, `squads` single-actor squads
+    /// `wave_<place>_<k>`, standing on the ground just outside its boundary,
+    /// with that place's task as their first. A game type's director places
+    /// them (`ai_place`) and they go and hold it.
+    #[serde(default)]
+    pub waves: Option<BotWaves>,
     /// The kinds of bot the map offers, each with `count` squads of its own
     /// named `<name>_<k>`: MJOLNIRHud places the kind the host chose. Without
     /// any, one kind `bot` from the donor squad and `weapon`.
     #[serde(default)]
     pub types: Vec<BotType>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BotWaves {
+    /// Squads per place, `wave_<place>_0` .. `wave_<place>_<squads - 1>`.
+    pub squads: usize,
+    /// The kind of bot each squad is (cycled): names of `bots.types`.
+    pub kinds: Vec<String>,
+    /// How far outside a place's boundary its wave squads stand, wu.
+    #[serde(default = "default_wave_distance")]
+    pub distance: f32,
+}
+
+fn default_wave_distance() -> f32 {
+    6.0
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -904,6 +927,10 @@ fn default_bot_spacing() -> f64 {
 fn default_bot_areas() -> usize {
     16
 }
+
+/// A bot kind as the bake resolved it: name, character palette entry,
+/// weapon palette entries, team.
+type ResolvedKind = (String, Option<usize>, Vec<usize>, Option<String>);
 
 /// A place for bots to hold: a placed object whose Megalo label is one of
 /// `bots.objectives`, with its boundary.
@@ -1690,6 +1717,9 @@ fn set_fixed_string(file: &mut [u8], path: &str, text: &str) -> Result<()> {
 struct BotIndices {
     squad: usize,
     count: usize,
+    /// Wave squads, after every kind's: `waves` per labelled place, in the
+    /// level's order of those objects.
+    waves: usize,
     zone: usize,
     objective: usize,
     hint: usize,
@@ -2829,7 +2859,7 @@ impl Baker {
     /// Clone the bots' squads, zone and objective from the canvas's own, before
     /// the clears (which keep this bake's appends). Returns the indices they
     /// will have once the clears have run.
-    fn bots_clone(&mut self, bots: &Bots, starts: &[PlayerStart], clear: &Clear) -> Result<BotIndices> {
+    fn bots_clone(&mut self, bots: &Bots, starts: &[PlayerStart], clear: &Clear, places: usize) -> Result<BotIndices> {
         let spawns = if bots.spawns.is_empty() { starts } else { &bots.spawns };
         if spawns.is_empty() {
             bail!("bots: no spawns and no player starts to stand them on");
@@ -2856,7 +2886,8 @@ impl Baker {
             };
             Ok(if cleared { kept } else { before })
         };
-        let squad = base("squads", donor, count * bots.kinds().len())?;
+        let waves = bots.waves.as_ref().map_or(0, |w| w.squads * places);
+        let squad = base("squads", donor, count * bots.kinds().len() + waves)?;
         let zone = base("zones", bots.zone, 1)?;
         let objective = base("ai objectives", bots.objective, 1)?;
         // The AI reads `ai user hint data[0]` without checking the block has
@@ -2870,7 +2901,10 @@ impl Baker {
             bots.zone,
             bots.objective
         );
-        Ok(BotIndices { squad, count, zone, objective, hint, spawns: spawns.iter().map(|s| (s.pos, s.yaw)).collect() })
+        if waves > 0 {
+            println!("  bots    {waves} wave squad(s) for {places} labelled place(s)");
+        }
+        Ok(BotIndices { squad, count, waves, zone, objective, hint, spawns: spawns.iter().map(|s| (s.pos, s.yaw)).collect() })
     }
 
     /// Replace BSP `bsp`'s pathfinding with sectors generated from its
@@ -3595,13 +3629,15 @@ impl Baker {
                 .iter()
                 .position(|v| v.as_ref().is_some_and(|s| s.display().to_lowercase().contains(&want.to_lowercase()))))
         };
-        let keep: Vec<(String, Vec<usize>)> = (0..ix.count * bots.kinds().len())
+        let keep: Vec<(String, Vec<usize>)> = (0..ix.count * bots.kinds().len() + ix.waves)
             .flat_map(|i| {
                 let s = format!("squads[{}]", ix.squad + i);
                 [(format!("{s}.spawn points"), vec![0]), (format!("{s}.spawn formations"), vec![])]
             })
             .collect();
         self.file = blockedit::select(&self.file, &keep)?;
+        // Each kind's character and weapons, for the wave squads.
+        let mut resolved: Vec<ResolvedKind> = Vec::new();
         for (t, kind) in bots.kinds().iter().enumerate() {
             let wanted: Vec<&String> = if kind.weapons.is_empty() {
                 kind.weapon.as_ref().or(bots.weapon.as_ref()).into_iter().collect()
@@ -3645,6 +3681,7 @@ impl Baker {
                 }),
                 None => None,
             };
+            resolved.push((kind.name.clone(), character, weapons.clone(), kind.team.clone()));
             for i in 0..ix.count {
                 let s = format!("squads[{}]", ix.squad + t * ix.count + i);
                 let (pos, yaw) = spawns[i % spawns.len()];
@@ -3685,6 +3722,106 @@ impl Baker {
                 if weapons.is_empty() { String::new() } else { format!(", weapon palette {weapons:?}") }
             );
         }
+        if let Some(w) = &bots.waves {
+            self.bots_waves(bots, w, ix, bsp, &resolved, objectives, &held_names, pf, shell, &components)?;
+        }
+        Ok(())
+    }
+
+    /// The wave squads: per labelled place, `waves.squads` single-actor
+    /// squads `wave_<place>_<k>` of the kinds `waves.kinds` names in turn,
+    /// standing on the main ground `waves.distance` outside its boundary,
+    /// spread round it, with its task first. A place that is not held keeps
+    /// its squads under `wave_unheld_<j>_<k>`, which no director asks for.
+    #[allow(clippy::too_many_arguments)]
+    fn bots_waves(
+        &mut self,
+        bots: &Bots,
+        w: &BotWaves,
+        ix: &BotIndices,
+        bsp: usize,
+        resolved: &[ResolvedKind],
+        objectives: &[BotObjective],
+        held_names: &[String],
+        pf: &blam_sbsp::pathfinding::Pathfinding,
+        shell: &blam_sbsp::ce::Collision,
+        components: &[usize],
+    ) -> Result<()> {
+        if w.squads == 0 || w.kinds.is_empty() {
+            return Ok(());
+        }
+        let kinds: Vec<&ResolvedKind> = w
+            .kinds
+            .iter()
+            .map(|k| resolved.iter().find(|r| &r.0 == k).with_context(|| format!("bots.waves: no bot type named {k:?}")))
+            .collect::<Result<_>>()?;
+        let first = ix.squad + ix.count * bots.kinds().len();
+        // Ground round each place: positions on the main ground in a ring
+        // outside its boundary.
+        let ring = pf.firing_positions(shell, 1.5, components, 0.0);
+        let (mut placed, mut unheld) = (0usize, 0usize);
+        for (j, o) in objectives.iter().enumerate() {
+            let held = held_names.iter().position(|n| n == &o.name);
+            let (x, y, z) = ue_to_blam(abs_pos(self.origin, o.pos));
+            let c = [x as f32, y as f32, z as f32];
+            let (lo, hi) = (o.radius + w.distance * 0.5, o.radius + w.distance * 1.5);
+            let mut around: Vec<(f32, [f32; 3])> = ring
+                .iter()
+                .filter_map(|f| {
+                    let (dx, dy) = (f.point[0] - c[0], f.point[1] - c[1]);
+                    let d = (dx * dx + dy * dy).sqrt();
+                    (d >= lo && d <= hi && (f.point[2] - c[2]).abs() < 4.0).then(|| (dy.atan2(dx), f.point))
+                })
+                .collect();
+            around.sort_by(|a, b| a.0.total_cmp(&b.0));
+            if held.is_some() && around.is_empty() {
+                println!("  note    bots: {}: no ground {lo:.1} to {hi:.1} wu from it for wave squads; they stand at its centre", o.name);
+            }
+            for k in 0..w.squads {
+                let s = format!("squads[{}]", first + j * w.squads + k);
+                let (name, character, weapons, team) = kinds[k % kinds.len()];
+                let at = if around.is_empty() { c } else { around[k * around.len() / w.squads].1 };
+                let squad_name = match held {
+                    Some(_) => format!("wave_{}_{k}", o.name),
+                    None => format!("wave_unheld_{j}_{k}"),
+                };
+                set_fixed_string(&mut self.file, &format!("{s}.name"), &squad_name)?;
+                // Facing the place.
+                let yaw = (c[1] - at[1]).atan2(c[0] - at[0]);
+                let task = held.map_or(0, |h| BOT_AREA_TASKS + 1 + h);
+                let mut sets = vec![
+                    (format!("{s}.flags"), "0x0".to_string()),
+                    (format!("{s}.parent"), "none".to_string()),
+                    (format!("{s}.initial zone"), format!("#{}", ix.zone)),
+                    (format!("{s}.initial objective"), format!("#{}", ix.objective)),
+                    (format!("{s}.initial task"), format!("#{task}")),
+                    (format!("{s}.editor folder"), "none".to_string()),
+                    (format!("{s}.spawn points[0].position"), format!("({}, {}, {})", at[0], at[1], at[2] + 0.1)),
+                    (format!("{s}.spawn points[0].reference frame"), "none".to_string()),
+                    (format!("{s}.spawn points[0].structure bsp"), format!("#{bsp}")),
+                    (format!("{s}.spawn points[0].facing (yaw, pitch)"), format!("({}, 0)", yaw.to_degrees())),
+                    (format!("{s}.team"), team.clone().unwrap_or_else(|| "covenant".to_string())),
+                ];
+                if let Some(wp) = weapons.get(k % weapons.len().max(1)) {
+                    sets.push((format!("{s}.spawn points[0].initial weapon"), format!("#{wp}")));
+                }
+                if let Some(ch) = character {
+                    sets.push((format!("{s}.spawn points[0].character type"), format!("#{ch}")));
+                }
+                for (field, value) in sets {
+                    apply_set(&mut self.file, &field, &value).with_context(|| format!("{field} = {value} ({name})"))?;
+                }
+            }
+            match held {
+                Some(_) => placed += w.squads,
+                None => unheld += w.squads,
+            }
+        }
+        println!(
+            "  bots    wave squads: {placed} for {} place(s) to hold ({}), {unheld} for places not held",
+            held_names.len(),
+            w.kinds.join(", ")
+        );
         Ok(())
     }
 
@@ -3797,7 +3934,10 @@ fn bake(a: BakeArgs) -> Result<()> {
     )?;
     baker.objects(&level.blam.objects)?;
     let bots = match &level.blam.bots {
-        Some(b) => Some(baker.bots_clone(b, &level.blam.player_starts, &level.blam.clear)?),
+        Some(b) => {
+            let places = bot_objectives(&level.blam.objects, &b.objectives)?.len();
+            Some(baker.bots_clone(b, &level.blam.player_starts, &level.blam.clear, places)?)
+        }
         None => None,
     };
     let script = match &level.blam.script {

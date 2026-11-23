@@ -477,7 +477,33 @@ static void test_reinforcements(void) {
     warfare_reinforcement_sortie(0.5f, 60, 30, &parked);
     warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_EXITING && (o.flags & WF_EXIT));
 }
+static void test_waves(void) {
+    /* Due: once per crossing, never before the first, a skipped second still fires. */
+    assert(!warfare_wave_due(-1, 0) && !warfare_wave_due(10, 44));
+    assert(warfare_wave_due(44, 45) && !warfare_wave_due(45, 46));
+    assert(warfare_wave_due(-1, 60)); /* a director that starts late fires the wave it missed, once */
+    assert(!warfare_wave_due(60, 134) && warfare_wave_due(134, 135) && warfare_wave_due(130, 140));
+    assert(!warfare_wave_due(140, -1));
+    assert(warfare_wave_index(44) == 0 && warfare_wave_index(45) == 1 && warfare_wave_index(225) == 3);
+    /* Target: fewest live first; owned before neutral on a tie; turns among equals. */
+    int live[3] = {2, 0, 0}, freeq[3] = {4, 4, 4}, owner[3] = {0, 0, 0};
+    assert(warfare_wave_target(live, freeq, owner, -1) == 1);
+    assert(warfare_wave_target(live, freeq, owner, 1) == 2);
+    owner[1] = 2;
+    assert(warfare_wave_target(live, freeq, owner, 1) == 1);
+    freeq[1] = 0;
+    assert(warfare_wave_target(live, freeq, owner, 1) == 2);
+    int none[3] = {0, 0, 0};
+    assert(warfare_wave_target(live, none, owner, 0) == -1);
+    int even[3] = {1, 1, 1}, all[3] = {4, 4, 4}, neutral[3] = {0, 0, 0};
+    assert(warfare_wave_target(even, all, neutral, 0) == 1 && warfare_wave_target(even, all, neutral, 2) == 0);
+    /* Size: the cap holds. */
+    assert(warfare_wave_size(0, 4) == 4 && warfare_wave_size(10, 4) == 2);
+    assert(warfare_wave_size(12, 4) == 0 && warfare_wave_size(20, 4) == 0 && warfare_wave_size(0, 0) == 0);
+}
+
 int main(void) {
+    test_waves();
     test_remote_rider();
     test_reinforcements();
     test_flight_controls();

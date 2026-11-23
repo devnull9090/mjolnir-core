@@ -498,4 +498,55 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
      * during the short stable-support window and on slopes. */
     if (!s->support_world) warfare_air_motion(p, s, dt, o);
 }
+
+/* Covenant waves (docs/pelican_warfare_waves.md section 4). The map's bake
+ * gives every place to hold squads `wave_koth_hill_<order>_<k>` whose first
+ * task holds it (docs/bots.md "Places to hold"); a site's chosen spot is
+ * marker spawn order site + 3 * candidate. The host places a wave on the
+ * combat clock: the first at WARFARE_WAVE_FIRST seconds, then one every
+ * WARFARE_WAVE_INTERVAL, while fewer than WARFARE_WAVE_CAP Covenant live
+ * (the Havok proxy budget is unmeasured: docs/pwr_ai_feasibility.md 3). */
+#define WARFARE_SITES 3
+#define WARFARE_WAVE_FIRST 45
+#define WARFARE_WAVE_INTERVAL 90
+#define WARFARE_WAVE_CAP 12
+#define WARFARE_WAVE_SQUADS 8
+
+/* Which wave the combat clock is in: 0 before the first, then 1, 2, ... */
+static int warfare_wave_index(int combat_seconds) {
+    if (combat_seconds < WARFARE_WAVE_FIRST) return 0;
+    return 1 + (combat_seconds - WARFARE_WAVE_FIRST) / WARFARE_WAVE_INTERVAL;
+}
+
+/* A wave falls due when the clock crosses a wave time between two looks,
+ * so a skipped second or a late tick still fires it, once. */
+static int warfare_wave_due(int last_seconds, int combat_seconds) {
+    if (combat_seconds < 0) return 0;
+    return warfare_wave_index(combat_seconds) > warfare_wave_index(last_seconds < 0 ? -1 : last_seconds);
+}
+
+/* The site a wave goes to: of those with a squad free, the one with the
+ * fewest Covenant alive; on a tie the one a team owns (owner 1 red, 2 blue)
+ * before a neutral one, so the waves press whoever holds ground; then the
+ * one after the last target, so equal sites take turns. -1: none. */
+static int warfare_wave_target(const int live[WARFARE_SITES], const int free_squads[WARFARE_SITES],
+                               const int owner[WARFARE_SITES], int last_target) {
+    int best = -1;
+    for (int n = 1; n <= WARFARE_SITES; n++) {
+        int site = ((last_target < 0 ? -1 : last_target) + n + WARFARE_SITES) % WARFARE_SITES;
+        if (free_squads[site] <= 0) continue;
+        if (best < 0 || live[site] < live[best]
+            || (live[site] == live[best] && owner[site] != 0 && owner[best] == 0))
+            best = site;
+    }
+    return best;
+}
+
+/* How many squads a wave places: all of the target's free ones, within the
+ * cap (each squad is one AI). */
+static int warfare_wave_size(int live_total, int free_squads) {
+    int room = WARFARE_WAVE_CAP - live_total;
+    if (room <= 0 || free_squads <= 0) return 0;
+    return room < free_squads ? room : free_squads;
+}
 #endif

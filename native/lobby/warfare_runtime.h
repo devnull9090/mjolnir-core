@@ -52,6 +52,10 @@ static struct {
      * team's transport seen parked at its flight start (every machine looks,
      * so a client never waits to board a Pelican that is not there). */
     int clock_seconds, clock_tick, parked[2];
+    /* Covenant waves (warfare_waves): looked for once a world; per site its
+     * place (marker order) and how many wave squads the map gives it. */
+    int wave_probed, wave_off, wave_place[WARFARE_SITES], wave_squads[WARFARE_SITES];
+    int wave_last_seconds, wave_last_target, wave_count;
 } warfare;
 
 static int warfare_build(void) {
@@ -137,6 +141,100 @@ static int warfare_hs(const char *line) {
                      line, value, type, warfare.hs_failures);
     }
     return ok;
+}
+
+/* A script expression's value, quietly: a name the map lacks is an answer
+ * here (no such squad), not a fault to report. */
+static int warfare_hs_value(const char *line, int *out) {
+    if (!hs_evaluate || GetCurrentThreadId() != sim_thread_id) return 0;
+    int value = -1, type = 0;
+    if (!hs_evaluate(0, "mjolnir_warfare", line, 1, 0, &value, &type)) return 0;
+    *out = value;
+    return 1;
+}
+
+/* A wave squad's name: wave_koth_hill_<place>_<k>. */
+static void warfare_wave_squad(char *out, size_t size, int place, int k) {
+    snprintf(out, size, "wave_koth_hill_%d_%d", place, k);
+}
+
+/* How many of a squad's AI live, or -1 when the map has no such squad. */
+static int warfare_wave_living(int place, int k) {
+    char name[64], line[128];
+    warfare_wave_squad(name, sizeof name, place, k);
+    snprintf(line, sizeof line, "(ai_living_count %s)", name);
+    int value = -1;
+    return warfare_hs_value(line, &value) ? value : -1;
+}
+
+/* Covenant waves, on the host in combat: once a world, which sites have wave
+ * squads; then on each wave time (warfare_wave_due) the free squads of the
+ * site warfare_wave_target picks are placed. Their first task holds the
+ * site's chosen spot, baked in, so placing is the whole order. Nothing runs
+ * between wave times but the due check. */
+static void warfare_waves(const warfare_snapshot *s) {
+    if (!s->host || s->globals[0] != 2 || warfare.wave_off) return;
+    int seconds = s->globals[3];
+    if (!warfare.wave_probed) {
+        warfare.wave_probed = 1;
+        int any = 0;
+        for (int site = 0; site < WARFARE_SITES; site++) {
+            int packed = s->globals[9 + site];
+            int candidate = packed > 0 ? packed / 1024 : 0; /* SiteState.candidate */
+            warfare.wave_place[site] = site + 3 * candidate;
+            int k = 0;
+            while (k < WARFARE_WAVE_SQUADS && warfare_wave_living(warfare.wave_place[site], k) >= 0) k++;
+            warfare.wave_squads[site] = k;
+            any |= k > 0;
+        }
+        fireteam_log("warfare: waves: squads per site A %d (koth_hill_%d), B %d (koth_hill_%d), C %d (koth_hill_%d)%s",
+                     warfare.wave_squads[0], warfare.wave_place[0], warfare.wave_squads[1], warfare.wave_place[1],
+                     warfare.wave_squads[2], warfare.wave_place[2], any ? "" : "; this map has none, so no waves");
+        if (!any) { warfare.wave_off = 1; return; }
+    }
+    if (teams_installed) {
+        /* The bots' team table puts red on the Covenant's side. */
+        fireteam_log("warfare: waves: the bots' team table is in force, so no Covenant waves this match");
+        warfare.wave_off = 1;
+        return;
+    }
+    int due = warfare_wave_due(warfare.wave_last_seconds, seconds);
+    warfare.wave_last_seconds = seconds;
+    if (!due) return;
+    int live[WARFARE_SITES] = {0}, free_squads[WARFARE_SITES] = {0}, owner[WARFARE_SITES], total = 0;
+    int living[WARFARE_SITES][WARFARE_WAVE_SQUADS];
+    for (int site = 0; site < WARFARE_SITES; site++) {
+        owner[site] = s->globals[9 + site] > 0 ? (s->globals[9 + site] % 1024) & 3 : 0;
+        for (int k = 0; k < warfare.wave_squads[site]; k++) {
+            int n = warfare_wave_living(warfare.wave_place[site], k);
+            living[site][k] = n;
+            if (n > 0) live[site] += n; else free_squads[site]++;
+        }
+        total += live[site];
+    }
+    int target = warfare_wave_target(live, free_squads, owner, warfare.wave_last_target);
+    int size = target >= 0 ? warfare_wave_size(total, free_squads[target]) : 0;
+    warfare.wave_count++;
+    if (size <= 0) {
+        fireteam_log("warfare: wave %d skipped at %d s: %d Covenant alive (cap %d), free squads A %d B %d C %d",
+                     warfare.wave_count, seconds, total, WARFARE_WAVE_CAP, free_squads[0], free_squads[1], free_squads[2]);
+        return;
+    }
+    mjolnir_bots_enable(NULL); /* the ai_place gate, once */
+    int placed = 0;
+    for (int k = 0; k < warfare.wave_squads[target] && placed < size; k++) {
+        if (living[target][k] > 0) continue;
+        char name[64], line[160];
+        warfare_wave_squad(name, sizeof name, warfare.wave_place[target], k);
+        snprintf(line, sizeof line, "(ai_place %s)", name);
+        if (!warfare_hs(line)) continue;
+        snprintf(line, sizeof line, "(ai_force_active %s true)", name); warfare_hs(line);
+        snprintf(line, sizeof line, "(object_wake_physics (ai_get_unit %s))", name); warfare_hs(line);
+        placed++;
+    }
+    warfare.wave_last_target = target;
+    fireteam_log("warfare: wave %d at %d s to site %c (koth_hill_%d): %d squad(s) placed, %d Covenant alive before",
+                 warfare.wave_count, seconds, 'A' + target, warfare.wave_place[target], placed, total);
 }
 
 static unsigned char *warfare_biped(unsigned char *tls, uint32_t handle) {
@@ -535,6 +633,8 @@ static void warfare_tick_inner(void) {
         warfare.duration_valid = 0; warfare.insertion_seconds = WARFARE_INSERTION_SECONDS;
         warfare.transport_created = 0; warfare.was_client = g[0x11] == 4;
         warfare.clock_seconds = -1; warfare.clock_tick = 0; warfare.parked[0] = warfare.parked[1] = 0;
+        warfare.wave_probed = warfare.wave_off = warfare.wave_count = 0;
+        warfare.wave_last_seconds = -1; warfare.wave_last_target = -1;
         warfare.map_ok = warfare_enabled ? warfare_map() : 0;
         memset(warfare.previous_valid, 0, sizeof warfare.previous_valid);
         memset(warfare.admitted, 0, sizeof warfare.admitted);
@@ -638,6 +738,7 @@ static void warfare_tick_inner(void) {
             s.sample[i].velocity_valid, s.sample[i].parent);
     }
     warfare_tactical_tick(tls, &s);
+    warfare_waves(&s);
     warfare.last_phase = s.globals[0]; warfare_publish(&s);
 }
 

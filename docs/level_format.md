@@ -400,6 +400,9 @@ shell's.
   "areas": 16,                     // the firing positions' grid of areas
   "objectives": ["koth_hill"],     // Megalo labels whose objects are places to hold:
                                    // an area and a task <label>_<spawn order> each
+  "waves": { "squads": 4,          // squads wave_<place>_<k> per place, outside it,
+             "kinds": ["elite_heroic", "grunt_heroic"], // whose first task holds it;
+             "distance": 6 },      // kinds (bots.types names) taken in turn
   "types": [                       // kinds of bot, `count` squads each: <name>_<k>
     { "name": "spartan", "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan",
       "weapon": "assault_rifle", "team": "covenant" },

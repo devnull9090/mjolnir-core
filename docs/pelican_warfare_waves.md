@@ -172,6 +172,54 @@ two machines, and the zone tiles' "you are here" rim at a moved zone.
 
 ## 4. Covenant waves
 
+**The director is built** (2026-11-22, not released). The parts:
+
+- **The map** gets wave squads from the bake: `blam.bots.objectives:
+  ["koth_hill"]` makes each capture spot a place to hold with its own task,
+  and `blam.bots.waves` four squads per spot (an Elite, two Grunts and a
+  Jackal) whose first task is that spot ([bots.md](bots.md#waves)). Pelican
+  Warfare gets 44.
+- **The host's lobby DLL** (`warfare_waves`, run from the Warfare tick) does
+  the rest, with no map data of its own:
+  - once a world, in combat, it reads each site's chosen spot from its slot
+    (`SiteState.candidate`), names the place `koth_hill_<site + 3 x
+    candidate>` and counts that place's squads with `ai_living_count`. A map
+    without wave squads answers "no such squad", and the director stands
+    down for the match;
+  - on each wave time of the combat clock (the first at 45 s, then every 90
+    s; a crossing, so a late tick still fires it once) it counts the live
+    Covenant per site and picks the site with the fewest. On a tie an owned
+    site comes before a neutral one, and equal sites take turns;
+  - it places that site's free squads, `ai_force_active` and wakes each, up
+    to 12 live Covenant in all (the Havok proxy budget is unmeasured);
+  - it stands down while the bots' team table is in force, since that table
+    puts red on the Covenant's side.
+- The pure rules (`warfare_wave_due`, `warfare_wave_target`,
+  `warfare_wave_size`) are in `warfare_core.h` with `test_warfare.c` cases.
+
+**Solo run, PC 1** (a test game type with one minimum player and a 10 s
+warm-up; the branch's DLL, HUD, map registry and game type installed for the
+run): the director found four squads at each site's chosen spot (A on
+`koth_hill_9`, B on `koth_hill_1`, C on `koth_hill_11`, following A). Wave 1
+at 45 s went to A, wave 2 at 135 s to B (onto the north pad's structure), wave
+3 at 225 s to C; all 12 walked into their spot's boundary and stayed. Wave 4
+at 315 s was skipped at the cap. Two of A's squads killed by script, wave 5 at
+405 s went to A and placed exactly those two. No crash in about eight minutes.
+
+Not yet done or shown:
+
+- **They arrive on foot**, from a ring about 10 wu outside the spot. The
+  Spirit (below) is still to come, and will load the same squads.
+- **Covenant in a zone do not block a capture.** The contest is a separate
+  piece.
+- **No re-tasking.** A squad holds its spot for good; when a site falls
+  nothing sends its squads on.
+- **Two machines.** Not run with a joiner; the earlier two-PC run showed that
+  AI the host places replicate.
+- The wave times and the cap are constants, not host settings yet.
+
+The plan this started from:
+
 - A cloned Spirit (`pwr_spirit`, from `tuning_fork`) per wave, flown by the
   native host like the Pelicans, from a map edge to a hover point near a zone.
 - AI are placed with `ai_place` (the lobby DLL's Megalo gate is already shipped),
