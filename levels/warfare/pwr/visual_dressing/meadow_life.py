@@ -395,6 +395,20 @@ def finalize(out):
                 rows[mesh] = (kind, a[keep].tolist())
             else:
                 del rows[mesh]
+    # And nothing on a road, by the same margins candidates() keeps, measured again here so a set
+    # prepared before visual_margin knew the approach roads' asphalt can be finalized without
+    # re-running its PCG pass (rows are UE cm: site x = x / 100, site y = -y / 100).
+    site = Site()
+    removed["on_road"] = 0
+    for mesh, (kind, data) in list(rows.items()):
+        a = np.asarray(data, float)
+        clear = 7.0 if kind in ("log", "stump") else (2.5 if KINDS[kind][5] else 0.3)
+        keep = visual_margin(site, np.column_stack((a[:, 0] / 100, -a[:, 1] / 100))) > clear
+        removed["on_road"] += int((~keep).sum())
+        if keep.any():
+            rows[mesh] = (kind, a[keep].tolist())
+        else:
+            del rows[mesh]
     cli = str(ROOT / "target/release/mjolnir.exe")
     entries = []
     for mesh, (kind, data) in sorted(rows.items()):
