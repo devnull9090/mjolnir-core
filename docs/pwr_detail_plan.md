@@ -132,7 +132,7 @@ read as specks on banks tens of metres long. The collision scene is also full (1
 the pipeline's 1,200,000 surfaces), so anything a player could walk into has to reuse hull
 slots. The single stones draw correctly and stay candidates for that later round.
 
-**What shipped as a candidate.** The banks' surface itself:
+**What was built (release 48, on PC 1 as dev chunks; not packed or released).** The banks' surface itself:
 
 - `tools/level/shore_mask.py` bakes a mask from the map's own baked Fluid Flux water (any map
   with `flux_state/`): signed metres from the water's edge, height above that water, and
@@ -158,6 +158,11 @@ slots. The single stones draw correctly and stay candidates for that later round
    draws through a `LandscapeMaterialInstanceConstant` stored in the world, with the shaders
    of the material it was cooked against: a new 965 under the old 997 draws the old ground.
    0.1.2's bake command with `--world` the new round's `packaging/LPE.umap`.
+
+A plain `round.sh` restores the old `M_PWRPilot` and silently drops the band; only
+`round_shore.sh` with `SHORE=` keeps it. Checked: the band touches road only under the
+bridge decks (the road atlas, offline), no outline from the air, release 48 differs from 46
+only in 965 and 997.
 
 Next for step 2: the bank shapes themselves (long smooth slopes no texture fixes), and
 logs, driftwood and boulders in recycled collision slots.
