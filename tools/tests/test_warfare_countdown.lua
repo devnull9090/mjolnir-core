@@ -32,6 +32,8 @@ eq(Countdown.view(snap(2, 0), 101, 4, 100), "CAPTURE", "the zones just opened")
 eq(Countdown.view(snap(2, 3), 103, 4, 100), nil, "and the word goes after two seconds")
 eq(Warfare.insertionLeft(inserting(60 * 37)), 23)
 eq(Warfare.describe(inserting(60 * 37), 0), "ZONES OPEN IN 0:23  /  PREPARE TO CAPTURE A, B AND C")
+local seated = inserting(60 * 37); seated.players = { [0] = { stage = 2 } }
+eq(Warfare.describe(seated, 0, "F"), "INSERTION  /  F TO JUMP  /  ZONES OPEN IN 0:23", "seated riders see it too")
 eq(Countdown.view(nil, 0), nil)
 
 -- The widget: made once, text set only when the number changes, hidden not removed.

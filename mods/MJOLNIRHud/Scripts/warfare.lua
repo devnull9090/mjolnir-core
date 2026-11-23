@@ -224,7 +224,7 @@ function Warfare.describe(s, me, jump)
     local left = Warfare.insertionLeft(s)
     local opens = left and ("  /  ZONES OPEN IN " .. clock(left)) or ""
     if stage == 1 then return "INSERTION  /  BOARDING YOUR TEAM'S PELICAN" .. opens end
-    if stage == 2 then return "INSERTION  /  SPACE TO JUMP" .. opens end
+    if stage == 2 then return "INSERTION  /  " .. jump .. " TO JUMP" .. opens end
     if stage == 7 then return "INSERTION  /  EXITING PELICAN" .. opens end
     if stage == 3 then return "FREEFALL  /  SPACE TO DEPLOY PARACHUTE" .. opens end
     if stage == 4 then return "PARACHUTE DEPLOYED  /  STEER TOWARD A CAPTURE SITE" .. opens end
@@ -427,7 +427,8 @@ function Warfare.new(deps)
                 if player and self.input and self.input.labels then jump = self.input.labels(player.localUser) end
                 local text = Warfare.describe(s, me, jump)
                 if player and player.stage == 2 and jump and s.phase == 1 then
-                    text = "INSERTION  /  " .. jump .. " TO JUMP"
+                    local left = Warfare.insertionLeft(s)
+                    text = "INSERTION  /  " .. jump .. " TO JUMP" .. (left and ("  /  ZONES OPEN IN " .. clock(left)) or "")
                 end
                 local watched = self.spectate and self.spectate.watching()
                 local who = watched and match.players[watched] and match.players[watched].name
