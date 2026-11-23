@@ -17,6 +17,12 @@ from runtime_layout import load_layout
 layout=load_layout()
 
 PELICAN_TAG = r"objects\mjolnir\warfare\pelican\pwr_pelican"
+SPIRIT_TAG = r"objects\vehicles\covenant\tuning_fork\tuning_fork"
+
+
+def transport_routes():
+    """Where the transports wait out of sight (plan_transport_routes.py), or {}."""
+    return layout.document().get("transport_routes_m") or {}
 
 
 def candidate_spots():
@@ -98,7 +104,8 @@ def apply(source):
     names[:] = [name for name in names if not name.startswith("pwr_")]
     names += ["pwr_pelican_red", "pwr_pelican_blue"]
     vehicles = blam.setdefault("vehicles", [])
-    vehicles[:] = [vehicle for vehicle in vehicles if not vehicle.get("name", "").startswith("pwr_pelican_")]
+    vehicles[:] = [vehicle for vehicle in vehicles
+                   if not vehicle.get("name", "").startswith(("pwr_pelican_", "pwr_spirit_"))]
     vehicle_counts={}
     probes=blam.setdefault("trigger_volumes",[])
     probes[:]=[v for v in probes if not v.get("name","").startswith("pwr_probe_")]
@@ -119,12 +126,24 @@ def apply(source):
             probes.append({"name":f"pwr_probe_{kind}_{team}","pos":[x-half,y+half,z-300],
                            "forward":[1,0,0],"up":[0,0,1],
                            "extents":[half*2/304.8,half*2/304.8,900/304.8]})
+    routes = transport_routes()
     for team, flight in layout.FLIGHTS.items():
         # The compiler keeps custom script-only tags out of the multiplayer
         # palette while retaining these named scenario placements. Multiplayer
         # hide flags cannot be used here: they suppress named HS creation too.
+        # With a route in, the reinforcement Pelican is made out of sight
+        # (the insertion's is still teleported to its flight start).
+        staging = (routes.get("pelicans") or {}).get(team, {}).get("staging")
         vehicles.append({"type":"pelican","tag":PELICAN_TAG,"name":"pwr_pelican_"+team,
-                         "pos":layout.ue(flight["start"]),"yaw":flight["yaw"],"placed":False})
+                         "pos":layout.ue(staging or flight["start"]),"yaw":flight["yaw"],"placed":False})
+    # A Spirit for each capture spot, where its route in starts, facing the
+    # way it flies (level yaw is Unreal's, the authoring angle negated).
+    for site, spots in enumerate(routes.get("spirits") or []):
+        for candidate, route in enumerate(spots):
+            name = f"pwr_spirit_{site + 3 * candidate}"
+            vehicles.append({"type":"spirit","tag":SPIRIT_TAG,"name":name,
+                             "pos":layout.ue(route["entry"]),"yaw":-route["yaw"],"placed":False})
+            names.append(name)
 
     flags = blam.setdefault("cutscene_flags", [])
     flags[:] = [flag for flag in flags if not flag.get("name", "").startswith("pwr_")]

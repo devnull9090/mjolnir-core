@@ -449,6 +449,9 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
         if (s->parent == WARFARE_NONE && s->carrier_clear) {
             p->stage = WF_FALLING; p->elapsed = 0; p->departure_z = s->position[2];
             o->flags |= WF_WAKE;
+            /* Clear of a Pelican still out of sight beyond the play area (a
+             * jump while it waits there): home, by the biped's own machine. */
+            if (!warfare_inside(s->position, warfare_play_min, warfare_play_max)) o->flags |= WF_HOME;
             p->air_initialized = 0;
             if (!p->weapon_lowered) {
                 p->weapon_lowered = 1;
@@ -548,5 +551,71 @@ static int warfare_wave_size(int live_total, int free_squads) {
     int room = WARFARE_WAVE_CAP - live_total;
     if (room <= 0 || free_squads <= 0) return 0;
     return room < free_squads ? room : free_squads;
+}
+
+/* Transports out of sight (levels/warfare/pwr/plan_transport_routes.py). A
+ * path is the points a transport flies through after its start. These are
+ * pure: the runtime turns their velocity into object_set_velocity. */
+#define WARFARE_PATH_ARRIVE 15.0f       /* m: close enough to a point on the way */
+#define WARFARE_PATH_LAND 1.5f          /* m: close enough to the last point */
+#define WARFARE_SPIRIT_SPEED 40.0f      /* m/s cruising */
+#define WARFARE_SPIRIT_FINAL_SPEED 12.0f
+#define WARFARE_PELICAN_CLIMB_SPEED 40.0f
+
+static float warfare_length(const float a[3], const float b[3]) {
+    float d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+    return sqrtf(warfare_dot(d, d));
+}
+
+/* Velocity toward the path's point `*leg` (advanced on arrival), at most
+ * `speed`, slowing into the last point. Returns 1 once at the last point.
+ * `reverse` flies the points the other way, ending at `start`. */
+static int warfare_path_velocity(const warfare_path *path, int reverse, const float start[3], int *leg,
+                                 const float position[3], float speed, float out[3]) {
+    out[0] = out[1] = out[2] = 0;
+    if (!path || path->count <= 0 || path->count > WARFARE_ROUTE_POINTS || !leg || !isfinite(speed) || speed <= 0) return 0;
+    int last = reverse ? path->count : path->count - 1; /* reverse ends at start, one past the points */
+    for (;;) {
+        if (*leg < 0) *leg = 0;
+        if (*leg > last) *leg = last;
+        const float *target;
+        if (!reverse) target = path->point[*leg];
+        else target = *leg >= path->count ? start : path->point[path->count - 1 - *leg];
+        float d = warfare_length(position, target);
+        int final = *leg == last;
+        if (!final && d <= WARFARE_PATH_ARRIVE) { (*leg)++; continue; }
+        if (final && d <= WARFARE_PATH_LAND) return 1;
+        float want = final ? fminf(speed, fmaxf(1.0f, d * 0.6f)) : speed;
+        for (int k = 0; k < 3; k++) out[k] = (target[k] - position[k]) / (d > 1e-3f ? d : 1) * want;
+        return 0;
+    }
+}
+
+/* A path's flying time at `speed` from `from`, the points in order. */
+static float warfare_path_seconds(const warfare_path *path, const float from[3], float speed) {
+    if (!path || path->count <= 0 || speed <= 0) return 0;
+    float total = warfare_length(from, path->point[0]);
+    for (int i = 1; i < path->count; i++) total += warfare_length(path->point[i - 1], path->point[i]);
+    return total / speed;
+}
+
+/* A reinforcement Pelican out of sight and on its way in: anywhere in the
+ * column over its staging point (the path's first point, any height), on the
+ * path's legs, or at its flight start, within `radius` m. Every machine
+ * judges boarding by this alone, from the layout. */
+static int warfare_on_pelican_path(int team, const float position[3], float radius) {
+    if (team < 0 || team > 1) return 0;
+    const warfare_path *path = &warfare_pelican_paths[team];
+    if (path->count <= 0) return warfare_at_flight_start(team, position);
+    float dx = position[0] - path->point[0][0], dy = position[1] - path->point[0][1];
+    if (dx * dx + dy * dy <= radius * radius) return 1;
+    for (int i = 1; i < path->count; i++) {
+        const float *a = path->point[i - 1], *b = path->point[i];
+        float ab[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, ap[3] = {position[0] - a[0], position[1] - a[1], position[2] - a[2]};
+        float t = fmaxf(0, fminf(1, warfare_dot(ab, ap) / fmaxf(warfare_dot(ab, ab), 1e-6f)));
+        float closest[3] = {a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t};
+        if (warfare_length(position, closest) <= radius) return 1;
+    }
+    return warfare_at_flight_start(team, position);
 }
 #endif

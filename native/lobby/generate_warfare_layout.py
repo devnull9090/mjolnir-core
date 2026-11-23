@@ -10,6 +10,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 # Spawn sequences site + 3 * candidate; blam-megalo warfare.rs MAX_CANDIDATES.
 MAX_CANDIDATES = 6
+# Transport route points after the start (plan_transport_routes.py MAX_POINTS).
+ROUTE_POINTS = 6
 MANIFEST = ROOT / "levels/warfare/pwr/layout.json"
 HEADER = Path(__file__).with_name("warfare_layout.h")
 
@@ -167,6 +169,30 @@ def generate(data):
         rows = [[r[0], r[1], r[2] + 1.2] for r in rows]
         rows += [[0.0, 0.0, 0.0]] * (MAX_CANDIDATES - len(rows))
         lines.append("    {" + ", ".join(vec(r) for r in rows) + "},")
+    # Transports out of sight (levels/warfare/pwr/plan_transport_routes.py):
+    # each route's points after its start; count 0 keeps today's behaviour.
+    routes = data.get("transport_routes_m") or {}
+    def path_row(route):
+        points = (route or {}).get("path") or []
+        if len(points) > ROUTE_POINTS:
+            raise ValueError(f"a transport route has at most {ROUTE_POINTS} points")
+        rows = [vector(p, "route point") for p in points] + [[0.0, 0.0, 0.0]] * (ROUTE_POINTS - len(points))
+        return "{" + str(len(points)) + ", {" + ", ".join(vec(r) for r in rows) + "}}"
+    lines += ["};",
+              "/* Transports out of sight: the points each flies through after its",
+              " * start, from transport_routes_m. A Pelican's end at its flight start,",
+              " * a Spirit's at its hover over the spot. Count 0: no route. */",
+              f"#define WARFARE_ROUTE_POINTS {ROUTE_POINTS}",
+              "typedef struct { int count; float point[WARFARE_ROUTE_POINTS][3]; } warfare_path;",
+              "static const warfare_path warfare_pelican_paths[2] = {"]
+    pelicans = routes.get("pelicans") or {}
+    for team in ("red", "blue"):
+        lines.append("    " + path_row(pelicans.get(team)) + ",")
+    lines += ["};", "static const warfare_path warfare_spirit_paths[3][WARFARE_MAX_CANDIDATES] = {"]
+    spirits = routes.get("spirits") or [[], [], []]
+    for site in range(3):
+        rows = [path_row(r) for r in spirits[site]] + [path_row(None)] * (MAX_CANDIDATES - len(spirits[site]))
+        lines.append("    {" + ", ".join(rows) + "},")
     lines += ["};", f"#define WARFARE_LAYOUT_MARKERS {len(markers)}",
               "#define WARFARE_LAYOUT_MARKER_MASK ((1u << WARFARE_LAYOUT_MARKERS) - 1u)",
               "static const float warfare_layout_markers[WARFARE_LAYOUT_MARKERS][3] = {"]

@@ -502,7 +502,48 @@ static void test_waves(void) {
     assert(warfare_wave_size(12, 4) == 0 && warfare_wave_size(20, 4) == 0 && warfare_wave_size(0, 0) == 0);
 }
 
+static void test_paths(void) {
+    warfare_path p; memset(&p, 0, sizeof p);
+    p.count = 3;
+    float pts[3][3] = {{0, 0, 100}, {100, 0, 100}, {100, 0, 10}};
+    memcpy(p.point, pts, sizeof pts);
+    float start[3] = {0, 0, 0}, pos[3] = {0, 0, 0}, v[3];
+    int leg = 0, arrived = 0, steps = 0;
+    for (; steps < 5000 && !arrived; steps++) {
+        arrived = warfare_path_velocity(&p, 0, start, &leg, pos, 40, v);
+        assert(sqrtf(warfare_dot(v, v)) <= 40.001f);
+        for (int k = 0; k < 3; k++) pos[k] += v[k] * 0.1f;
+    }
+    assert(arrived && leg == 2 && warfare_length(pos, pts[2]) <= WARFARE_PATH_LAND);
+    /* Back the other way, to the start. */
+    leg = 0; arrived = 0;
+    for (steps = 0; steps < 5000 && !arrived; steps++) {
+        arrived = warfare_path_velocity(&p, 1, start, &leg, pos, 40, v);
+        for (int k = 0; k < 3; k++) pos[k] += v[k] * 0.1f;
+    }
+    assert(arrived && leg == 3 && warfare_length(pos, start) <= WARFARE_PATH_LAND);
+    /* No path: no motion. */
+    warfare_path none; memset(&none, 0, sizeof none); leg = 0;
+    assert(!warfare_path_velocity(&none, 0, start, &leg, pos, 40, v) && v[0] == 0 && v[2] == 0);
+    float flat[3] = {0, 0, 0};
+    assert(fabsf(warfare_path_seconds(&p, flat, 10) - (100 + 100 + 90) / 10.0f) < 0.01f);
+    /* A Pelican on its way in counts as parked; one out over the field does not. */
+    for (int team = 0; team < 2; team++) {
+        const warfare_path *pp = &warfare_pelican_paths[team];
+        if (pp->count <= 0) continue;
+        float staging[3] = {pp->point[0][0], pp->point[0][1], 120};
+        assert(warfare_on_pelican_path(team, staging, 40));
+        assert(warfare_on_pelican_path(team, warfare_routes[team].start, 40));
+        float middle[3] = {(pp->point[0][0] + pp->point[1][0]) / 2, (pp->point[0][1] + pp->point[1][1]) / 2,
+                           (pp->point[0][2] + pp->point[1][2]) / 2};
+        assert(warfare_on_pelican_path(team, middle, 40));
+        float field[3] = {0, 0, 300};
+        assert(!warfare_on_pelican_path(team, field, 40));
+    }
+}
+
 int main(void) {
+    test_paths();
     test_waves();
     test_remote_rider();
     test_reinforcements();

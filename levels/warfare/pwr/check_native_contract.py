@@ -69,7 +69,7 @@ def assert_equal(expected, actual, label):
 
 def gameplay_layout(layout):
     validate_native_layout(layout)
-    require(set(layout) == set(LAYOUT_KEYS) | {"title", "flight_envelope_status", "provenance", "reinforcement", "capture_candidates_m"},
+    require(set(layout) == set(LAYOUT_KEYS) | {"title", "flight_envelope_status", "provenance", "reinforcement", "capture_candidates_m", "transport_routes_m"},
             "Unreviewed layout fields require an explicit gameplay contract decision")
     return {key: layout[key] for key in LAYOUT_KEYS}
 
