@@ -135,8 +135,8 @@ impl Default for Warfare {
             minimum_players: 2,
             warmup_seconds: 30,
             insertion_seconds: 60,
-            capture_seconds: 8,
-            covenant_capture_seconds: 20,
+            capture_seconds: 15,
+            covenant_capture_seconds: 30,
             allow_mounted_capture: false,
             match_minutes: 20,
         }

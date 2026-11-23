@@ -1,5 +1,7 @@
--- Pelican Warfare's warmup countdown: one large number in the middle of the
--- screen for the last seconds before insertion, then "DEPLOY" for a moment.
+-- Pelican Warfare's countdowns: one large number in the middle of the screen
+-- for the last seconds before insertion, then "DEPLOY" for a moment; and the
+-- same for the last seconds of insertion, then "CAPTURE" as the zones open.
+-- Insertion's seconds come from Warfare.insertionLeft (slots 1 and 3).
 -- Megalo counts the warmup down in whole seconds (blam-megalo warfare.rs
 -- CLOCK), so every client shows the same number. Text changes only when the
 -- number does; the widget is made once and hidden, never removed (removing a
@@ -17,7 +19,8 @@ local Countdown = {}
 
 -- Seconds of warmup shown large. Earlier seconds stay in the status line.
 Countdown.BIG = 10
--- How long "DEPLOY" stays up once insertion starts.
+-- How long "DEPLOY" stays up once insertion starts, and "CAPTURE" once the
+-- zones open.
 Countdown.DEPLOY_SECONDS = 2
 Countdown.FONT = "/Game/Fonts/Font_Oxanium.Font_Oxanium"
 Countdown.TYPEFACE = "Medium"
@@ -27,17 +30,30 @@ local COLLAPSED, VISIBLE_NO_HIT_TEST = 1, 3
 local CYAN = { R = 0.366, G = 0.871, B = 0.929, A = 1 }
 local GOLD = { R = 1, G = 0.78, B = 0.25, A = 1 }
 
+--- Whole seconds of insertion left (as Warfare.insertionLeft), or nil.
+local function insertionLeft(s)
+    if not (s.insertion_seconds and s.elapsed_ticks and s.rate and s.rate > 0) then return nil end
+    return math.max(0, s.insertion_seconds - math.floor(s.elapsed_ticks / s.rate))
+end
+
 --- What to show for a snapshot: the text and its colour, or nil.
---- `launchedAt` is when this client first saw insertion begin.
-function Countdown.view(s, now, launchedAt)
+--- `launchedAt` is when this client first saw insertion begin, `openedAt`
+--- when it first saw combat begin.
+function Countdown.view(s, now, launchedAt, openedAt)
     if not s then return nil end
     if s.phase == 0 then
         local left = s.globals and s.globals[4]
         if type(left) == "number" and left > 0 and left <= Countdown.BIG then
             return tostring(left), left <= 3 and GOLD or CYAN
         end
-    elseif s.phase == 1 and launchedAt and now - launchedAt < Countdown.DEPLOY_SECONDS then
-        return "DEPLOY", GOLD
+    elseif s.phase == 1 then
+        if launchedAt and now - launchedAt < Countdown.DEPLOY_SECONDS then return "DEPLOY", GOLD end
+        local left = insertionLeft(s)
+        if left and left > 0 and left <= Countdown.BIG then
+            return tostring(left), left <= 3 and GOLD or CYAN
+        end
+    elseif s.phase == 2 and openedAt and now - openedAt < Countdown.DEPLOY_SECONDS then
+        return "CAPTURE", GOLD
     end
     return nil
 end
@@ -60,7 +76,7 @@ function Countdown.new(deps)
     deps.FName = deps.FName or FName
     deps.FText = deps.FText or FText
     local self = {}
-    local widget, text, shown, launchedAt, lastPhase, instance
+    local widget, text, shown, launchedAt, openedAt, lastPhase, instance
 
     local function build(pc)
         local library = deps.object("/Script/UMG.Default__WidgetBlueprintLibrary")
@@ -93,10 +109,11 @@ function Countdown.new(deps)
 
     --- Called with each HUD update (twice a second in warmup).
     function self.update(pc, s, now)
-        if s and s.instance ~= instance then instance, launchedAt, lastPhase = s.instance, nil, nil end
+        if s and s.instance ~= instance then instance, launchedAt, openedAt, lastPhase = s.instance, nil, nil, nil end
         if s and s.phase == 1 and lastPhase == 0 then launchedAt = now end
+        if s and s.phase == 2 and lastPhase == 1 then openedAt = now end
         lastPhase = s and s.phase or nil
-        local words, colour = Countdown.view(s, now, launchedAt)
+        local words, colour = Countdown.view(s, now, launchedAt, openedAt)
         if not words then return self.hide() end
         if not (widget and widget:IsValid() and text and text:IsValid()) then
             widget, text = build(pc)

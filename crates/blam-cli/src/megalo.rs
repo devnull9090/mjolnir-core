@@ -119,11 +119,11 @@ pub struct WriteArgs {
     #[arg(long, default_value_t = 60)]
     pub insertion_seconds: u16,
     /// Warfare: seconds to capture a neutral site (twice this to take an enemy site).
-    #[arg(long, default_value_t = 8)]
+    #[arg(long, default_value_t = 15)]
     pub capture_seconds: u16,
     /// Warfare: seconds for Covenant AI alone in a zone to take it from neutral
     /// (a team's zone drains to neutral first, at the capture rate).
-    #[arg(long, default_value_t = 20)]
+    #[arg(long, default_value_t = 30)]
     pub covenant_capture_seconds: u16,
     /// Warfare: let living vehicle occupants capture and contest sites.
     #[arg(long)]

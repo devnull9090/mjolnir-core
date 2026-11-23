@@ -19,6 +19,19 @@ eq(Countdown.view(snap(1, 60), 5, 4), "DEPLOY", "insertion just began")
 eq(Countdown.view(snap(1, 60), 7, 4), nil, "and the word goes after two seconds")
 eq(Countdown.view(snap(1, 60), 5, nil), nil, "a join during insertion never saw the launch")
 eq(Countdown.view(snap(2, 15), 0), nil, "combat clock is not a countdown")
+-- Insertion: its last ten seconds count down too, then CAPTURE as the zones open.
+local function inserting(ticks)
+    local s = snap(1, 60); s.insertion_seconds, s.rate, s.elapsed_ticks, s.players = 60, 60, ticks, {}; return s
+end
+eq(Countdown.view(inserting(60 * 30), 100, 4), nil, "thirty seconds left stays in the status line")
+eq(Countdown.view(inserting(60 * 50), 100, 4), "10", "ten seconds left is large")
+eq(Countdown.view(inserting(60 * 57 + 30), 100, 4), "3", "two and a half seconds of ticks left still reads 3")
+eq(select(2, Countdown.view(inserting(60 * 58), 100, 4)).R, 1, "the last three are gold")
+eq(Countdown.view(inserting(60 * 60), 100, 4), nil, "zero is the combat tick")
+eq(Countdown.view(snap(2, 0), 101, 4, 100), "CAPTURE", "the zones just opened")
+eq(Countdown.view(snap(2, 3), 103, 4, 100), nil, "and the word goes after two seconds")
+eq(Warfare.insertionLeft(inserting(60 * 37)), 23)
+eq(Warfare.describe(inserting(60 * 37), 0), "ZONES OPEN IN 0:23  /  PREPARE TO CAPTURE A, B AND C")
 eq(Countdown.view(nil, 0), nil)
 
 -- The widget: made once, text set only when the number changes, hidden not removed.

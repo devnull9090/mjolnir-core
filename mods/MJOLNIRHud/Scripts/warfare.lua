@@ -30,6 +30,15 @@ end
 local function clock(seconds)
     return string.format("%d:%02d", math.floor(seconds / 60), seconds % 60)
 end
+
+--- Whole seconds until the zones open (insertion ends and combat begins), or
+--- nil outside insertion. Megalo publishes the insertion's length in slot 3
+--- and counts its ticks in slot 1 from the launch tick (warfare.rs), so every
+--- client reaches 0 on the same tick.
+function Warfare.insertionLeft(s)
+    if not (s and s.phase == 1 and s.insertion_seconds and s.elapsed_ticks and s.rate and s.rate > 0) then return nil end
+    return math.max(0, s.insertion_seconds - math.floor(s.elapsed_ticks / s.rate))
+end
 -- Moving zones add CANDIDATE_STRIDE * the site's chosen candidate on top.
 Warfare.CANDIDATE_STRIDE = 1024
 function Warfare.site(value)
@@ -211,14 +220,17 @@ function Warfare.describe(s, me, jump)
     if s.phase == 3 then return "OPERATION COMPLETE  /  RED " .. s.score[1] .. "  :  " .. s.score[2] .. " BLUE" end
     local player = s.players[me]
     local stage = player and player.stage
-    if stage == 1 then return "INSERTION  /  BOARDING YOUR TEAM'S PELICAN" end
-    if stage == 2 then return "INSERTION  /  SPACE TO JUMP" end
-    if stage == 7 then return "INSERTION  /  EXITING PELICAN" end
-    if stage == 3 then return "FREEFALL  /  SPACE TO DEPLOY PARACHUTE" end
-    if stage == 4 then return "PARACHUTE DEPLOYED  /  STEER TOWARD A CAPTURE SITE" end
+    -- During insertion every line ends with when the zones open.
+    local left = Warfare.insertionLeft(s)
+    local opens = left and ("  /  ZONES OPEN IN " .. clock(left)) or ""
+    if stage == 1 then return "INSERTION  /  BOARDING YOUR TEAM'S PELICAN" .. opens end
+    if stage == 2 then return "INSERTION  /  SPACE TO JUMP" .. opens end
+    if stage == 7 then return "INSERTION  /  EXITING PELICAN" .. opens end
+    if stage == 3 then return "FREEFALL  /  SPACE TO DEPLOY PARACHUTE" .. opens end
+    if stage == 4 then return "PARACHUTE DEPLOYED  /  STEER TOWARD A CAPTURE SITE" .. opens end
     if stage == 6 then return "DEPLOYMENT UNAVAILABLE  /  RESPAWN AT YOUR HOME BASE" end
-    if s.phase == 1 then return "INSERTION IN PROGRESS  /  PREPARE TO CAPTURE A, B AND C" end
-    -- In combat the zone tiles under the score say it (warfare_zones.lua): no line.
+    if s.phase == 1 then return "ZONES OPEN IN " .. clock(left or 0) .. "  /  PREPARE TO CAPTURE A, B AND C" end
+    -- In combat the zone bars in the top left say it (warfare_zones.lua): no line.
     return nil
 end
 

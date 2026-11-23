@@ -237,9 +237,10 @@ chosen site:
 - **Covenant alone** (count above 0, no player): a team's progress drains
   toward 0 at one a tick, the teams' own rate, and the site goes neutral as
   usual. Only on a neutral site does number 7 then fill, one a tick; at the
-  Covenant capture time (`covenant_capture_seconds`, default 20 s, CLI
+  Covenant capture time (`covenant_capture_seconds`, default 30 s, CLI
   `--covenant-capture-seconds`) the owner becomes 3. So an undefended team
-  site falls in the team capture time (8 s) plus 20 s.
+  site falls in the team capture time (15 s) plus 30 s. (The live runs below
+  used the first defaults, 8 s and 20 s.)
 - **A Covenant site pays nobody**, and stays theirs when they are all killed.
 - **Players alone** on it drain number 7 back to 0 first (owner back to 0 as
   soon as it drops below full), then capture as on any neutral site.

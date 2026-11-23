@@ -36,7 +36,7 @@ Select map **PWR / Pelican Warfare** and mode **PELICAN WARFARE** in the
 MJOLNIR lobby, then start a private match. The installed preview starts with
 one player after a five-second warmup. Press **Space** to leave the Pelican
 and again to deploy the parachute; automatic exit and deployment are fallbacks.
-Stand on A, B or C on foot for eight seconds to capture a neutral site.
+Stand on A, B or C on foot for fifteen seconds to capture a neutral site.
 Owned uncontested sites score once per second. After a death you respawn at
 your base and board your team's waiting Pelican, which leaves with everyone
 aboard on the next minute of combat; the target is 500 control points.
@@ -56,9 +56,10 @@ Defaults are two connected players, 30 seconds of warmup, 60 seconds of
 insertion, first to 500 control points, or 20 minutes of combat. The three
 neutral `koth_hill` markers use spawn sequences 0, 1 and 2, matching the
 three `koth_hills` entries in `level.json`. Living players on foot capture;
-vehicle occupants do not. One side alone takes a neutral site in eight
-seconds; changing an enemy site takes eight seconds to neutralize and
-eight more to capture. Extra teammates do not accelerate capture. Opposing
+vehicle occupants do not. One side alone takes a neutral site in fifteen
+seconds; changing an enemy site takes fifteen seconds to neutralize and
+fifteen more to capture (`--capture-seconds`, 8 before 2026-11-22).
+Covenant alone take a neutral site in thirty (`--covenant-capture-seconds`). Extra teammates do not accelerate capture. Opposing
 presence stops capture and scoring. An owned empty site continues to earn
 one point per second. Kills do not score. Each death respawns the player at
 their permanent Red or Blue home after five seconds, with unlimited lives
@@ -242,8 +243,12 @@ Final standings allow 1.5 seconds for the final publication to arrive.
 The status line gives the warmup countdown, boarding, Space-to-jump, exiting,
 Space-to-deploy, canopy, landing/active and failed-deployment information, and
 for a waiting reinforcement rider the time to departure and whom they watch.
-The last ten seconds of warmup also count down large in the middle of the
-screen (`warfare_countdown.lua`). During combat it
+During insertion every line ends with ZONES OPEN IN 0:23 (from the published
+insertion length and its tick count, `Warfare.insertionLeft`), and once a rider
+has landed the line is ZONES OPEN IN 0:23 / PREPARE TO CAPTURE A, B AND C. The
+last ten seconds of warmup, and of insertion, also count down large in the
+middle of the screen (`warfare_countdown.lua`), then DEPLOY or CAPTURE for two
+seconds. During combat it
 gives way to three slim zone bars stacked in the top left (`WBP_MJOLNIRWarfareZones`,
 chunk 958 beside the tactical map with its two hexagon badge textures from
 `tools/ue/draw_zone_badges.py`, filled by `warfare_zones.lua`). Each row is a
