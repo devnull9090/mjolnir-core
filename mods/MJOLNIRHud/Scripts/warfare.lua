@@ -415,7 +415,8 @@ function Warfare.new(deps)
                 if airborne and not blocked and not match.over and s.phase ~= 3 then
                     local jump, brake
                     if self.input and self.input.labels then jump, brake = self.input.labels(player.localUser) end
-                    local ok, shown = pcall(self.instruments.update, pc, player.stage, s.flight[me], s.clearance[me], jump, brake)
+                    local ok, shown = pcall(self.instruments.update, pc, player.stage, s.flight[me], s.clearance[me], jump, brake,
+                        Warfare.insertionLeft(s))
                     instrumentsShown = ok and shown
                 else self.instruments.hide() end
             end
