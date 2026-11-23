@@ -1,4 +1,4 @@
-# Pelican Warfare: a shipped-game detail pass from base-game assets
+# Pelican Warfare: shipped-quality detail from the base game's own assets
 
 The goal: PWR should look as if 343 shipped it. The base game already contains most of what
 a temperate alpine valley needs, and PWR uses only 106 of the 4,955 relevant assets.
@@ -39,14 +39,14 @@ which shipped levels use it, and whether PWR already does.
 - Cooked decal masters crashed the game (a PSO fatal), so caustic and wet decals are out
   until that is solved; that rules out the Fluid Flux river template's decal pieces.
 - Anything a player can touch needs Blam collision (the outcrop hull path, or a crate tag
-  that collides and syncs by itself). Rocks and banks must pass
-  `check_structure_clearance.py` and keep off roads (`meadow_life.visual_margin`).
+  that collides and syncs by itself). Rocks and banks must clear
+  `check_structure_clearance.py` and stay off roads (`meadow_life.visual_margin`).
 - Everything is data the map ships: decor, level `effects`, `lights` and sounds, cooked
   landscape layers. No per-frame Lua.
 - Before and after shots from the user's FlyCam set (`MJOLNIR_FlyCam_shots_PWR.json`)
   for every step, plus a two-PC check.
 
-## The pass, in order of what a player notices first
+## The work, in order of what a player notices first
 
 1. **Ground that reads as real.** Give `M_PWRPilot` A30's meadow, stony-soil, scree and
    beach-sand-with-pebbles layers with their ORHG maps, height blending and hex texture
