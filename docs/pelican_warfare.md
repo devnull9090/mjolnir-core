@@ -244,10 +244,14 @@ Space-to-deploy, canopy, landing/active and failed-deployment information, and
 for a waiting reinforcement rider the time to departure and whom they watch.
 The last ten seconds of warmup also count down large in the middle of the
 screen (`warfare_countdown.lua`). During combat it
-gives way to three zone tiles under the score (`WBP_MJOLNIRWarfareZones`, chunk 958
-beside the tactical map, filled by `warfare_zones.lua`): owner colour, NEUTRAL /
-RED / BLUE / CAPTURING / NEUTRALIZING / CONTESTED, the capture bar, a pip for each
-team standing in the zone and a gold rim on the zone the local player stands in.
+gives way to three slim zone bars stacked in the top left (`WBP_MJOLNIRWarfareZones`,
+chunk 958 beside the tactical map with its two hexagon badge textures from
+`tools/ue/draw_zone_badges.py`, filled by `warfare_zones.lua`). Each row is a
+hexagon badge with the zone's letter in the owner's colour (purple for the
+Covenant), then the state word (NEUTRAL / RED / BLUE / COVENANT / CAPTURING /
+NEUTRALIZING / UNDER ATTACK / OVERRUN / CLEARING / CONTESTED) with a pip for each
+team standing in the zone, over the capture bar. The badge's outline turns gold on
+the zone the local player stands in.
 A site changing hands puts "Red team captured zone B" (or "… neutralized zone B")
 in the kill feed on every client from its own snapshot. Three fixed holographic
 fields and A/B/C waypoints still mark the sites in the world. Contest and progress

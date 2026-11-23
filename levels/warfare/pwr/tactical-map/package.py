@@ -20,6 +20,8 @@ STEM = "pakchunk958-MJOLNIRTACTICALMAP_P"
 WIDGET = "/Game/MJOLNIR/UI/WBP_MJOLNIRTacticalMap"
 # The warfare zone tiles under the score (build_pwr_warfare_zones.py) share the chunk.
 ZONES = "/Game/MJOLNIR/UI/WBP_MJOLNIRWarfareZones"
+# Its hexagon badges (tools/ue/draw_zone_badges.py), imported as T_PWR_Zone<name>.
+ZONE_BADGES = ("HexRim", "HexFill")
 sys.path.insert(0, str(REPO / "tools/iostore"))
 from iostore import load_container
 
@@ -47,10 +49,11 @@ def main():
     images = json.loads((ART / "manifest.json").read_text())["files"]
     widget = WIDGET.removeprefix("/Game/") + ".uasset"
     expected = {widget, ZONES.removeprefix("/Game/") + ".uasset",
-                *("MJOLNIR/TacticalMap/T_PWR_" + Path(row["path"]).stem + ".uasset" for row in images)}
+                *("MJOLNIR/TacticalMap/T_PWR_" + Path(row["path"]).stem + ".uasset" for row in images),
+                *(f"MJOLNIR/TacticalMap/T_PWR_Zone{name}.uasset" for name in ZONE_BADGES)}
     source = STAGE / "pakchunk958-Windows.utoc"
     if packages(source) != expected:
-        raise ValueError("Expected the private overview widget, the zone tiles and eight textures in chunk 958")
+        raise ValueError("Expected the private overview widget, the zone bars, their two badges and eight map textures in chunk 958")
     for toc in STAGE.glob("pakchunk*-Windows.utoc"):
         if toc != source and packages(toc).intersection(expected):
             raise ValueError(f"Another staged chunk also owns tactical content: {toc.name}")

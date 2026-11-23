@@ -1,5 +1,6 @@
--- Pelican Warfare zone tiles: WBP_MJOLNIRWarfareZones (chunk 958) under the
--- match score, one tile per capture site. Everything shown comes from the
+-- Pelican Warfare zone bars: WBP_MJOLNIRWarfareZones (chunk 958), one slim row
+-- per capture site stacked in the top left (a hexagon badge, the state word and
+-- the capture bar). Everything shown comes from the
 -- accepted native snapshot (warfare.lua: s.sites, packed by Megalo): owner,
 -- who is standing in the zone, and capture progress in steps. Nothing here
 -- infers a capture; the only local reading is whether the local player is
@@ -10,7 +11,7 @@
 -- once every bar has arrived and no zone is contested.
 local Zones = {}
 local CLASS = "/Game/MJOLNIR/UI/WBP_MJOLNIRWarfareZones.WBP_MJOLNIRWarfareZones_C"
-local TRACK = 144          -- the bar's full width (build_pwr_warfare_zones.py)
+local TRACK = 340          -- the bar's full width (build_pwr_warfare_zones.py)
 local EASE = 0.45          -- seconds for a bar to reach a new sample
 local COLLAPSED, HIDDEN_NO_HIT = 1, 3
 
@@ -39,7 +40,7 @@ function Zones.look(site, here, steps)
     local lead = taken > 0 and 3 or (progress or 0) > 0 and 1 or (progress or 0) < 0 and 2 or 0
     local present = red and not blue and 1 or blue and not red and 2 or 0
     local look = {
-        rim = owner > 0 and TEAM[owner] or LINE, rimAlpha = owner > 0 and 0.95 or 0.55,
+        rim = owner > 0 and TEAM[owner] or LINE, rimAlpha = owner > 0 and 0.95 or 0.9,
         tint = owner > 0 and TEAM[owner] or LINE, tintAlpha = owner > 0 and 0.22 or 0,
         letter = owner > 0 and TEAM[owner] or WHITE,
         state = owner > 0 and NAME[owner] or "NEUTRAL", stateColor = owner > 0 and TEAM[owner] or GREY,

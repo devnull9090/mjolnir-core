@@ -162,7 +162,7 @@ end
 local warfareDll = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native\\mjolnir_lobby.dll"
 -- Pelican Warfare jumps (filled in after the match helpers, below).
 local WarfareJump = {}
--- Pelican Warfare zones: the tiles under the score and the capture lines in
+-- Pelican Warfare zones: the zone bars in the top left and the capture lines in
 -- the feed (filled in with the tactical map, below).
 local WarfareSites = {}
 local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
@@ -2231,7 +2231,7 @@ do
     })
     Tactical.bind()
 
-    -- Pelican Warfare's zone tiles (Scripts/warfare_zones.lua) and a feed line
+    -- Pelican Warfare's zone bars (Scripts/warfare_zones.lua) and a feed line
     -- whenever a site changes hands. Every client reads its own snapshot, so
     -- nothing is relayed.
     local Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua")
