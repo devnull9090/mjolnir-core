@@ -7,7 +7,7 @@ use blam_megalo::warfare::*;
 struct World {
     globals: [i32; 12],
     /// Each marker's object numbers, spawn sequence and whether it still exists.
-    points: Vec<[i32; 6]>,
+    points: Vec<[i32; 8]>,
     seqs: Vec<i32>,
     alive: Vec<bool>,
     /// Global objects 2..4: each site's chosen marker (-1 none).
@@ -29,7 +29,7 @@ impl World {
     fn new() -> Self {
         Self {
             globals: [0; 12],
-            points: vec![[0; 6]; 3],
+            points: vec![[0; 8]; 3],
             seqs: vec![0, 1, 2],
             alive: vec![true; 3],
             // A classic map: one marker per site, already chosen.
@@ -50,7 +50,7 @@ impl World {
     /// A map with these marker spawn sequences, nothing chosen yet.
     fn with_markers(seqs: &[i32]) -> Self {
         let mut w = World::new();
-        w.points = vec![[0; 6]; seqs.len()];
+        w.points = vec![[0; 8]; seqs.len()];
         w.seqs = seqs.to_vec();
         w.alive = vec![true; seqs.len()];
         w.chosen = [-1; 3];
@@ -507,4 +507,42 @@ fn only_the_chosen_marker_captures_and_publishes_its_candidate() {
     w.ticks(20, &v);
     assert_eq!(w.points[0][0], 0);
     assert_eq!(SiteState::decode(w.globals[FIRST_OWNER as usize]).owner, 0);
+}
+
+#[test]
+fn covenant_in_a_zone_contest_it_and_without_them_capture_runs_as_before() {
+    let v = Variant::warfare(Warfare {
+        tick_rate: 10,
+        capture_seconds: 4,
+        ..Warfare::default()
+    })
+    .unwrap();
+    let mut w = World::new();
+    w.globals[PHASE as usize] = 2;
+    // No writer: number 6 stays 0, and red takes the site in 40 ticks.
+    w.at[0] = Some(0);
+    w.ticks(41, &v);
+    assert_eq!(SiteState::decode(w.globals[FIRST_OWNER as usize]).owner, 1);
+    let score = w.score[0];
+    w.ticks(20, &v);
+    assert!(w.score[0] > score, "an owned site pays");
+    // Covenant step in: no payout, and blue alone cannot push it back.
+    w.points[0][COVENANT as usize] = 2;
+    let score = w.score[0];
+    w.ticks(20, &v);
+    assert_eq!(w.score[0], score, "Covenant in the zone stop the payout");
+    w.at[0] = None;
+    w.at[1] = Some(0);
+    w.ticks(30, &v);
+    let held = SiteState::decode(w.globals[FIRST_OWNER as usize]);
+    assert_eq!((held.owner, held.progress), (1, Some(PROGRESS_STEPS as i32)), "no progress while contested");
+    // They are gone: blue pushes it back.
+    w.points[0][COVENANT as usize] = 0;
+    w.ticks(30, &v);
+    assert!(SiteState::decode(w.globals[FIRST_OWNER as usize]).progress.unwrap() < PROGRESS_STEPS as i32);
+    // A neutral site with Covenant on it cannot be taken either.
+    w.points[1][COVENANT as usize] = 1;
+    w.at[1] = Some(1);
+    w.ticks(60, &v);
+    assert_eq!(SiteState::decode(w.globals[FIRST_OWNER as usize + 1]).progress, Some(0));
 }

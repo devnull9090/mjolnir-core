@@ -207,6 +207,27 @@ at 45 s went to A, wave 2 at 135 s to B (onto the north pad's structure), wave
 at 315 s was skipped at the cap. Two of A's squads killed by script, wave 5 at
 405 s went to A and placed exactly those two. No crash in about eight minutes.
 
+**The contest is built** (2026-11-22, not released). Megalo cannot see AI,
+so the host counts them: in combat, ten times a second, the lobby DLL counts
+living bipeds that no player owns and nothing carries inside each chosen
+site's boundary (20 m, from 1 m below to 4 m above the marker). It writes the
+count to that site marker's Megalo object number 6
+(`warfare_contest` in `native/lobby/warfare_runtime.h`), every pass, zeros
+included, and zeros on any stand-down. It finds the marker as global object 2
++ site and its Megalo object entry by handle (`[TLS+0x3a0]`, 0x94 bytes, the
+object at `+0x38`, numbers at `+0x50`), and writes only when that entry's
+number 4 equals the site's published slot. The rules (`COVENANT` in
+`blam-megalo` `warfare.rs`) read it: while it is above zero neither team's
+capture advances and the owner gets no payout. A game type with no writer
+reads 0 and plays as before (a `warfare_behavior.rs` case).
+
+Live, solo on PC 1: the player, made invulnerable, took site B and it paid a
+point a second. Wave 1 went to B; as its four squads walked in the count went
+from 1 to 4, and red's score stopped at 27 for the next two minutes with the
+player still on the site. Wave 2 contested C the same way. With B's squads
+erased the count went back to 0 and the payout resumed at once. Not yet shown:
+two PCs, and the HUD says nothing about Covenant in a zone.
+
 **Every place, PC 1, warm-up**: each of the 11 places' four squads placed by
 script, counted after 60 s, then erased. First pass: 10 places 4 of 4, and
 `koth_hill_0` 2 of 4 twice: two squads had spawned under a rock lying on the
@@ -228,8 +249,6 @@ Not yet done or shown:
   match on it has waves, at fixed times and the fixed cap.
 - **They arrive on foot**, from a ring about 10 wu outside the spot. The
   Spirit (below) is still to come, and will load the same squads.
-- **Covenant in a zone do not block a capture.** The contest is a separate
-  piece.
 - **No re-tasking.** A squad holds its spot for good; when a site falls
   nothing sends its squads on.
 - The wave times and the cap are constants, not host settings yet.

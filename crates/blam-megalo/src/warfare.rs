@@ -48,6 +48,12 @@ pub const CANDIDATE_STRIDE: i32 = 1024;
 /// marker's random draw.
 const CHOSEN: u8 = 2;
 const DRAW: u8 = 5;
+/// A site marker's object number 6: how many Covenant (AI) stand in its zone.
+/// The host's lobby DLL writes it (`warfare_contest` in
+/// native/lobby/warfare_runtime.h); these rules only read it. While it is
+/// above zero the site is contested: no capture progress and no payout. With
+/// no writer it stays 0 and the rules play as before.
+pub const COVENANT: u8 = 6;
 /// Capture progress is published in this many steps toward either team.
 pub const PROGRESS_STEPS: i16 = 16;
 
@@ -178,7 +184,7 @@ impl Variant {
                 global_numbers: 12,
                 global_number_priorities: [2, 2, 2, 2, 1, 0, 0, 2, 2, 2, 2, 2],
                 global_objects: 5,
-                object_numbers: 6,
+                object_numbers: 7,
                 player_numbers: 1,
                 ..Variables::default()
             },
@@ -404,6 +410,7 @@ impl Variant {
                 vec![
                     eq(hill_number(2 + side), constant(1)),
                     eq(hill_number(3 - side), constant(0)),
+                    eq(hill_number(COVENANT), constant(0)),
                     compare(
                         hill_number(1),
                         constant(direction * capture),
@@ -431,13 +438,15 @@ impl Variant {
                 ],
             );
             // Owned empty sites keep scoring. An enemy in the zone blocks
-            // payout immediately, including while ownership is being neutralized.
+            // payout immediately, including while ownership is being
+            // neutralized, and so do Covenant.
             let pay = b.sub(
                 TriggerKind::Do,
                 vec![
                     eq(number(SUBSECOND), constant(c.tick_rate as i16)),
                     eq(hill_number(0), constant(i16::from(side + 1))),
                     eq(hill_number(3 - side), constant(0)),
+                    eq(hill_number(COVENANT), constant(0)),
                     Item::Do(Action::ModifyScore {
                         target: ScoreTarget::Team(Team::Ref(side as i8)),
                         op: Op::Add,

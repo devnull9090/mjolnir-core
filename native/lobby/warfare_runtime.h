@@ -1,6 +1,8 @@
 /* Native PWR adapter. Included after the established simulation/TLS helpers.
  * Megalo globals are READ ONLY here: phase, score and capture authority stays
- * in the host's native Megalo interpreter and its existing replication.
+ * in the host's native Megalo interpreter and its existing replication. The
+ * one write is an input the rules read: each chosen site marker's object
+ * number 6, the Covenant in its zone (warfare_contest).
  * Only owning peers apply biped movement. The host drives named transports.
  * No filesystem, allocation or UObject reflection occurs on a steady tick. */
 #include "warfare_core.h"
@@ -56,6 +58,8 @@ static struct {
      * place (marker order) and how many wave squads the map gives it. */
     int wave_probed, wave_off, wave_place[WARFARE_SITES], wave_squads[WARFARE_SITES];
     int wave_last_seconds, wave_last_target, wave_count;
+    /* The Covenant count last written to each site marker (-1 none yet). */
+    int contest[WARFARE_SITES];
 } warfare;
 
 static int warfare_build(void) {
@@ -151,6 +155,88 @@ static int warfare_hs_value(const char *line, int *out) {
     if (!hs_evaluate(0, "mjolnir_warfare", line, 1, 0, &value, &type)) return 0;
     *out = value;
     return 1;
+}
+
+/* The Covenant contest (docs/pelican_warfare_waves.md section 4). Megalo
+ * cannot see AI, so the host counts them: living bipeds no player owns and
+ * nothing carries, inside each chosen site's boundary, written to the site
+ * marker's object number 6 (blam-megalo warfare.rs COVENANT), which the
+ * capture and payout rules read. Written every pass, zeros included, so no
+ * count outlives its AI; `active` 0 writes zeros (a stand-down). */
+#define WARFARE_MEGALO_OBJECTS 0x3a0
+#define WARFARE_MEGALO_OBJECT_SIZE 0x94
+#define WARFARE_COVENANT_NUMBER 6
+static unsigned char *warfare_megalo_object(unsigned char *tls, uint32_t handle) {
+    unsigned char *table = *(unsigned char **)(tls + WARFARE_MEGALO_OBJECTS);
+    unsigned count = table ? *(unsigned *)(table + 0x44) : 0;
+    if (count > 512) return NULL;
+    for (unsigned i = 0; i < count; i++) {
+        unsigned char *e = fd_slot(table, i, WARFARE_MEGALO_OBJECT_SIZE, 512);
+        if (e && *(uint32_t *)(e + 0x38) == handle) return e;
+    }
+    return NULL;
+}
+
+/* The body's damage section: sections sit past the unit's own fields (0xdf8
+ * to 0xe34 on PWR's Spartans, Elites, Grunts and Jackals), so the only
+ * bound is the object's own datum size. */
+static int warfare_unit_alive(const unsigned char *object, unsigned datum_size) {
+    uint16_t offset = *(const uint16_t *)(object + 0x176), size = *(const uint16_t *)(object + 0x174);
+    if (size < 0x18 || offset < 0x100 || (unsigned)offset + 0x18 > datum_size) return 0;
+    if (*(const uint16_t *)(object + offset + 0x0e) == 0xffff) return 0;
+    float body = *(const float *)(object + offset + 0x10);
+    return isfinite(body) && body > 0;
+}
+
+static void warfare_contest(unsigned char *tls, unsigned char *engine, const warfare_snapshot *s, int active) {
+    int counts[WARFARE_SITES] = {0};
+    float centre[WARFARE_SITES][3];
+    int have[WARFARE_SITES] = {0};
+    for (int site = 0; site < WARFARE_SITES; site++) {
+        uint32_t handle = *(uint32_t *)(engine + 0x1ec + 4 * (2 + site)); /* global object 2 + site: the chosen marker */
+        unsigned char *marker = fd_object(tls, handle);
+        if (!marker) continue;
+        memcpy(centre[site], marker + 0x44, sizeof centre[site]);
+        have[site] = 1;
+    }
+    if (active) {
+        const float r = 20.0f / WARFARE_METRES_PER_WU, up = 4.0f / WARFARE_METRES_PER_WU, down = 1.0f / WARFARE_METRES_PER_WU;
+        unsigned char *table = *(unsigned char **)(tls + 0x20);
+        unsigned count = table ? *(unsigned *)(table + 0x44) : 0;
+        if (count > 4096) count = 0;
+        for (unsigned i = 0; i < count; i++) {
+            unsigned char *entry = fd_slot(table, i, 0x18, 4096);
+            if (!entry || *(uint16_t *)(entry + 4) != 0 || *(uint16_t *)(entry + 6) < 0xa1c) continue;
+            uint32_t handle = (uint32_t)*(uint16_t *)entry << 16 | i;
+            unsigned char *object = fd_object(tls, handle);
+            if (!object || *(uint32_t *)(object + 0x14) != WARFARE_NONE
+                || !warfare_unit_alive(object, *(uint16_t *)(entry + 6))) continue;
+            int player = 0;
+            for (int j = 0; j < WARFARE_PLAYERS && !player; j++)
+                player = s->sample[j].valid && (s->sample[j].unit & 0xffff) == i;
+            if (player) continue;
+            const float *p = (const float *)(object + 0x44);
+            for (int site = 0; site < WARFARE_SITES; site++) {
+                if (!have[site]) continue;
+                float dx = p[0] - centre[site][0], dy = p[1] - centre[site][1], dz = p[2] - centre[site][2];
+                if (dx * dx + dy * dy <= r * r && dz <= up && dz >= -down) counts[site]++;
+            }
+        }
+    }
+    for (int site = 0; site < WARFARE_SITES; site++) {
+        if (!have[site]) continue;
+        uint32_t handle = *(uint32_t *)(engine + 0x1ec + 4 * (2 + site));
+        unsigned char *m = warfare_megalo_object(tls, handle);
+        /* The right element: number 4 is the packed state the rules publish
+         * to this site's slot. Anything else, and nothing is written. */
+        if (!m || *(int32_t *)(m + 0x50 + 4 * 4) != s->globals[9 + site]) continue;
+        *(int32_t *)(m + 0x50 + 4 * WARFARE_COVENANT_NUMBER) = counts[site];
+        if (counts[site] != warfare.contest[site]) {
+            if (warfare.contest[site] >= 0 || counts[site] > 0)
+                fireteam_log("warfare: contest: site %c has %d Covenant in its zone", 'A' + site, counts[site]);
+            warfare.contest[site] = counts[site];
+        }
+    }
 }
 
 /* A wave squad's name: wave_koth_hill_<place>_<k>. */
@@ -638,6 +724,7 @@ static void warfare_tick_inner(void) {
         warfare.clock_seconds = -1; warfare.clock_tick = 0; warfare.parked[0] = warfare.parked[1] = 0;
         warfare.wave_probed = warfare.wave_off = warfare.wave_count = 0;
         warfare.wave_last_seconds = -1; warfare.wave_last_target = -1;
+        for (int site = 0; site < WARFARE_SITES; site++) warfare.contest[site] = -1;
         warfare.map_ok = warfare_enabled ? warfare_map() : 0;
         memset(warfare.previous_valid, 0, sizeof warfare.previous_valid);
         memset(warfare.admitted, 0, sizeof warfare.admitted);
@@ -681,6 +768,11 @@ static void warfare_tick_inner(void) {
             warfare_snapshot stopping = s; stopping.globals[0] = 3; stopping.globals[1] = 0;
             warfare_sortie none[2]; memset(none, 0, sizeof none);
             warfare_flight(tls, &stopping, tick, none);
+        }
+        if (s.host) {
+            int written = 0;
+            for (int site = 0; site < WARFARE_SITES; site++) written |= warfare.contest[site] > 0;
+            if (written) warfare_contest(tls, engine, &s, 0);
         }
         s.status = warfare.disabled ? -4 : valid_mode ? 0 : -3;
         warfare_publish(&s); return;
@@ -742,6 +834,8 @@ static void warfare_tick_inner(void) {
     }
     warfare_tactical_tick(tls, &s);
     warfare_waves(&s);
+    if (s.host && !(tick % (rate / 10 ? rate / 10 : 1)))
+        warfare_contest(tls, engine, &s, s.globals[0] == 2 && !teams_installed);
     warfare.last_phase = s.globals[0]; warfare_publish(&s);
 }
 
