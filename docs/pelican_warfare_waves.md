@@ -207,16 +207,31 @@ at 45 s went to A, wave 2 at 135 s to B (onto the north pad's structure), wave
 at 315 s was skipped at the cap. Two of A's squads killed by script, wave 5 at
 405 s went to A and placed exactly those two. No crash in about eight minutes.
 
+**Every place, PC 1, warm-up**: each of the 11 places' four squads placed by
+script, counted after 60 s, then erased. First pass: 10 places 4 of 4, and
+`koth_hill_0` 2 of 4 twice: two squads had spawned under a rock lying on the
+terrain. With spawn points kept clear of overhead collision, all 44 squads
+reached their spot, including the two places beside the centre platform.
+
+**Two PCs** (PC 1 hosting, PC 3 joining, the branch's files and the bake on
+both, hashes checked; the real two-player game type): waves 1 to 3 at 45, 135
+and 225 s went to A, B and C, and all 12 Covenant held their spots on both
+PCs. PC 3's player, moved 12 wu from site A's wave, lost its shield and half
+its body within 4 s and died; so did the host's player, on the other team.
+Both came back on the reinforcement Pelican. No wave AI showed in either HUD;
+the scoreboard was not opened. The joiner again read different maxima for the
+AI (Grunts 120 against 40 and 65), with the same files on both PCs.
+
 Not yet done or shown:
 
+- **No off switch.** Once a map with wave squads is published, every Warfare
+  match on it has waves, at fixed times and the fixed cap.
 - **They arrive on foot**, from a ring about 10 wu outside the spot. The
   Spirit (below) is still to come, and will load the same squads.
 - **Covenant in a zone do not block a capture.** The contest is a separate
   piece.
 - **No re-tasking.** A squad holds its spot for good; when a site falls
   nothing sends its squads on.
-- **Two machines.** Not run with a joiner; the earlier two-PC run showed that
-  AI the host places replicate.
 - The wave times and the cap are constants, not host settings yet.
 
 The plan this started from:

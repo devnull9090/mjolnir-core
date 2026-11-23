@@ -536,10 +536,11 @@ The remaining steps, in order:
    joined through the hub list, with the same bake on both (hashes checked)
    and the same lobby (0.31.0). Results below.
 
-5. **Wave director: built (same day), solo only.** Waves on the combat
-   clock, targeting by live Covenant, the cap, and refilling a site after
-   deaths, all live on PC 1 ([pelican_warfare_waves.md](pelican_warfare_waves.md#4-covenant-waves)).
-   Still open: the Spirit, the contest, re-tasking on zone events, a joiner.
+5. **Wave director: built (same day).** Waves on the combat clock,
+   targeting by live Covenant, the cap, and refilling a site after deaths
+   live on PC 1; then on two PCs, where waves held all three sites and killed
+   a player of each team ([pelican_warfare_waves.md](pelican_warfare_waves.md#4-covenant-waves)).
+   Still open: the Spirit, the contest, re-tasking on zone events.
 
 ### Two PCs, 2026-11-22
 

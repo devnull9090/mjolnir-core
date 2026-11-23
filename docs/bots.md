@@ -379,7 +379,9 @@ positions to 64 from a 1 wu grid.
 `squads` single-actor squads named `wave_<place>_<k>` (for example
 `wave_koth_hill_4_0`), of the kinds `kinds` names in turn (entries of
 `bots.types`), standing on the main ground in a ring `distance` wu outside
-its boundary, spread round it and facing it. Their **first task is the
+its boundary, spread round it and facing it, where nothing else stands within
+2.5 wu above the ground (a rock lying on Pelican Warfare's terrain had two
+squads standing on it with no sector, or inside it, never moving). Their **first task is the
 place's**, baked in, so `ai_place` alone sends them: nothing has to follow
 with an order. Their team is the kind's, or `covenant`. A labelled object
 that is not held keeps its squads under `wave_unheld_<j>_<k>`, which no
