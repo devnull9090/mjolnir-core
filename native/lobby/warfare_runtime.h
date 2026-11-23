@@ -61,7 +61,7 @@ static struct {
     /* The Covenant count last written to each site marker (-1 none yet). */
     int contest[WARFARE_SITES];
     /* A Spirit per site bringing its wave (warfare_spirits). */
-    struct { int stage, place, site, candidate, leg, shown; float timer; float start[3]; int have_start; } spirit[WARFARE_SITES];
+    struct { int stage, place, site, candidate, leg, shown; float timer; float start[3], last[3]; int have_start; } spirit[WARFARE_SITES];
     /* Each team's reinforcement Pelican on the way in from out of sight. */
     int pelican_leg[2], pelican_shown[2];
     float pelican_hold[2][3];
@@ -305,7 +305,7 @@ static void warfare_spirits(unsigned char *tls, int rate) {
         if (warfare.spirit[site].stage == WARFARE_SPIRIT_NONE) continue;
         const warfare_path *path = warfare_spirit_path(site, warfare.spirit[site].candidate);
         warfare.spirit[site].timer += 0.1f;
-        unsigned char *object = warfare_spirit_object(tls, warfare.spirit[site].have_start ? warfare.spirit[site].start : NULL);
+        unsigned char *object = warfare_spirit_object(tls, warfare.spirit[site].have_start ? warfare.spirit[site].last : NULL);
         if (!path || !object) {
             if (warfare.spirit[site].timer > 3.0f) {
                 warfare_spirit_end(site, "lost");
@@ -315,6 +315,7 @@ static void warfare_spirits(unsigned char *tls, int rate) {
         float metres[3], v[3];
         for (int k = 0; k < 3; k++) metres[k] = ((const float *)(object + 0x44))[k] * WARFARE_METRES_PER_WU;
         if (!warfare.spirit[site].have_start) { memcpy(warfare.spirit[site].start, metres, sizeof metres); warfare.spirit[site].have_start = 1; }
+        memcpy(warfare.spirit[site].last, metres, sizeof metres);
         int place = warfare.spirit[site].place;
         char line[128];
         switch (warfare.spirit[site].stage) {
@@ -791,6 +792,9 @@ static void warfare_reinforcement_flights(unsigned char *tls, const warfare_snap
             const warfare_path *path = &warfare_pelican_paths[team];
             if (!warfare.pelican_hold_valid[team]) {
                 memcpy(warfare.pelican_hold[team], metres, sizeof metres); warfare.pelican_hold_valid[team] = 1;
+                /* Made at its flight start: a map that places it there (today's
+                 * published PWR) has no staging point, and plays as before. */
+                if (warfare_at_flight_start(team, metres)) warfare.pelican_leg[team] = path->count;
             }
             float need = warfare_path_seconds(path, warfare.pelican_hold[team], WARFARE_PELICAN_CLIMB_SPEED) + 3.0f;
             if (warfare_at_flight_start(team, metres) && warfare.pelican_leg[team] >= path->count) {
