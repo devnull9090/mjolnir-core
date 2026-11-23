@@ -87,7 +87,10 @@ which shipped levels use it, and whether PWR already does.
 
 The landscape textures are not baked into `M_PWRPilot`: the loader binds them at load from
 `landscape.pbr.surfaces` (`Land.pbr` in the level loader). So the first half of step 1 is
-level data, with no cook, and lives in PWR's look in `tools/level/build_landscape.py`:
+level data, with no cook. PWR builds carry the last release's `pwr.level.json` forward
+(`docs/pwr_map_0.1.2.md`, step 6), so the next pack runs
+`levels/warfare/pwr/visual_dressing/ground_surfaces.py` on it; PWR's look in
+`tools/level/build_landscape.py` holds the same values for a level generated from scratch:
 
 - **Meadow** (`GrassD/N/O`): A30's wild grass and weeds (`T_Wild_Grass_NSVT_D_A30`, its
   normal and ORHG) in place of a desaturated grass the tint painted green. Up close the flat
@@ -110,7 +113,10 @@ after in one session (`out/pwr-detail/before2`, `afterB`). Frame cost at 4K, GPU
 | 3 (lake shore) | 14.43 | 14.40 |
 | 8 (road) | 11.62 | 11.49 |
 
-Same texture sizes and sampler count, so no cost, as expected.
+Same sampler count and no measurable GPU cost; a little more texture memory (A30's grass
+is 2048 px where the old one was 1024). From the air (FlyCam at 480 m over the south
+meadow) the valley reads olive and khaki instead of lawn green, with no tiling carpet
+and no seam against the distant ring.
 
 Still to do for step 1, and these need the shader and a landscape cook: the beach band
 at lake shores (PWR has no sea, so the shader draws no shore band; it needs a shore mask),
