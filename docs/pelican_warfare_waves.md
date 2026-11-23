@@ -228,6 +228,61 @@ player still on the site. Wave 2 contested C the same way. With B's squads
 erased the count went back to 0 and the payout resumed at once. Not yet shown:
 two PCs, and the HUD says nothing about Covenant in a zone.
 
+**Spirits bring them** (2026-11-22, not released). The game's own Spirit
+(`objects\vehicles\covenant\tuning_fork\tuning_fork`, the one B40 flies)
+is placed once per capture spot, named `pwr_spirit_<place>`, not placed
+automatically.
+
+- **Routes** come from `levels/warfare/pwr/plan_transport_routes.py`. For each
+  spot it walks outward to the box's edge and takes the first point where a
+  transport 25 m over the ground is hidden from both homes and all 11 spots by
+  the ground between, else the point at the edge. The route in climbs to clear
+  the highest ground ahead by 60 m and comes down the upper hull of the ground
+  (so along the mountainside, not in a dive at the end), to a hover 8 m over
+  the spot. Written to `layout.json` `transport_routes_m`, into the native
+  layout header (`warfare_spirit_paths`, `warfare_pelican_paths`), and by
+  `prepare_runtime.py` into the map's placements.
+- **A wave** with a Spirit for its spot: the host creates it (hidden),
+  `ai_place`s the squads and `vehicle_load_magic`s them into `fork_p` seats,
+  shows the Spirit once it has climbed, flies the route by velocity ten times
+  a second (40 m/s, slowing into the hover), `unit_open`s and
+  `vehicle_unload`s over the spot, holds 8 s, and flies the route back,
+  hidden again from its climb point, and is destroyed. A map with no Spirit
+  for the spot still walks them in.
+- **Why not from behind the mountains:** the mountains are a render-only mesh
+  outside the 2 km box. An object can sit out there asleep (a Banshee moved
+  2.5 km out stayed and drew), but the simulation removes any awake object
+  beyond the BSP, whatever the scenario's world bounds say: a Spirit given a
+  velocity out there, or loaded with troops, vanished at once, also with
+  world bounds widened to 4 km. So transports start inside the box, low at
+  its edge, and are hidden (`object_hide`) until they have climbed. Measured
+  on PWR: 10 of the 11 spots and both Pelicans have no hidden point at the
+  edge and rely on the hiding.
+- **Found on the way:** an unpiloted Spirit falls through PWR's terrain once
+  awake, so it is never left without a velocity; unloading from 18 m up
+  killed the passengers, hence the 8 m hover.
+
+**Pelicans wait out of sight.** A reinforcement Pelican is made where the map
+places it, at its staging point low at the box's edge behind its base, and
+hidden. In the last seconds before its wave (as long as its route takes at 40
+m/s, plus 3 s) it climbs and flies to its flight start, is shown there, and
+leaves on the minute as before. The insertion's Pelicans are unchanged.
+Boarding counts a Pelican anywhere on that way in as parked, on every
+machine. A rider who jumps while it waits leaves through the usual verified
+exit and, being outside the play area, is sent home by their own machine.
+A map whose Pelicans are placed at their flight starts plays as before.
+
+Live, solo on PC 1, on a test bake with the routes: wave 1's Spirit started
+at the west edge 979 m out, climbed, crossed to site A, hovered, unloaded four
+squads (the contest counted 4 on A at once), flew back and was removed; wave
+2's did the same at B. Both Pelicans parked at their staging points with
+their Unreal actors hidden (`bHidden`), climbed to 550 m in the 15 s before
+each wave, reached their flight starts and flew the route on time.
+
+Not yet shown: two PCs (whether `object_hide` and the Spirit's flight look the
+same on a joiner), a rider jumping while the Pelican waits, and a look at it
+from the ground. The Spirit flies back out facing the spot, so backwards.
+
 **Every place, PC 1, warm-up**: each of the 11 places' four squads placed by
 script, counted after 60 s, then erased. First pass: 10 places 4 of 4, and
 `koth_hill_0` 2 of 4 twice: two squads had spawned under a rock lying on the
@@ -247,8 +302,6 @@ Not yet done or shown:
 
 - **No off switch.** Once a map with wave squads is published, every Warfare
   match on it has waves, at fixed times and the fixed cap.
-- **They arrive on foot**, from a ring about 10 wu outside the spot. The
-  Spirit (below) is still to come, and will load the same squads.
 - **No re-tasking.** A squad holds its spot for good; when a site falls
   nothing sends its squads on.
 - The wave times and the cap are constants, not host settings yet.
