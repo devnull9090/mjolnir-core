@@ -123,6 +123,45 @@ at lake shores (PWR has no sea, so the shader draws no shore band; it needs a sh
 and B40's snow-line surfaces between meadow and snow (`Rip*` holds the snow itself, and
 there is no slot for a band between them).
 
+### Step 2, first part: a shore band along every lake and river (2026-11-23)
+
+**What did not work.** Scattering the base game's rocky-beach patches and beach stones along
+the banks as decor: the patches are scanned half-discs made to blend into a landscape, and
+drew as hard-edged discs (`S_Nordic_Beach_Rocky_Ground_ukohbbi` drew black); 20 cm stones
+read as specks on banks tens of metres long. The collision scene is also full (1,199,995 of
+the pipeline's 1,200,000 surfaces), so anything a player could walk into has to reuse hull
+slots. The single stones draw correctly and stay candidates for that later round.
+
+**What shipped as a candidate.** The banks' surface itself:
+
+- `tools/level/shore_mask.py` bakes a mask from the map's own baked Fluid Flux water (any map
+  with `flux_state/`): signed metres from the water's edge, height above that water, and
+  coverage, 2048 px over `landscape.pbr.rect`.
+- `unreal/MJOLNIRMaterials/Scripts/apply_pwr_shore_band.py` binds it to `M_PWRPilot`'s valley
+  node (`PWRShoreData`, plus `LandRect` for its placement) and replaces the northern lake's
+  compiled-in shoreline (48 hand-entered spans) with the same beach drawn wherever the mask
+  has water: damp earth, gravel toward the water, darker and glossier at the wet line. A mask
+  with no coverage draws nothing.
+- GPU cost at 4K, shots 1, 3, 8: 12.88 / 14.27 / 11.65 ms against 13.03 / 14.40 / 11.49.
+
+**How it is built** (release 48 in the pelican-warfare Codex worktree):
+
+1. `python tools/level/shore_mask.py <map folder>/pwr.level.json T_PWRShoreData.png`.
+2. `.dream-loop/vegetation/round_shore.sh` (a copy of `round.sh` there, which is gitignored)
+   adds one step: with `SHORE=<mask png>` it runs `apply_pwr_shore_band.py` (apply, then
+   verify in a fresh editor) right after the round restores `M_PWRPilot`, **before** the grass
+   step, and declares `M_PWRPilot` and `T_PWRShoreData` as allowed landscape changes. The
+   order matters: the landscape grass maps bake from the material, and an edit after them
+   left most of the meadow tufts missing (round 47).
+3. Same command as 0.1.2's round with `SHORE=` added and version 48.
+4. **The world bake (997) has to be redone from the new round's `LPE.umap`.** The landscape
+   draws through a `LandscapeMaterialInstanceConstant` stored in the world, with the shaders
+   of the material it was cooked against: a new 965 under the old 997 draws the old ground.
+   0.1.2's bake command with `--world` the new round's `packaging/LPE.umap`.
+
+Next for step 2: the bank shapes themselves (long smooth slopes no texture fixes), and
+logs, driftwood and boulders in recycled collision slots.
+
 Each step is its own dressing round through the existing pipeline (the vegetation round
 for landscape and baked plants, the outcrop and decor passes for meshes with hulls,
 level data for effects, lights and sound), sealed as a numbered build and compared with
