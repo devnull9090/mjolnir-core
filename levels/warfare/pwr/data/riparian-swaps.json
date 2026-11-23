@@ -1,0 +1,1357 @@
+{
+ "schema": "pwr-riparian-swaps-v1",
+ "seed": 47,
+ "swaps": [
+  {
+   "old": "pcg_v4_shore_13036",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 34,
+   "bank_m": 5.25,
+   "new": {
+    "id": "pwr_riparian_swap_log_0",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     2334.8,
+     31289.3,
+     8995.3
+    ],
+    "rot": [
+     -5.74,
+     67.71,
+     0.0
+    ],
+    "scale": [
+     0.875,
+     0.875,
+     0.875
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_898",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+   "slots": 78,
+   "budget": 33,
+   "faces": 32,
+   "bank_m": 6.78,
+   "new": {
+    "id": "pwr_riparian_swap_log_1",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     16729.0,
+     93601.0,
+     5553.1
+    ],
+    "rot": [
+     0.62,
+     -182.64,
+     0.0
+    ],
+    "scale": [
+     1.063,
+     1.063,
+     1.063
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_2327",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 28,
+   "bank_m": 6.39,
+   "new": {
+    "id": "pwr_riparian_swap_log_2",
+    "mesh": "/Game/Megascans/3D_Assets/Fallen_Tree_Log_xiclaj1r/S_Fallen_Tree_Log_xiclaj1r_lod0_Var1.S_Fallen_Tree_Log_xiclaj1r_lod0_Var1",
+    "pos": [
+     73729.4,
+     86620.4,
+     5537.6
+    ],
+    "rot": [
+     -0.98,
+     84.75,
+     0.0
+    ],
+    "scale": [
+     1.609,
+     1.609,
+     1.609
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_12243",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 34,
+   "bank_m": 3.94,
+   "new": {
+    "id": "pwr_riparian_swap_log_3",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     -6727.7,
+     35304.8,
+     8885.2
+    ],
+    "rot": [
+     -5.87,
+     152.33,
+     0.0
+    ],
+    "scale": [
+     0.96,
+     0.96,
+     0.96
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_20869",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 34,
+   "bank_m": 7.58,
+   "new": {
+    "id": "pwr_riparian_swap_log_4",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     -4275.7,
+     -8638.7,
+     9485.3
+    ],
+    "rot": [
+     3.93,
+     46.62,
+     0.0
+    ],
+    "scale": [
+     0.838,
+     0.838,
+     0.838
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pwr_scree_0019",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 62,
+   "bank_m": 8.4,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_5",
+    "mesh": "/Game/Environments/PNW/Assets/Mossy_Boulder_A/SM_Mossy_Boulder_A.SM_Mossy_Boulder_A",
+    "pos": [
+     39682.5,
+     53174.6,
+     6015.3
+    ],
+    "rot": [
+     0.0,
+     208.0,
+     0.0
+    ],
+    "scale": [
+     0.688,
+     0.688,
+     0.688
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_2845",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+   "slots": 78,
+   "budget": 33,
+   "faces": 62,
+   "bank_m": 3.08,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_6",
+    "mesh": "/Game/Environments/PNW/Assets/Mossy_Boulder_A/SM_Mossy_Boulder_A.SM_Mossy_Boulder_A",
+    "pos": [
+     3561.4,
+     83462.8,
+     5499.6
+    ],
+    "rot": [
+     0.0,
+     221.08,
+     0.0
+    ],
+    "scale": [
+     0.601,
+     0.601,
+     0.601
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_27914",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 68,
+   "bank_m": 6.65,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_7",
+    "mesh": "/Game/Megascans/3D_Assets/Tundra_Boulder_vivrcjkaw/S_Tundra_Boulder_vivrcjkaw_high_Var1.S_Tundra_Boulder_vivrcjkaw_high_Var1",
+    "pos": [
+     -15446.2,
+     -44437.3,
+     10636.6
+    ],
+    "rot": [
+     0.0,
+     198.71,
+     0.0
+    ],
+    "scale": [
+     1.044,
+     1.044,
+     1.044
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_34177",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 30,
+   "bank_m": 8.08,
+   "new": {
+    "id": "pwr_riparian_swap_log_8",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     -24716.2,
+     -76684.9,
+     13988.3
+    ],
+    "rot": [
+     -3.13,
+     70.02,
+     0.0
+    ],
+    "scale": [
+     1.056,
+     1.056,
+     1.056
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_744",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+   "slots": 78,
+   "budget": 33,
+   "faces": 32,
+   "bank_m": 4.41,
+   "new": {
+    "id": "pwr_riparian_swap_log_9",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     58628.3,
+     94725.1,
+     5512.4
+    ],
+    "rot": [
+     -2.26,
+     -160.99,
+     0.0
+    ],
+    "scale": [
+     0.952,
+     0.952,
+     0.952
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_2262",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+   "slots": 78,
+   "budget": 33,
+   "faces": 62,
+   "bank_m": 3.38,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_10",
+    "mesh": "/Game/Environments/PNW/Assets/Mossy_Boulder_A/SM_Mossy_Boulder_A.SM_Mossy_Boulder_A",
+    "pos": [
+     8609.9,
+     86716.6,
+     5511.1
+    ],
+    "rot": [
+     0.0,
+     29.75,
+     0.0
+    ],
+    "scale": [
+     0.693,
+     0.693,
+     0.693
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pwr_scree_0071",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 62,
+   "bank_m": 7.66,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_11",
+    "mesh": "/Game/Megascans/3D_Assets/Tundra_Boulder_vivrcjkaw/S_Tundra_Boulder_vivrcjkaw_high_Var1.S_Tundra_Boulder_vivrcjkaw_high_Var1",
+    "pos": [
+     53174.6,
+     47817.5,
+     5596.7
+    ],
+    "rot": [
+     0.0,
+     238.01,
+     0.0
+    ],
+    "scale": [
+     0.986,
+     0.986,
+     0.986
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_11480",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+   "slots": 78,
+   "budget": 33,
+   "faces": 32,
+   "bank_m": 3.03,
+   "new": {
+    "id": "pwr_riparian_swap_log_12",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     14553.1,
+     39719.1,
+     8649.8
+    ],
+    "rot": [
+     4.45,
+     27.14,
+     0.0
+    ],
+    "scale": [
+     1.053,
+     1.053,
+     1.053
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_21648",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 30,
+   "bank_m": 3.5,
+   "new": {
+    "id": "pwr_riparian_swap_log_13",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     -9383.1,
+     -12655.9,
+     9456.4
+    ],
+    "rot": [
+     0.8,
+     -99.01,
+     0.0
+    ],
+    "scale": [
+     1.085,
+     1.085,
+     1.085
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pwr_v6_riparian_6200041",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 62,
+   "bank_m": 2.96,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_14",
+    "mesh": "/Game/Environments/PNW/Assets/Mossy_Boulder_A/SM_Mossy_Boulder_A.SM_Mossy_Boulder_A",
+    "pos": [
+     -41800.0,
+     -96100.0,
+     14310.0
+    ],
+    "rot": [
+     0.0,
+     183.06,
+     0.0
+    ],
+    "scale": [
+     0.607,
+     0.607,
+     0.607
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_709",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 30,
+   "bank_m": 7.16,
+   "new": {
+    "id": "pwr_riparian_swap_log_15",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     23271.7,
+     94321.3,
+     5544.2
+    ],
+    "rot": [
+     -1.12,
+     -164.78,
+     0.0
+    ],
+    "scale": [
+     1.036,
+     1.036,
+     1.036
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_7422",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 62,
+   "bank_m": 6.77,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_16",
+    "mesh": "/Game/Environments/PNW/Assets/Mossy_Boulder_A/SM_Mossy_Boulder_A.SM_Mossy_Boulder_A",
+    "pos": [
+     72553.9,
+     60284.1,
+     5518.3
+    ],
+    "rot": [
+     0.0,
+     73.88,
+     0.0
+    ],
+    "scale": [
+     0.642,
+     0.642,
+     0.642
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_11652",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+   "slots": 78,
+   "budget": 33,
+   "faces": 46,
+   "bank_m": 6.56,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_17",
+    "mesh": "/Game/Environments/PNW/Assets/Nordic_Beach_Rocks_A/SM_Nordic_Beach_Rocks_A.SM_Nordic_Beach_Rocks_A",
+    "pos": [
+     -9427.9,
+     38471.8,
+     8894.2
+    ],
+    "rot": [
+     0.0,
+     110.08,
+     0.0
+    ],
+    "scale": [
+     0.524,
+     0.524,
+     0.524
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_15387",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+   "slots": 78,
+   "budget": 33,
+   "faces": 32,
+   "bank_m": 5.32,
+   "new": {
+    "id": "pwr_riparian_swap_log_18",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     1346.5,
+     19414.0,
+     9108.9
+    ],
+    "rot": [
+     -0.9,
+     107.46,
+     0.0
+    ],
+    "scale": [
+     0.802,
+     0.802,
+     0.802
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_10664",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 42,
+   "bank_m": 8.5,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_19",
+    "mesh": "/Game/Environments/PNW/Assets/Nordic_Beach_Rocks_A/SM_Nordic_Beach_Rocks_A.SM_Nordic_Beach_Rocks_A",
+    "pos": [
+     -17352.8,
+     43588.1,
+     8830.4
+    ],
+    "rot": [
+     0.0,
+     45.15,
+     0.0
+    ],
+    "scale": [
+     0.496,
+     0.496,
+     0.496
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pwr_scree_0007",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 34,
+   "bank_m": 8.61,
+   "new": {
+    "id": "pwr_riparian_swap_log_20",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     70039.7,
+     54563.5,
+     7832.8
+    ],
+    "rot": [
+     9.58,
+     42.24,
+     0.0
+    ],
+    "scale": [
+     0.809,
+     0.809,
+     0.809
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_4091",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 68,
+   "bank_m": 1.12,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_21",
+    "mesh": "/Game/Megascans/3D_Assets/Tundra_Boulder_vivrcjkaw/S_Tundra_Boulder_vivrcjkaw_high_Var1.S_Tundra_Boulder_vivrcjkaw_high_Var1",
+    "pos": [
+     73300.4,
+     77718.9,
+     5493.1
+    ],
+    "rot": [
+     0.0,
+     131.48,
+     0.0
+    ],
+    "scale": [
+     0.861,
+     0.861,
+     0.861
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_14990",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 62,
+   "bank_m": 8.24,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_22",
+    "mesh": "/Game/Megascans/3D_Assets/Tundra_Boulder_vivrcjkaw/S_Tundra_Boulder_vivrcjkaw_high_Var1.S_Tundra_Boulder_vivrcjkaw_high_Var1",
+    "pos": [
+     -3316.5,
+     21498.1,
+     9211.5
+    ],
+    "rot": [
+     0.0,
+     36.99,
+     0.0
+    ],
+    "scale": [
+     0.962,
+     0.962,
+     0.962
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_4787",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 30,
+   "bank_m": 4.85,
+   "new": {
+    "id": "pwr_riparian_swap_log_23",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     -14582.2,
+     73488.4,
+     6924.2
+    ],
+    "rot": [
+     7.72,
+     -160.72,
+     0.0
+    ],
+    "scale": [
+     0.883,
+     0.883,
+     0.883
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_6354",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 62,
+   "bank_m": 4.52,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_24",
+    "mesh": "/Game/Megascans/3D_Assets/Tundra_Boulder_vivrcjkaw/S_Tundra_Boulder_vivrcjkaw_high_Var1.S_Tundra_Boulder_vivrcjkaw_high_Var1",
+    "pos": [
+     -15533.0,
+     65501.7,
+     7764.4
+    ],
+    "rot": [
+     0.0,
+     24.87,
+     0.0
+    ],
+    "scale": [
+     0.821,
+     0.821,
+     0.821
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_33390",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 32,
+   "bank_m": 6.0,
+   "new": {
+    "id": "pwr_riparian_swap_log_25",
+    "mesh": "/Game/Megascans/3D_Assets/Fallen_Tree_Log_xiclaj1r/S_Fallen_Tree_Log_xiclaj1r_lod0_Var1.S_Fallen_Tree_Log_xiclaj1r_lod0_Var1",
+    "pos": [
+     -27693.7,
+     -72421.5,
+     13849.2
+    ],
+    "rot": [
+     4.71,
+     -119.87,
+     0.0
+    ],
+    "scale": [
+     1.425,
+     1.425,
+     1.425
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_26936",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 42,
+   "bank_m": 7.13,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_26",
+    "mesh": "/Game/Environments/PNW/Assets/Nordic_Beach_Rocks_A/SM_Nordic_Beach_Rocks_A.SM_Nordic_Beach_Rocks_A",
+    "pos": [
+     -13306.1,
+     -39675.4,
+     10449.8
+    ],
+    "rot": [
+     0.0,
+     254.49,
+     0.0
+    ],
+    "scale": [
+     0.466,
+     0.466,
+     0.466
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_9487",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 30,
+   "bank_m": 8.95,
+   "new": {
+    "id": "pwr_riparian_swap_log_27",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     -18698.6,
+     49275.9,
+     8781.8
+    ],
+    "rot": [
+     1.19,
+     -117.95,
+     0.0
+    ],
+    "scale": [
+     0.969,
+     0.969,
+     0.969
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pwr_v6_riparian_6200029",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 32,
+   "bank_m": 8.3,
+   "new": {
+    "id": "pwr_riparian_swap_log_28",
+    "mesh": "/Game/Megascans/3D_Assets/Fallen_Tree_Log_xiclaj1r/S_Fallen_Tree_Log_xiclaj1r_lod0_Var1.S_Fallen_Tree_Log_xiclaj1r_lod0_Var1",
+    "pos": [
+     -1409.1,
+     -311.0,
+     9385.2
+    ],
+    "rot": [
+     8.17,
+     56.72,
+     0.0
+    ],
+    "scale": [
+     1.722,
+     1.722,
+     1.722
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_19496",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 46,
+   "bank_m": 2.88,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_29",
+    "mesh": "/Game/Environments/PNW/Assets/Nordic_Beach_Rocks_A/SM_Nordic_Beach_Rocks_A.SM_Nordic_Beach_Rocks_A",
+    "pos": [
+     -5696.9,
+     -1625.0,
+     9271.2
+    ],
+    "rot": [
+     0.0,
+     193.12,
+     0.0
+    ],
+    "scale": [
+     0.673,
+     0.673,
+     0.673
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_4403",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+   "slots": 78,
+   "budget": 33,
+   "faces": 32,
+   "bank_m": 6.49,
+   "new": {
+    "id": "pwr_riparian_swap_log_30",
+    "mesh": "/Game/Megascans/3D_Assets/Fallen_Tree_Log_xiclaj1r/S_Fallen_Tree_Log_xiclaj1r_lod0_Var1.S_Fallen_Tree_Log_xiclaj1r_lod0_Var1",
+    "pos": [
+     -6679.1,
+     75507.2,
+     6169.3
+    ],
+    "rot": [
+     -4.39,
+     12.6,
+     0.0
+    ],
+    "scale": [
+     1.538,
+     1.538,
+     1.538
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_5001",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 62,
+   "bank_m": 1.4,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_31",
+    "mesh": "/Game/Environments/PNW/Assets/Mossy_Boulder_A/SM_Mossy_Boulder_A.SM_Mossy_Boulder_A",
+    "pos": [
+     3487.8,
+     72273.7,
+     5494.8
+    ],
+    "rot": [
+     0.0,
+     148.13,
+     0.0
+    ],
+    "scale": [
+     0.554,
+     0.554,
+     0.554
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_1343",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+   "slots": 78,
+   "budget": 33,
+   "faces": 32,
+   "bank_m": 1.4,
+   "new": {
+    "id": "pwr_riparian_swap_log_32",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     69295.4,
+     91729.1,
+     5483.0
+    ],
+    "rot": [
+     -1.08,
+     144.6,
+     0.0
+    ],
+    "scale": [
+     0.86,
+     0.86,
+     0.86
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_11061",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 68,
+   "bank_m": 7.86,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_33",
+    "mesh": "/Game/Megascans/3D_Assets/Tundra_Boulder_vivrcjkaw/S_Tundra_Boulder_vivrcjkaw_high_Var1.S_Tundra_Boulder_vivrcjkaw_high_Var1",
+    "pos": [
+     -12336.2,
+     41659.7,
+     8865.0
+    ],
+    "rot": [
+     0.0,
+     0.91,
+     0.0
+    ],
+    "scale": [
+     0.903,
+     0.903,
+     0.903
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_9157",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+   "slots": 78,
+   "budget": 33,
+   "faces": 62,
+   "bank_m": 1.85,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_34",
+    "mesh": "/Game/Environments/PNW/Assets/Mossy_Boulder_A/SM_Mossy_Boulder_A.SM_Mossy_Boulder_A",
+    "pos": [
+     43476.9,
+     51477.8,
+     5508.6
+    ],
+    "rot": [
+     0.0,
+     104.63,
+     0.0
+    ],
+    "scale": [
+     0.492,
+     0.492,
+     0.492
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_31239",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+   "slots": 78,
+   "budget": 33,
+   "faces": 32,
+   "bank_m": 6.67,
+   "new": {
+    "id": "pwr_riparian_swap_log_35",
+    "mesh": "/Game/Megascans/3D_Assets/Fallen_Tree_Log_xiclaj1r/S_Fallen_Tree_Log_xiclaj1r_lod0_Var1.S_Fallen_Tree_Log_xiclaj1r_lod0_Var1",
+    "pos": [
+     -22718.2,
+     -61488.2,
+     13344.1
+    ],
+    "rot": [
+     -4.67,
+     112.84,
+     0.0
+    ],
+    "scale": [
+     1.543,
+     1.543,
+     1.543
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_15776",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 42,
+   "bank_m": 2.92,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_36",
+    "mesh": "/Game/Environments/PNW/Assets/Nordic_Beach_Rocks_A/SM_Nordic_Beach_Rocks_A.SM_Nordic_Beach_Rocks_A",
+    "pos": [
+     -1704.8,
+     17595.5,
+     9086.5
+    ],
+    "rot": [
+     0.0,
+     89.49,
+     0.0
+    ],
+    "scale": [
+     0.658,
+     0.658,
+     0.658
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_25175",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 68,
+   "bank_m": 3.74,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_37",
+    "mesh": "/Game/Megascans/3D_Assets/Tundra_Boulder_vivrcjkaw/S_Tundra_Boulder_vivrcjkaw_high_Var1.S_Tundra_Boulder_vivrcjkaw_high_Var1",
+    "pos": [
+     -10644.9,
+     -30598.0,
+     9920.4
+    ],
+    "rot": [
+     0.0,
+     206.81,
+     0.0
+    ],
+    "scale": [
+     1.004,
+     1.004,
+     1.004
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_9368",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 62,
+   "bank_m": 5.89,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_38",
+    "mesh": "/Game/Environments/PNW/Assets/Mossy_Boulder_A/SM_Mossy_Boulder_A.SM_Mossy_Boulder_A",
+    "pos": [
+     58351.5,
+     50592.3,
+     5525.8
+    ],
+    "rot": [
+     0.0,
+     155.4,
+     0.0
+    ],
+    "scale": [
+     0.641,
+     0.641,
+     0.641
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_1482",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 30,
+   "bank_m": 1.29,
+   "new": {
+    "id": "pwr_riparian_swap_log_39",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     12729.5,
+     90522.4,
+     5482.5
+    ],
+    "rot": [
+     -1.16,
+     -132.3,
+     0.0
+    ],
+    "scale": [
+     0.832,
+     0.832,
+     0.832
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pwr_v6_riparian_6200197",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 68,
+   "bank_m": 2.38,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_40",
+    "mesh": "/Game/Megascans/3D_Assets/Tundra_Boulder_vivrcjkaw/S_Tundra_Boulder_vivrcjkaw_high_Var1.S_Tundra_Boulder_vivrcjkaw_high_Var1",
+    "pos": [
+     -42300.0,
+     -86400.0,
+     14251.5
+    ],
+    "rot": [
+     0.0,
+     31.14,
+     0.0
+    ],
+    "scale": [
+     0.804,
+     0.804,
+     0.804
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_947",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 30,
+   "bank_m": 3.12,
+   "new": {
+    "id": "pwr_riparian_swap_log_41",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     65420.8,
+     93531.5,
+     5500.4
+    ],
+    "rot": [
+     -1.0,
+     176.3,
+     0.0
+    ],
+    "scale": [
+     1.016,
+     1.016,
+     1.016
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_29472",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_C/SM_Rock_Glacial_Med_C.SM_Rock_Glacial_Med_C",
+   "slots": 70,
+   "budget": 29,
+   "faces": 30,
+   "bank_m": 6.82,
+   "new": {
+    "id": "pwr_riparian_swap_log_42",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     -25413.4,
+     -52395.8,
+     12922.8
+    ],
+    "rot": [
+     8.12,
+     -105.08,
+     0.0
+    ],
+    "scale": [
+     0.895,
+     0.895,
+     0.895
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_28104",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 46,
+   "bank_m": 3.88,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_43",
+    "mesh": "/Game/Environments/PNW/Assets/Nordic_Beach_Rocks_A/SM_Nordic_Beach_Rocks_A.SM_Nordic_Beach_Rocks_A",
+    "pos": [
+     -21312.8,
+     -45730.0,
+     10968.3
+    ],
+    "rot": [
+     0.0,
+     75.23,
+     0.0
+    ],
+    "scale": [
+     0.521,
+     0.521,
+     0.521
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_9133",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+   "slots": 78,
+   "budget": 33,
+   "faces": 66,
+   "bank_m": 6.88,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_44",
+    "mesh": "/Game/Megascans/3D_Assets/Tundra_Boulder_vivrcjkaw/S_Tundra_Boulder_vivrcjkaw_high_Var1.S_Tundra_Boulder_vivrcjkaw_high_Var1",
+    "pos": [
+     19292.2,
+     51612.7,
+     8211.9
+    ],
+    "rot": [
+     0.0,
+     256.39,
+     0.0
+    ],
+    "scale": [
+     1.153,
+     1.153,
+     1.153
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_35934",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 46,
+   "bank_m": 8.41,
+   "new": {
+    "id": "pwr_riparian_swap_boulder_45",
+    "mesh": "/Game/Environments/PNW/Assets/Nordic_Beach_Rocks_A/SM_Nordic_Beach_Rocks_A.SM_Nordic_Beach_Rocks_A",
+    "pos": [
+     -32900.0,
+     -81500.0,
+     14430.9
+    ],
+    "rot": [
+     0.0,
+     125.51,
+     0.0
+    ],
+    "scale": [
+     0.492,
+     0.492,
+     0.492
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_32806",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_B/SM_Rock_Glacial_Med_B.SM_Rock_Glacial_Med_B",
+   "slots": 80,
+   "budget": 34,
+   "faces": 32,
+   "bank_m": 4.77,
+   "new": {
+    "id": "pwr_riparian_swap_log_46",
+    "mesh": "/Game/Megascans/3D_Assets/Fallen_Tree_Log_xiclaj1r/S_Fallen_Tree_Log_xiclaj1r_lod0_Var1.S_Fallen_Tree_Log_xiclaj1r_lod0_Var1",
+    "pos": [
+     -23696.9,
+     -69502.0,
+     13627.1
+    ],
+    "rot": [
+     1.92,
+     59.53,
+     0.0
+    ],
+    "scale": [
+     1.759,
+     1.759,
+     1.759
+    ],
+    "static": true
+   }
+  },
+  {
+   "old": "pcg_v4_shore_20865",
+   "old_mesh": "/Game/Env/Bio/Rock/Glacial/Rock_Glacial_Med_A/SM_Rock_Glacial_Med_A.SM_Rock_Glacial_Med_A",
+   "slots": 78,
+   "budget": 33,
+   "faces": 32,
+   "bank_m": 8.68,
+   "new": {
+    "id": "pwr_riparian_swap_log_47",
+    "mesh": "/Game/Megascans/3D_Assets/Large_Fallen_Tree_wd3hfidbw/S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1.S_Large_Fallen_Tree_wd3hfidbw_lod0_Var1",
+    "pos": [
+     -8729.7,
+     -8512.6,
+     9532.9
+    ],
+    "rot": [
+     -4.24,
+     -90.31,
+     0.0
+    ],
+    "scale": [
+     0.875,
+     0.875,
+     0.875
+    ],
+    "static": true
+   }
+  }
+ ],
+ "skipped": {
+  "spacing": 24,
+  "deck": 0,
+  "ground": 0,
+  "road": 0
+ },
+ "candidates": 133
+}

@@ -164,6 +164,32 @@ A plain `round.sh` restores the old `M_PWRPilot` and silently drops the band; on
 bridge decks (the road atlas, offline), no outline from the air, release 48 differs from 46
 only in 965 and 997.
 
+**Gravel (no cook).** The band's stones, road shoulders and riverbed all read the `SandBD/N`
+slot. Seven base-game surfaces were tried in it on PC 1 (bank close-ups, the braid, shots 5, 8
+and 9). `Shoreline_Beach_Rocks_ullmagidy` is the one where cobbles read on the bank; road
+shoulders become a stony verge, the track and the bases are unchanged. It is in
+`ground_surfaces.py` and PWR's look in `build_landscape.py`.
+
+**Driftwood and boulders, in recycled collision slots.**
+`levels/warfare/pwr/visual_dressing/riparian_swaps.py` swaps 48 of the 133 shore rocks
+(Glacial Med/Lrg rows within 9 m of the water, 35 m apart, clear of roads and decks) for
+24 driftwood logs (A30's large fallen tree, the 5.5 m fallen log at 1.4-1.8x; the smaller
+log scans read as twigs) and 24 boulders (mossy boulder, Nordic beach rocks, tundra
+boulder). Logs lie along the shore, pitched to the ground under both ends. Each new piece's
+convex hull is capped to the rock's own triangle count (`budget = (slots + 4) / 2 - 8`) and
+written into the rock's triangles; spare triangles sink 30 m. 2,154 triangles written,
+1,490 sunk, the scene's size unchanged. The plan is `levels/warfare/pwr/data/riparian-swaps.json`.
+
+    riparian_swaps.py plan  <level> <shore mask> <terrain> visual-v6/scenery/hulls <new hulls> plan.json
+    riparian_swaps.py level <level> plan.json <out level>
+    riparian_swaps.py collide <0.1.2 physics> <level> plan.json visual-v6/scenery/hulls <new hulls> <out>
+    mjolnir level collision <out>/collision_scene.json ... --out pwr.sbsp   (as cook_riparian_toe.py)
+    mjolnir level bake ... --bsp 8=<that pwr.sbsp> --world <round 48 LPE.umap>
+
+Checked on PC 1 by dropping the player on log root ends 4-4.6 m from where the old rocks
+stood: it came to rest 0.58 and 0.64 m above the ground, on the logs, against bare ground
+3 m away (28.64 wu, heightfield 28.65).
+
 Next for step 2: the bank shapes themselves (long smooth slopes no texture fixes), and
 logs, driftwood and boulders in recycled collision slots.
 
