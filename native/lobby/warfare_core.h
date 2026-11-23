@@ -528,9 +528,32 @@ static int warfare_wave_due(int last_seconds, int combat_seconds) {
     return warfare_wave_index(combat_seconds) > warfare_wave_index(last_seconds < 0 ? -1 : last_seconds);
 }
 
+/* A site's published value (slots 9-11; blam-megalo warfare.rs SiteState):
+ * owner in the low two bits (0 neutral, 1 red, 2 blue, 3 Covenant), the
+ * chosen candidate in steps of 1024, and WARFARE_SITE_COVENANT_PRESENT above
+ * those while Covenant stand in the zone. Decode here, never `/ 1024`. */
+#define WARFARE_OWNER_COVENANT 3
+#define WARFARE_SITE_CANDIDATE_STRIDE 1024
+#define WARFARE_SITE_COVENANT_PRESENT 8192
+static int warfare_site_owner(int packed) {
+    return packed > 0 ? (packed % WARFARE_SITE_CANDIDATE_STRIDE) & 3 : 0;
+}
+static int warfare_site_candidate(int packed) {
+    return packed > 0 ? (packed % WARFARE_SITE_COVENANT_PRESENT) / WARFARE_SITE_CANDIDATE_STRIDE : 0;
+}
+static int warfare_site_covenant_present(int packed) {
+    return packed >= WARFARE_SITE_COVENANT_PRESENT;
+}
+
+/* Who a wave would rather press: a team's site, then a neutral one, then
+ * one the Covenant already hold. */
+static int warfare_wave_rank(int owner) {
+    return owner == 1 || owner == 2 ? 2 : owner == WARFARE_OWNER_COVENANT ? 0 : 1;
+}
+
 /* The site a wave goes to: of those with a squad free, the one with the
- * fewest Covenant alive; on a tie the one a team owns (owner 1 red, 2 blue)
- * before a neutral one, so the waves press whoever holds ground; then the
+ * fewest Covenant alive; on a tie the higher warfare_wave_rank, so the waves
+ * press whoever holds ground and reinforce their own sites last; then the
  * one after the last target, so equal sites take turns. -1: none. */
 static int warfare_wave_target(const int live[WARFARE_SITES], const int free_squads[WARFARE_SITES],
                                const int owner[WARFARE_SITES], int last_target) {
@@ -539,7 +562,7 @@ static int warfare_wave_target(const int live[WARFARE_SITES], const int free_squ
         int site = ((last_target < 0 ? -1 : last_target) + n + WARFARE_SITES) % WARFARE_SITES;
         if (free_squads[site] <= 0) continue;
         if (best < 0 || live[site] < live[best]
-            || (live[site] == live[best] && owner[site] != 0 && owner[best] == 0))
+            || (live[site] == live[best] && warfare_wave_rank(owner[site]) > warfare_wave_rank(owner[best])))
             best = site;
     }
     return best;

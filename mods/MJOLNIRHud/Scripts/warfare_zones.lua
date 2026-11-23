@@ -20,8 +20,10 @@ local LINE = { R = 0.24, G = 0.49, B = 0.63 }
 local GOLD = { R = 1, G = 0.80, B = 0.35 }
 local GREY = { R = 0.46, G = 0.61, B = 0.70 }
 local WHITE = { R = 0.88, G = 0.95, B = 1 }
-local TEAM = { [1] = RED, [2] = BLUE }
-local NAME = { [1] = "RED", [2] = "BLUE" }
+local PURPLE = { R = 0.72, G = 0.36, B = 1 }
+-- Owner 3: the Covenant hold the zone (warfare.rs OWNER_COVENANT).
+local TEAM = { [1] = RED, [2] = BLUE, [3] = PURPLE }
+local NAME = { [1] = "RED", [2] = "BLUE", [3] = "COVENANT" }
 
 local function rgba(c, a) return { R = c.R, G = c.G, B = c.B, A = a } end
 local function mix(a, b, t)
@@ -33,19 +35,27 @@ end
 function Zones.look(site, here, steps)
     steps = steps or 16
     local owner, red, blue, progress = site.owner, site.red, site.blue, site.progress
-    local lead = (progress or 0) > 0 and 1 or (progress or 0) < 0 and 2 or 0
+    local covenant, taken = site.covenant, site.covenantProgress or 0
+    local lead = taken > 0 and 3 or (progress or 0) > 0 and 1 or (progress or 0) < 0 and 2 or 0
     local present = red and not blue and 1 or blue and not red and 2 or 0
     local look = {
         rim = owner > 0 and TEAM[owner] or LINE, rimAlpha = owner > 0 and 0.95 or 0.55,
         tint = owner > 0 and TEAM[owner] or LINE, tintAlpha = owner > 0 and 0.22 or 0,
         letter = owner > 0 and TEAM[owner] or WHITE,
         state = owner > 0 and NAME[owner] or "NEUTRAL", stateColor = owner > 0 and TEAM[owner] or GREY,
-        fill = progress and math.abs(progress) / steps or (owner > 0 and 1 or 0),
+        fill = taken > 0 and taken / steps or progress and math.abs(progress) / steps or (owner > 0 and 1 or 0),
         ink = lead > 0 and TEAM[lead] or (owner > 0 and TEAM[owner] or LINE),
-        red = red, blue = blue, contested = red and blue,
+        red = red, blue = blue, contested = (red and blue) or (covenant and (red or blue)) or false,
     }
-    if red and blue then
+    if look.contested then
         look.state, look.stateColor = "CONTESTED", WHITE
+    elseif covenant then
+        -- Covenant alone: they drain a team's hold, then take it.
+        if owner == 3 then look.state = "COVENANT"
+        elseif owner == 0 then look.state = "OVERRUN" else look.state = "UNDER ATTACK" end
+        look.stateColor = PURPLE
+    elseif present > 0 and owner == 3 or present > 0 and taken > 0 then
+        look.state, look.stateColor = "CLEARING", TEAM[present]
     elseif present > 0 and owner ~= present then
         -- The team in the zone first neutralises the other's hold, then takes it.
         if owner == 0 then look.state = "CAPTURING" else look.state = "NEUTRALIZING" end

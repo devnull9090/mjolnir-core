@@ -95,7 +95,7 @@ static void wmap_build(const wmap_input *in,wmap_lookup lookup,void *context,wma
         || in->vehicle_count<0 || in->vehicle_count>WMAP_VEHICLES) return;
     out->instance=in->instance;out->sampled_ms=in->sampled_ms;out->tick=in->tick;out->phase=in->phase;
     if (in->score[0]<0 || in->score[1]<0 || in->score[0]>32767 || in->score[1]>32767) return;
-    for (int i=0;i<3;i++) if (in->owners[i]<0 || in->owners[i]>2) return;
+    for (int i=0;i<3;i++) if (in->owners[i]<0 || in->owners[i]>3) return; /* 3: the Covenant */
     out->score[0]=in->score[0];out->score[1]=in->score[1];
     /* Only the primary local viewpoint is exported. Death retains its team;
      * missing/unassigned local players never fall back to a remote viewpoint. */

@@ -130,6 +130,7 @@ local ROW_YOU = { R = 1.0, G = 0.85, B = 0.35, A = 0.18 }
 local TEAM_COLORS = {
     Red = { R = 1, G = 0.32, B = 0.28, A = 1 },
     Blue = { R = 0.3, G = 0.65, B = 1, A = 1 },
+    Covenant = { R = 0.72, G = 0.36, B = 1, A = 1 },
     Unassigned = { R = 0.5, G = 0.66, B = 0.74, A = 1 },
 }
 -- The feed's colours (Scripts/feed.lua): names, the words of an event line,
@@ -2247,19 +2248,26 @@ do
     WarfareSites.frame = tiles.frame
     function WarfareSites.changed(i, owner, previous, site)
         local letter = string.char(64 + i)
-        local function side(team) return team == 1 and "Red" or team == 2 and "Blue" or nil end
+        local function side(team) return team == 1 and "Red" or team == 2 and "Blue" or team == 3 and "Covenant" or nil end
         local taker, loser = side(owner), side(previous)
-        if taker then
+        if taker == "Covenant" then
+            local color = TEAM_COLORS.Covenant
+            feedPush({ glyph = "Flag", glyphColor = color, lead = "The Covenant", leadColor = color,
+                tail = "took zone " .. letter, tailColor = FEED.words, accent = color })
+        elseif taker then
             local color = TEAM_COLORS[taker]
             feedPush({ glyph = "Flag", glyphColor = color, lead = taker .. " team", leadColor = color,
                 tail = "captured zone " .. letter, tailColor = FEED.words, accent = color })
         elseif loser then
             -- Back to neutral: the team standing in it took the other's hold away.
             local by = site and (site.red and not site.blue and "Red" or site.blue and not site.red and "Blue") or nil
-            local color = TEAM_COLORS[by or loser]
+            -- With no team in it, Covenant standing there drained it.
+            local drained = not by and loser ~= "Covenant" and site and site.covenant
+            local color = drained and TEAM_COLORS.Covenant or TEAM_COLORS[by or loser]
+            local tail = by and ((loser == "Covenant" and "cleared zone " or "neutralized zone ") .. letter)
+                or (drained and "was neutralized by the Covenant" or "is neutral again")
             feedPush({ glyph = "Flag", glyphColor = TEAM_COLORS[loser], lead = by and (by .. " team") or ("Zone " .. letter),
-                leadColor = color, tail = by and ("neutralized zone " .. letter) or "is neutral again",
-                tailColor = FEED.words, accent = color })
+                leadColor = color, tail = tail, tailColor = FEED.words, accent = color })
         end
         Log("warfare: zone " .. letter .. " " .. tostring(loser or "neutral") .. " -> " .. tostring(taker or "neutral"))
     end

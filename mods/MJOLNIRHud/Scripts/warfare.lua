@@ -3,14 +3,19 @@
 -- There are no world scans, gameplay writes, or inferred objective scores.
 local Warfare = {}
 local EVERY, FLIGHT_EVERY, STALE = 0.5, 0.1, 2
-local OWNER = { [0] = "NEUTRAL", [1] = "RED", [2] = "BLUE" }
-local COLOUR = { [0] = "empty", [1] = "Red", [2] = "Blue" }
+local OWNER = { [0] = "NEUTRAL", [1] = "RED", [2] = "BLUE", [3] = "COVENANT" }
+local COLOUR = { [0] = "empty", [1] = "Red", [2] = "Blue", [3] = "Covenant" }
 
 -- Megalo publishes each site as one packed number (blam-megalo warfare.rs
--- SiteState): owner in the low two bits, who stands in it in the next two,
--- and its capture progress in steps of PROGRESS_STEPS toward Red (+) or Blue
--- (-) above. Below 16 there is no progress (an older variant): owner only.
+-- SiteState): owner in the low two bits (3: the Covenant hold it), who stands
+-- in it in the next two, and its capture progress in steps of PROGRESS_STEPS
+-- toward Red (+) or Blue (-) above, or from COVENANT_STEP_BASE up the
+-- Covenant's progress. Below 16 there is no progress (an older variant):
+-- owner only. COVENANT_PRESENT on top: Covenant stand in the zone.
 Warfare.PROGRESS_STEPS = 16
+Warfare.OWNER_COVENANT = 3
+Warfare.COVENANT_PRESENT = 8192
+local COVENANT_STEP_BASE = 2 * Warfare.PROGRESS_STEPS + 2
 -- Megalo rules revision in slot 2 (warfare.rs MAGIC). The map's own layout
 -- protocol (20569) is checked by the loader, not here.
 Warfare.RULES = 20570
@@ -28,11 +33,15 @@ end
 -- Moving zones add CANDIDATE_STRIDE * the site's chosen candidate on top.
 Warfare.CANDIDATE_STRIDE = 1024
 function Warfare.site(value)
+    local covenant = value >= Warfare.COVENANT_PRESENT
+    value = value % Warfare.COVENANT_PRESENT
     local candidate = math.floor(value / Warfare.CANDIDATE_STRIDE)
     value = value % Warfare.CANDIDATE_STRIDE
     local k = math.floor(value / 16)
+    local taking = k >= COVENANT_STEP_BASE
     return { owner = value % 4, red = math.floor(value / 4) % 2 == 1, blue = math.floor(value / 8) % 2 == 1,
-        progress = k > 0 and (k - Warfare.PROGRESS_STEPS - 1) or nil, candidate = candidate }
+        progress = taking and 0 or (k > 0 and (k - Warfare.PROGRESS_STEPS - 1) or nil), candidate = candidate,
+        covenant = covenant, covenantProgress = taking and (k - COVENANT_STEP_BASE) or 0 }
 end
 
 --- Each site's extra spots from the level's `warfare.capture_candidates`
@@ -91,7 +100,7 @@ function Warfare.parse(text)
             if #words ~= count then return nil end
             local values = {}
             for i, word in ipairs(words) do
-                values[i] = integer(word, key == "globals" and -32768 or 0, key == "owner" and 2 or 32767)
+                values[i] = integer(word, key == "globals" and -32768 or 0, key == "owner" and 3 or 32767)
                 if values[i] == nil then return nil end
             end
             s[key] = values
@@ -159,7 +168,8 @@ function Warfare.parse(text)
     s.sites = {}
     for i = 1, 3 do
         local site = Warfare.site(math.max(0, s.globals[9 + i]))
-        if site.owner ~= s.owner[i] or (site.progress and math.abs(site.progress) > Warfare.PROGRESS_STEPS) then return nil end
+        if site.owner ~= s.owner[i] or (site.progress and math.abs(site.progress) > Warfare.PROGRESS_STEPS)
+            or site.covenantProgress > Warfare.PROGRESS_STEPS then return nil end
         s.sites[i] = site
     end
     return s

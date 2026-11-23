@@ -226,7 +226,44 @@ point a second. Wave 1 went to B; as its four squads walked in the count went
 from 1 to 4, and red's score stopped at 27 for the next two minutes with the
 player still on the site. Wave 2 contested C the same way. With B's squads
 erased the count went back to 0 and the payout resumed at once. Not yet shown:
-two PCs, and the HUD says nothing about Covenant in a zone.
+two PCs.
+
+**The Covenant take zones** (2026-11-22, not released). The same count now
+captures as well as contests. Owner 3 (`OWNER_COVENANT`) is a site the
+Covenant hold, and a marker's object number 7 (`COVENANT_PROGRESS`) is their
+capture progress, so variants declare 8 object numbers. Per tick, on each
+chosen site:
+
+- **Covenant alone** (count above 0, no player): a team's progress drains
+  toward 0 at one a tick, the teams' own rate, and the site goes neutral as
+  usual. Only on a neutral site does number 7 then fill, one a tick; at the
+  Covenant capture time (`covenant_capture_seconds`, default 20 s, CLI
+  `--covenant-capture-seconds`) the owner becomes 3. So an undefended team
+  site falls in the team capture time (8 s) plus 20 s.
+- **A Covenant site pays nobody**, and stays theirs when they are all killed.
+- **Players alone** on it drain number 7 back to 0 first (owner back to 0 as
+  soon as it drops below full), then capture as on any neutral site.
+- **Covenant and players together**: nothing moves, nobody is paid.
+- Numbers 1 and 7 are never both non-zero (a `warfare_behavior.rs` case),
+  and with no writer every published value is the old packing, tick for tick
+  (another).
+
+The published slot carries it for every machine. Owner 3 sits in the low two
+bits. While number 7 is above 0, the progress field holds
+`COVENANT_STEP_BASE` (34) plus its steps, past the teams' 1 to 33. `COVENANT_PRESENT`
+(8192) is added while Covenant stand in the zone. That is above the candidate
+bits, so the candidate is `(value % 8192) / 1024`: `warfare_site_candidate`
+in `warfare_core.h`, `SiteState` in Rust and `Warfare.site` in the HUD decode
+the same vectors in their tests. The director's tie-break presses a team's
+site, then a neutral one, then a Covenant one. The tactical map draws a
+Covenant site as unowned.
+
+On the HUD a Covenant site is purple, and its tile reads COVENANT. Covenant
+alone on a team site read UNDER ATTACK, and on a neutral one OVERRUN, with
+their progress in purple. Players alone on a Covenant site read CLEARING;
+Covenant with players read CONTESTED. The capture feed says "The Covenant
+took zone B", "Zone A was neutralized by the Covenant", and "Red team cleared
+zone B".
 
 **Spirits bring them** (2026-11-22, not released). The game's own Spirit
 (`objects\vehicles\covenant\tuning_fork\tuning_fork`, the one B40 flies)

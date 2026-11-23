@@ -121,6 +121,10 @@ pub struct WriteArgs {
     /// Warfare: seconds to capture a neutral site (twice this to take an enemy site).
     #[arg(long, default_value_t = 8)]
     pub capture_seconds: u16,
+    /// Warfare: seconds for Covenant AI alone in a zone to take it from neutral
+    /// (a team's zone drains to neutral first, at the capture rate).
+    #[arg(long, default_value_t = 20)]
+    pub covenant_capture_seconds: u16,
     /// Warfare: let living vehicle occupants capture and contest sites.
     #[arg(long)]
     pub allow_mounted_capture: bool,
@@ -351,6 +355,7 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                     warmup_seconds: w.warmup_seconds,
                     insertion_seconds: w.insertion_seconds,
                     capture_seconds: w.capture_seconds,
+                    covenant_capture_seconds: w.covenant_capture_seconds,
                     allow_mounted_capture: w.allow_mounted_capture,
                     match_minutes: w.warfare_minutes,
                 })

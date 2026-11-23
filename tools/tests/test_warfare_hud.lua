@@ -139,7 +139,7 @@ do
     local s = assert(Warfare.parse(text))
     eq(s.sites[2].progress, 8); eq(s.sites[2].red, true); eq(s.sites[1].owner, 1)
     eq(Warfare.parse(withSites(400, packed(2, false, false, 16), 0, 2, "1 0 2")), nil, "packed owner must mirror owner line")
-    eq(Warfare.parse(withSites(400, 1 + 16 * 40, 0, 2, "1 0 2")), nil, "progress beyond the steps")
+    eq(Warfare.parse(withSites(400, 1 + 16 * 55, 0, 2, "1 0 2")), nil, "progress beyond the steps")
     -- A site changing hands between two accepted samples is one feed event.
     sites = {}
     raw = withSites(430, packed(1, false, false, 16), packed(0, true, false, 8), packed(2, false, false, -16), "1 0 2"); tick(20)
@@ -159,6 +159,21 @@ do
     eq(Zones.look(Warfare.site(packed(2, false, false, -16))).fill, 1)
     eq(Zones.look(Warfare.site(packed(0, true, false, 4))).fill, 0.25)
     eq(Zones.look(Warfare.site(packed(0, false, false, 0)), true).rim.R, 1, "gold rim where the local player stands")
+    -- The Covenant (owner 3; the same vectors as warfare.rs and test_warfare.c).
+    local held = Warfare.site(3 + 16 * (34 + 16) + 2 * 1024 + 8192)
+    eq(held.owner, 3); eq(held.candidate, 2); eq(held.covenant, true); eq(held.covenantProgress, 16); eq(held.progress, 0)
+    local taking = Warfare.site(16 * (34 + 3))
+    eq(taking.owner, 0); eq(taking.covenant, false); eq(taking.covenantProgress, 3)
+    eq(Zones.look(held).state, "COVENANT"); eq(Zones.look(held).fill, 1)
+    eq(Zones.look(Warfare.site(16 * (34 + 4) + 8192)).state, "OVERRUN")
+    eq(Zones.look(Warfare.site(16 * (34 + 4) + 8192)).fill, 0.25)
+    eq(Zones.look(Warfare.site(packed(1, false, false, 8) + 8192)).state, "UNDER ATTACK")
+    eq(Zones.look(Warfare.site(packed(1, true, false, 16) + 8192)).state, "CONTESTED", "red and the Covenant both in it")
+    eq(Zones.look(Warfare.site(3 + 16 * (34 + 10) + 4)).state, "CLEARING", "red alone on a Covenant site")
+    -- A snapshot with a Covenant site parses, and the owner line may say 3.
+    local cov = assert(Warfare.parse(withSites(550, packed(1, false, false, 16), 3 + 16 * 50 + 8192, packed(2, false, false, -16), "1 3 2")))
+    eq(cov.sites[2].owner, 3); eq(cov.sites[2].covenant, true)
+    eq(Warfare.parse(withSites(550, packed(1, false, false, 16), 16 * 60, 2, "1 0 2")), nil, "Covenant progress beyond the steps")
     hud.snapshot, hud.next, hud.seenOwners = nil, 0, nil   -- the poll test below starts its own clock
 end
 print("Warfare HUD: strict parser, freshness/instance/map guards, authoritative totals, capture fields and insertion hints passed")

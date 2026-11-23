@@ -392,7 +392,7 @@ static void warfare_waves(const warfare_snapshot *s) {
         int any = 0;
         for (int site = 0; site < WARFARE_SITES; site++) {
             int packed = s->globals[9 + site];
-            int candidate = packed > 0 ? packed / 1024 : 0; /* SiteState.candidate */
+            int candidate = warfare_site_candidate(packed);
             warfare.wave_place[site] = site + 3 * candidate;
             int k = 0;
             while (k < WARFARE_WAVE_SQUADS && warfare_wave_living(warfare.wave_place[site], k) >= 0) k++;
@@ -416,7 +416,7 @@ static void warfare_waves(const warfare_snapshot *s) {
     int live[WARFARE_SITES] = {0}, free_squads[WARFARE_SITES] = {0}, owner[WARFARE_SITES], total = 0;
     int living[WARFARE_SITES][WARFARE_WAVE_SQUADS];
     for (int site = 0; site < WARFARE_SITES; site++) {
-        owner[site] = s->globals[9 + site] > 0 ? (s->globals[9 + site] % 1024) & 3 : 0;
+        owner[site] = warfare_site_owner(s->globals[9 + site]);
         for (int k = 0; k < warfare.wave_squads[site]; k++) {
             int n = warfare_wave_living(warfare.wave_place[site], k);
             living[site][k] = n;

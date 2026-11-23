@@ -64,8 +64,8 @@ static void warfare_tactical_collect(unsigned char *tls,const warfare_snapshot *
     input.instance=s->instance;input.sampled_ms=s->sampled_ms;input.tick=s->tick;input.phase=s->globals[0];
     input.score[0]=s->globals[7];input.score[1]=s->globals[8];
     for (int i=0;i<3;i++) {
-        input.owners[i]=s->globals[9+i]&3; /* low bits: owner (SiteState) */
-        input.candidates[i]=s->globals[9+i]>0 ? s->globals[9+i]/1024 : 0; /* SiteState.candidate */
+        input.owners[i]=warfare_site_owner(s->globals[9+i]); /* 3: the Covenant */
+        input.candidates[i]=warfare_site_candidate(s->globals[9+i]);
     }
     input.known_carriers[0]=s->host ? warfare.carrier[0] : WMAP_NONE;
     input.known_carriers[1]=s->host ? warfare.carrier[1] : WMAP_NONE;

@@ -94,6 +94,7 @@ local COLOURS = {
     contested = { para = { 0.95, 0.4, 1 }, perp = { 0.6, 0.1, 1 } }, -- violet
     Red = { para = { 1, 0.3, 0.25 }, perp = { 1, 0.08, 0.05 } },
     Blue = { para = { 0.35, 0.6, 1 }, perp = { 0.1, 0.3, 1 } },
+    Covenant = { para = { 0.72, 0.32, 1 }, perp = { 0.45, 0.05, 0.85 } }, -- Pelican Warfare: held by the Covenant
 }
 
 --- The hills in a level file's text, in rotation order; or another list of

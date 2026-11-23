@@ -370,7 +370,8 @@ fn published_site_state_carries_owner_presence_and_stepped_progress() {
     w.globals[PHASE as usize] = 2;
     w.ticks(1, &v);
     let empty = SiteState::decode(w.globals[FIRST_OWNER as usize]);
-    assert_eq!(empty, SiteState { candidate: 0, owner: 0, red_present: false, blue_present: false, progress: Some(0) });
+    assert_eq!(empty, SiteState { candidate: 0, owner: 0, red_present: false, blue_present: false, progress: Some(0),
+                                  covenant_present: false, covenant_progress: 0 });
     // Red alone: progress climbs in steps toward red; full at capture.
     w.at[0] = Some(0);
     w.ticks(20, &v);
@@ -545,4 +546,123 @@ fn covenant_in_a_zone_contest_it_and_without_them_capture_runs_as_before() {
     w.at[1] = Some(1);
     w.ticks(60, &v);
     assert_eq!(SiteState::decode(w.globals[FIRST_OWNER as usize + 1]).progress, Some(0));
+}
+
+fn covenant_variant() -> Variant {
+    Variant::warfare(Warfare {
+        tick_rate: 10,
+        capture_seconds: 4,
+        covenant_capture_seconds: 6,
+        ..Warfare::default()
+    })
+    .unwrap()
+}
+
+fn site(w: &World, i: usize) -> SiteState {
+    SiteState::decode(w.globals[FIRST_OWNER as usize + i])
+}
+
+#[test]
+fn covenant_alone_drain_a_team_site_take_it_and_it_pays_nobody() {
+    let v = covenant_variant();
+    let mut w = World::new();
+    w.globals[PHASE as usize] = 2;
+    w.at[0] = Some(0);
+    w.ticks(41, &v);
+    assert_eq!(site(&w, 0).owner, 1, "red holds A");
+    w.at[0] = None;
+    // A wave lands on the empty red site: red's 40 ticks drain to neutral first.
+    w.points[0][COVENANT as usize] = 3;
+    w.ticks(20, &v);
+    let draining = site(&w, 0);
+    assert!(draining.covenant_present && draining.owner == 1, "{draining:?}");
+    assert_eq!(draining.progress, Some(PROGRESS_STEPS as i32 / 2));
+    w.ticks(21, &v);
+    let neutral = site(&w, 0);
+    assert_eq!(neutral.owner, 0, "drained to neutral: {neutral:?}");
+    // Then 60 ticks of their own; numbers 1 and 7 never both run.
+    let score = w.score;
+    for _ in 0..61 {
+        w.ticks(1, &v);
+        assert!(w.points[0][1] == 0 || w.points[0][COVENANT_PROGRESS as usize] == 0, "{:?}", w.points[0]);
+    }
+    let held = site(&w, 0);
+    assert_eq!((held.owner, held.covenant_progress), (OWNER_COVENANT, PROGRESS_STEPS as i32), "{held:?}");
+    w.ticks(30, &v);
+    assert_eq!(w.score, score, "a Covenant site pays nobody");
+    // They are killed: the site stays theirs, and still pays nobody.
+    w.points[0][COVENANT as usize] = 0;
+    w.ticks(30, &v);
+    let empty = site(&w, 0);
+    assert!(!empty.covenant_present && empty.owner == OWNER_COVENANT, "{empty:?}");
+    assert_eq!(w.score, score);
+    // Blue clears it: 60 ticks back to neutral, then 40 to blue.
+    w.at[1] = Some(0);
+    w.ticks(10, &v);
+    assert_eq!(site(&w, 0).owner, 0, "losing progress releases the site");
+    w.ticks(50, &v);
+    let cleared = site(&w, 0);
+    assert_eq!((cleared.owner, cleared.covenant_progress, cleared.progress), (0, 0, Some(0)), "{cleared:?}");
+    w.ticks(41, &v);
+    assert_eq!(site(&w, 0).owner, 2, "blue takes it after clearing");
+    w.ticks(20, &v);
+    assert!(w.score[1] > score[1], "and it pays blue");
+}
+
+#[test]
+fn covenant_and_players_together_freeze_a_covenant_site() {
+    let v = covenant_variant();
+    let mut w = World::new();
+    w.globals[PHASE as usize] = 2;
+    w.points[1][COVENANT as usize] = 2;
+    w.ticks(61, &v);
+    assert_eq!(site(&w, 1).owner, OWNER_COVENANT);
+    w.at[0] = Some(1);
+    w.ticks(40, &v);
+    let frozen = site(&w, 1);
+    assert_eq!((frozen.owner, frozen.covenant_progress), (OWNER_COVENANT, PROGRESS_STEPS as i32), "{frozen:?}");
+    assert!(frozen.red_present && frozen.covenant_present);
+    // A Covenant half-way through a neutral site, then gone: red pushes it back first.
+    let mut w = World::new();
+    w.globals[PHASE as usize] = 2;
+    w.points[2][COVENANT as usize] = 1;
+    w.ticks(30, &v);
+    w.points[2][COVENANT as usize] = 0;
+    w.at[0] = Some(2);
+    w.ticks(29, &v);
+    assert!(w.points[2][COVENANT_PROGRESS as usize] > 0 && w.points[2][1] == 0, "{:?}", w.points[2]);
+    w.ticks(2, &v);
+    w.ticks(41, &v);
+    assert_eq!(site(&w, 2).owner, 1);
+}
+
+#[test]
+fn without_covenant_every_published_value_is_the_old_packing() {
+    let v = covenant_variant();
+    let mut w = World::new();
+    w.globals[PHASE as usize] = 2;
+    let steps = |p: i32| -> i32 {
+        // The pre-Covenant formula: steps of the teams' progress toward red (+) or blue (-).
+        let capture = 40;
+        (1..=PROGRESS_STEPS as i32)
+            .filter(|s| {
+                let t = ((s * capture + PROGRESS_STEPS as i32 - 1) / PROGRESS_STEPS as i32).max(1);
+                p >= t || p <= -t
+            })
+            .count() as i32
+            * p.signum()
+    };
+    let script: [(Option<usize>, Option<usize>, usize); 5] =
+        [(Some(0), None, 45), (Some(0), Some(0), 10), (None, Some(0), 90), (None, None, 20), (Some(1), Some(2), 50)];
+    for (red, blue, n) in script {
+        w.at = [red, blue];
+        for _ in 0..n {
+            w.ticks(1, &v);
+            for i in 0..3 {
+                let p = w.points[i];
+                let old = p[0] + 4 * (p[2] + 2 * p[3]) + 16 * (steps(p[1]) + PROGRESS_STEPS as i32 + 1);
+                assert_eq!(w.globals[FIRST_OWNER as usize + i], old, "site {i} {p:?}");
+            }
+        }
+    }
 }

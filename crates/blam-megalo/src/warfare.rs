@@ -54,16 +54,30 @@ const DRAW: u8 = 5;
 /// above zero the site is contested: no capture progress and no payout. With
 /// no writer it stays 0 and the rules play as before.
 pub const COVENANT: u8 = 6;
+/// A site marker's object number 7: the Covenant's capture progress, 0 up to
+/// the Covenant capture time in ticks. Covenant alone in a zone first drain a
+/// team's progress (number 1) to neutral, then fill this; at full the site's
+/// owner is `OWNER_COVENANT`. Players alone in it drain this back to 0 before
+/// their own progress moves. Numbers 1 and 7 are never both non-zero.
+pub const COVENANT_PROGRESS: u8 = 7;
+/// Owner value of a site the Covenant hold. It pays nobody.
+pub const OWNER_COVENANT: i32 = 3;
+/// Added to a site's published value while Covenant stand in its zone. Above
+/// the candidate bits: decode with `SiteState`, never `value / CANDIDATE_STRIDE`.
+pub const COVENANT_PRESENT: i32 = 8192;
 /// Capture progress is published in this many steps toward either team.
 pub const PROGRESS_STEPS: i16 = 16;
+/// Published progress field values from here up are the Covenant's progress.
+const COVENANT_STEP_BASE: i32 = 2 * PROGRESS_STEPS as i32 + 2;
 
 /// A site's public slot (FIRST_OWNER + site) packs its whole state for the HUD:
-/// `owner + 4 * (red_present + 2 * blue_present) + 16 * (progress + PROGRESS_STEPS + 1)
-/// + CANDIDATE_STRIDE * candidate`,
-/// owner 0 neutral / 1 red / 2 blue, progress in steps of PROGRESS_STEPS toward red
-/// (positive) or blue (negative). Coarse steps keep the replicated value from changing
-/// every tick. A value below 16 carries no progress (an older variant, or before combat):
-/// the owner is still its low two bits.
+/// `owner + 4 * (red_present + 2 * blue_present) + 16 * k
+/// + CANDIDATE_STRIDE * candidate + COVENANT_PRESENT * covenant_present`,
+/// owner 0 neutral / 1 red / 2 blue / 3 Covenant. `k` is `progress + PROGRESS_STEPS + 1`
+/// for the teams' progress in steps toward red (positive) or blue (negative), or
+/// `COVENANT_STEP_BASE + steps` while the Covenant's progress is above zero. Coarse steps
+/// keep the replicated value from changing every tick. A value below 16 carries no
+/// progress (an older variant, or before combat): the owner is still its low two bits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SiteState {
     /// Which of the site's candidate markers this match uses (0 on a map with one).
@@ -72,19 +86,28 @@ pub struct SiteState {
     pub red_present: bool,
     pub blue_present: bool,
     pub progress: Option<i32>,
+    /// Covenant stand in the zone.
+    pub covenant_present: bool,
+    /// The Covenant's progress in steps of PROGRESS_STEPS (0 when the teams' progress is in use).
+    pub covenant_progress: i32,
 }
 
 impl SiteState {
     pub fn decode(value: i32) -> Self {
+        let covenant_present = value >= COVENANT_PRESENT;
+        let value = value % COVENANT_PRESENT;
         let candidate = value / CANDIDATE_STRIDE;
         let value = value % CANDIDATE_STRIDE;
         let k = value >> 4;
+        let covenant = k >= COVENANT_STEP_BASE;
         Self {
             candidate,
             owner: value & 3,
             red_present: value & 4 != 0,
             blue_present: value & 8 != 0,
-            progress: (k > 0).then(|| k - i32::from(PROGRESS_STEPS) - 1),
+            progress: if covenant { Some(0) } else { (k > 0).then(|| k - i32::from(PROGRESS_STEPS) - 1) },
+            covenant_present,
+            covenant_progress: if covenant { k - COVENANT_STEP_BASE } else { 0 },
         }
     }
 }
@@ -97,6 +120,9 @@ pub struct Warfare {
     pub warmup_seconds: u16,
     pub insertion_seconds: u16,
     pub capture_seconds: u16,
+    /// Seconds for Covenant alone to take a neutral site (a team's site drains
+    /// to neutral first, at the teams' rate).
+    pub covenant_capture_seconds: u16,
     pub allow_mounted_capture: bool,
     pub match_minutes: u8,
 }
@@ -110,6 +136,7 @@ impl Default for Warfare {
             warmup_seconds: 30,
             insertion_seconds: 60,
             capture_seconds: 8,
+            covenant_capture_seconds: 20,
             allow_mounted_capture: false,
             match_minutes: 20,
         }
@@ -153,6 +180,7 @@ impl Variant {
             || c.tick_rate > 1000
             || !(1..=16).contains(&c.minimum_players)
             || c.capture_seconds == 0
+            || c.covenant_capture_seconds == 0
             || c.insertion_seconds == 0
             || c.score_to_win == 0
             || c.score_to_win > 30000
@@ -170,6 +198,7 @@ impl Variant {
         let warmup = c.warmup_seconds as i16;
         let insertion = ticks(c.insertion_seconds)?;
         let capture = ticks(c.capture_seconds)?;
+        let covenant_capture = ticks(c.covenant_capture_seconds)?;
         let mut b = Builder::new(Variant {
             teams: true,
             rounds: 31,
@@ -184,7 +213,7 @@ impl Variant {
                 global_numbers: 12,
                 global_number_priorities: [2, 2, 2, 2, 1, 0, 0, 2, 2, 2, 2, 2],
                 global_objects: 5,
-                object_numbers: 7,
+                object_numbers: 8,
                 player_numbers: 1,
                 ..Variables::default()
             },
@@ -411,6 +440,7 @@ impl Variant {
                     eq(hill_number(2 + side), constant(1)),
                     eq(hill_number(3 - side), constant(0)),
                     eq(hill_number(COVENANT), constant(0)),
+                    eq(hill_number(COVENANT_PROGRESS), constant(0)),
                     compare(
                         hill_number(1),
                         constant(direction * capture),
@@ -423,10 +453,25 @@ impl Variant {
                     modify(hill_number(1), direction, Op::Add),
                 ],
             );
+            // Players alone on a site the Covenant hold, or are taking, push
+            // the Covenant's progress back to nothing before their own moves.
+            let clear = b.sub(
+                TriggerKind::Do,
+                vec![
+                    eq(hill_number(2 + side), constant(1)),
+                    eq(hill_number(3 - side), constant(0)),
+                    eq(hill_number(COVENANT), constant(0)),
+                    compare(hill_number(COVENANT_PROGRESS), constant(0), Compare::Greater),
+                    modify(hill_number(COVENANT_PROGRESS), 1, Op::Subtract),
+                ],
+            );
+            // Neither side's progress: neutral. Not while the Covenant's runs,
+            // or a Covenant site would be released every tick.
             let neutralize = b.sub(
                 TriggerKind::Do,
                 vec![
                     eq(hill_number(1), constant(0)),
+                    eq(hill_number(COVENANT_PROGRESS), constant(0)),
                     set(hill_number(0), constant(0)),
                 ],
             );
@@ -454,8 +499,51 @@ impl Variant {
                     }),
                 ],
             );
-            update.extend([call(advance), call(neutralize), call(captured), call(pay)]);
+            update.extend([call(clear), call(advance), call(neutralize), call(captured), call(pay)]);
         }
+        // The Covenant alone in a zone (number 6 above zero, no player): a
+        // team's progress drains toward neutral at the teams' rate, then the
+        // Covenant's own progress fills; full, they own it. A Covenant site
+        // pays nobody (pay above wants owner 1 or 2).
+        let covenant_alone = || {
+            vec![
+                compare(hill_number(COVENANT), constant(0), Compare::Greater),
+                eq(hill_number(2), constant(0)),
+                eq(hill_number(3), constant(0)),
+            ]
+        };
+        for (comparison, op) in [(Compare::Greater, Op::Subtract), (Compare::Less, Op::Add)] {
+            let mut drain = covenant_alone();
+            drain.extend([compare(hill_number(1), constant(0), comparison), modify(hill_number(1), 1, op)]);
+            let drain = b.sub(TriggerKind::Do, drain);
+            update.push(call(drain));
+        }
+        let mut take = covenant_alone();
+        // Only once the site is neutral: a drained team site is released by
+        // `neutralize` first (the next tick), or it would stay theirs.
+        take.extend([
+            eq(hill_number(0), constant(0)),
+            eq(hill_number(1), constant(0)),
+            compare(hill_number(COVENANT_PROGRESS), constant(covenant_capture), Compare::Less),
+            modify(hill_number(COVENANT_PROGRESS), 1, Op::Add),
+        ]);
+        let take = b.sub(TriggerKind::Do, take);
+        let held = b.sub(
+            TriggerKind::Do,
+            vec![
+                eq(hill_number(COVENANT_PROGRESS), constant(covenant_capture)),
+                set(hill_number(0), constant(OWNER_COVENANT as i16)),
+            ],
+        );
+        let lost = b.sub(
+            TriggerKind::Do,
+            vec![
+                eq(hill_number(0), constant(OWNER_COVENANT as i16)),
+                compare(hill_number(COVENANT_PROGRESS), constant(covenant_capture), Compare::Less),
+                set(hill_number(0), constant(0)),
+            ],
+        );
+        update.extend([call(take), call(held), call(lost)]);
         // Pack the site's state into object number 4 (see SiteState). Progress is
         // counted in steps against thresholds fixed when the variant is built, so the
         // HUD needs no capture duration and the VM needs no division.
@@ -473,6 +561,28 @@ impl Variant {
                 );
                 update.push(call(count));
             }
+        }
+        // The Covenant's progress (only ever non-zero while the teams' is 0)
+        // moves the field to COVENANT_STEP_BASE + steps.
+        let base = b.sub(
+            TriggerKind::Do,
+            vec![
+                compare(hill_number(COVENANT_PROGRESS), constant(0), Compare::Greater),
+                modify(hill_number(4), PROGRESS_STEPS + 1, Op::Add),
+            ],
+        );
+        update.push(call(base));
+        for step in 1..=PROGRESS_STEPS {
+            let threshold = ((i32::from(step) * i32::from(covenant_capture) + i32::from(PROGRESS_STEPS) - 1)
+                / i32::from(PROGRESS_STEPS)).max(1) as i16;
+            let count = b.sub(
+                TriggerKind::Do,
+                vec![
+                    compare(hill_number(COVENANT_PROGRESS), constant(threshold), Compare::GreaterOrEqual),
+                    modify(hill_number(4), 1, Op::Add),
+                ],
+            );
+            update.push(call(count));
         }
         update.push(modify(hill_number(4), PROGRESS_STEPS + 1, Op::Add));
         for _ in 0..4 {
@@ -496,6 +606,14 @@ impl Variant {
             );
             update.push(call(candidate));
         }
+        let present = b.sub(
+            TriggerKind::Do,
+            vec![
+                compare(hill_number(COVENANT), constant(0), Compare::Greater),
+                modify(hill_number(4), COVENANT_PRESENT as i16, Op::Add),
+            ],
+        );
+        update.push(call(present));
         for site in 0..SITES {
             let publish = b.sub(
                 TriggerKind::Do,
@@ -659,14 +777,23 @@ mod tests {
 
     #[test]
     fn site_state_decodes_packed_and_plain_owner_values() {
-        assert_eq!(SiteState::decode(2), SiteState { candidate: 0, owner: 2, red_present: false, blue_present: false, progress: None });
+        let plain = SiteState { candidate: 0, owner: 2, red_present: false, blue_present: false, progress: None,
+                                covenant_present: false, covenant_progress: 0 };
+        assert_eq!(SiteState::decode(2), plain);
         let packed = 1 + 4 * 3 + 16 * (5 + PROGRESS_STEPS as i32 + 1);
-        assert_eq!(SiteState::decode(packed), SiteState { candidate: 0, owner: 1, red_present: true, blue_present: true, progress: Some(5) });
+        assert_eq!(SiteState::decode(packed), SiteState { owner: 1, red_present: true, blue_present: true, progress: Some(5), ..plain });
         let moved = packed + 5 * CANDIDATE_STRIDE;
         assert_eq!(SiteState::decode(moved), SiteState { candidate: 5, ..SiteState::decode(packed) },
             "the chosen candidate rides above the state and leaves it intact");
         let blue = 16 * (-(PROGRESS_STEPS as i32) + PROGRESS_STEPS as i32 + 1) + 2;
         assert_eq!(SiteState::decode(blue).progress, Some(-(PROGRESS_STEPS as i32)));
+        // Held by the Covenant, Covenant in it, candidate 2, Covenant progress full.
+        let covenant = OWNER_COVENANT + 16 * (COVENANT_STEP_BASE + PROGRESS_STEPS as i32) + 2 * CANDIDATE_STRIDE + COVENANT_PRESENT;
+        assert_eq!(SiteState::decode(covenant), SiteState { candidate: 2, owner: 3, progress: Some(0), covenant_present: true,
+                                                             covenant_progress: PROGRESS_STEPS as i32, ..plain });
+        // Being taken by the Covenant, none left in it: no flag, partial progress.
+        let taking = 16 * (COVENANT_STEP_BASE + 3);
+        assert_eq!(SiteState::decode(taking), SiteState { owner: 0, progress: Some(0), covenant_progress: 3, ..plain });
     }
 
     #[test]
@@ -682,6 +809,10 @@ mod tests {
             },
             Warfare {
                 score_to_win: 0,
+                ..Warfare::default()
+            },
+            Warfare {
+                covenant_capture_seconds: 0,
                 ..Warfare::default()
             },
         ] {

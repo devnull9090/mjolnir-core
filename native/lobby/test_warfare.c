@@ -497,6 +497,16 @@ static void test_waves(void) {
     assert(warfare_wave_target(live, none, owner, 0) == -1);
     int even[3] = {1, 1, 1}, all[3] = {4, 4, 4}, neutral[3] = {0, 0, 0};
     assert(warfare_wave_target(even, all, neutral, 0) == 1 && warfare_wave_target(even, all, neutral, 2) == 0);
+    /* A Covenant site is pressed last: team site, then neutral, then theirs. */
+    int mixed[3] = {WARFARE_OWNER_COVENANT, 0, 1};
+    assert(warfare_wave_target(even, all, mixed, 0) == 2);
+    mixed[2] = WARFARE_OWNER_COVENANT;
+    assert(warfare_wave_target(even, all, mixed, 1) == 1);
+    /* The packed site value (the same vectors as warfare.rs's decode test). */
+    int covenant = 3 + 16 * (34 + 16) + 2 * 1024 + 8192, team = 1 + 4 * 3 + 16 * (5 + 17) + 5 * 1024;
+    assert(warfare_site_owner(covenant) == 3 && warfare_site_candidate(covenant) == 2 && warfare_site_covenant_present(covenant));
+    assert(warfare_site_owner(team) == 1 && warfare_site_candidate(team) == 5 && !warfare_site_covenant_present(team));
+    assert(warfare_site_owner(0) == 0 && warfare_site_candidate(-1) == 0 && warfare_site_owner(2) == 2);
     /* Size: the cap holds. */
     assert(warfare_wave_size(0, 4) == 4 && warfare_wave_size(10, 4) == 2);
     assert(warfare_wave_size(12, 4) == 0 && warfare_wave_size(20, 4) == 0 && warfare_wave_size(0, 0) == 0);

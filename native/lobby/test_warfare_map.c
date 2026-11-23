@@ -105,7 +105,8 @@ static void test_pelican_and_capacity(void) {
 }
 static void test_invalid_mode_inputs(void) {
     fixture f;wmap_input in;wmap_snapshot out;setup(&f,&in);in.instance=0;wmap_build(&in,lookup,&f,&out);assert(!out.ready);
-    setup(&f,&in);in.owners[1]=3;wmap_build(&in,lookup,&f,&out);assert(!out.ready && out.count==0);
+    setup(&f,&in);in.owners[1]=4;wmap_build(&in,lookup,&f,&out);assert(!out.ready && out.count==0);
+    setup(&f,&in);in.owners[1]=3;wmap_build(&in,lookup,&f,&out);assert(out.ready); /* the Covenant hold B */
     setup(&f,&in);in.score[0]=-1;wmap_build(&in,lookup,&f,&out);assert(!out.ready && out.score[0]==0);
     setup(&f,&in);in.phase=4;wmap_build(&in,lookup,&f,&out);assert(!out.ready);
 }
