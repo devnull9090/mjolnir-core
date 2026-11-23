@@ -84,6 +84,12 @@ class World:
             self.models[role]={'leaf':leaf,'mesh':hull['mesh'],'points':np.array(hull['points'])/100,
                                'faces':np.array(hull['faces']),'render':lod0_points(path)/100,'source':path,'hull_source':hull_path}
         self.existing=json.loads(ROCKS.read_text())['decor']
+        # Bridge and culvert decks span the water where the road mask stops, so a
+        # bank rock can pass every clearance above and still stand in a deck
+        # (pwr_bank_desert_b_806 through the middle bridge, 2026-11-22).
+        import check_structure_clearance as structures
+        self.structures=structures
+        self.decks=structures.decks(json.loads(structures.GEOMETRY.read_text()))
 
     def sample_raster(self,raster,xy):
         grid=np.round((xy-self.field.origin_m)/self.s).astype(int)
@@ -121,6 +127,7 @@ class World:
         # buried at least20cm below immutable ground cannot block those paths.
         if water.min()<1.0 or roads.min()<3.0 or bases.min()<4.0:return None
         if np.any(shapely.intersects_xy(self.paving,visible[:,0],visible[:,1])):return None
+        if self.structures.intrusion(self.decks,points) is not None:return None
         bottom=points[points[:,2]<=np.quantile(points[:,2],.18)]
         support=bottom[:,2]-self.ground(bottom)
         if support.max()>.15:return None
