@@ -405,16 +405,24 @@ Bungie's missions:
   it is within 40 m of where it came in (120 s at most). A map without the
   script or pilot backs out as before.
 
-Shown on PC 1 (site A, koth_hill_0): from the hover it turned 33.8 -> -172
-degrees in about four seconds, climbed, and flew its route out nose-first
-(heading -146 against travel -146, about 29 m/s), and was removed out of
-sight. Every route's points resolve. Found on the way: the engine finds a
+Pilots are also blind and deaf (`ai_set_blind`, `ai_set_deaf`): the Spirit's
+driver seat is its gunner's too, and the pilot is awake while it flies out.
+
+Shown on PC 1: in waves at koth_hill_0 and koth_hill_6 the Spirit turned in the
+hover (33.8 -> -172 degrees in about four seconds), climbed, flew its route out
+nose-first (heading -146 against travel -146) at about 29 m/s (the host flew
+40), and was removed out of sight. All 11 scripts load. Flown whole on a
+hand-made Spirit, blind and deaf: the longest route (place 9, seven points) and
+the shortest (place 7, three) leave nose-first (131.8 against 131.7, -89.6
+against -89.6). Found on the way: the engine finds a
 point by its name, and B40's banshee path (28 points) is named `p0` to `p4`
 then `pa0` ...; scripts naming `p5` and `p6` were dropped at load. The bake's
 donor is now the set with the longest `p0`, `p1` ... run (14).
 
 Not yet shown: two PCs (the pilot is the host's AI; its Spirit replicates as
-before) and the Spirit's flight heard from the ground.
+before) and the Spirit's flight heard from the ground. A release bake needs
+`pwr_transports.hsc` beside its level file (`prepare_runtime.py` writes it
+there).
 
 **Every place, PC 1, warm-up**: each of the 11 places' four squads placed by
 script, counted after 60 s, then erased. First pass: 10 places 4 of 4, and

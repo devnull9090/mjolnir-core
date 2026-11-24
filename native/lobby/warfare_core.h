@@ -570,6 +570,13 @@ static int warfare_wave_target(const int live[WARFARE_SITES], const int free_squ
 
 /* How many squads a wave places: all of the target's free ones, within the
  * cap (each squad is one AI). */
+/* Whether two points are within `r` of each other in plan (a Spirit its pilot
+ * flew back to where it came in). */
+static int warfare_within_xy(const float a[3], const float b[3], float r) {
+    float dx = a[0] - b[0], dy = a[1] - b[1];
+    return dx * dx + dy * dy < r * r;
+}
+
 static int warfare_wave_size(int live_total, int free_squads) {
     int room = WARFARE_WAVE_CAP - live_total;
     if (room <= 0 || free_squads <= 0) return 0;

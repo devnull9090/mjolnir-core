@@ -510,6 +510,11 @@ static void test_waves(void) {
     /* Size: the cap holds. */
     assert(warfare_wave_size(0, 4) == 4 && warfare_wave_size(10, 4) == 2);
     assert(warfare_wave_size(12, 4) == 0 && warfare_wave_size(20, 4) == 0 && warfare_wave_size(0, 0) == 0);
+    /* A piloted Spirit is home within 40 m in plan of where it came in, at any height. */
+    float entry[3] = {-978.9f, -658.2f, 141.0f}, above[3] = {-978.9f, -658.2f, 176.0f};
+    float near[3] = {-950.0f, -640.0f, 170.0f}, far[3] = {-900.0f, -658.2f, 141.0f};
+    assert(warfare_within_xy(above, entry, 40.0f) && warfare_within_xy(near, entry, 40.0f));
+    assert(!warfare_within_xy(far, entry, 40.0f));
 }
 
 static void test_paths(void) {

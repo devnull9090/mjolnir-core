@@ -305,6 +305,10 @@ static int warfare_seat_pilot(const char *squad, const char *vehicle, const char
     snprintf(line, sizeof line, "(ai_cannot_die %s true)", squad); warfare_hs(line);
     snprintf(line, sizeof line, "(object_cannot_take_damage (ai_actors %s))", squad); warfare_hs(line);
     snprintf(line, sizeof line, "(ai_disregard (ai_actors %s) true)", squad); warfare_hs(line);
+    /* Blind and deaf: a Spirit's driver seat is also its gunner's, and an
+     * awake pilot (flying its way out) would otherwise fire at players. */
+    snprintf(line, sizeof line, "(ai_set_blind %s true)", squad); warfare_hs(line);
+    snprintf(line, sizeof line, "(ai_set_deaf %s true)", squad); warfare_hs(line);
     fireteam_log("warfare: %s seated in %s (%s)", squad, vehicle, seat);
     return 1;
 }
@@ -394,8 +398,7 @@ static void warfare_spirits(unsigned char *tls, int rate) {
         case WARFARE_SPIRIT_PILOTED: {
             /* The pilot flies; the host only watches for it to be back where
              * it came in (out of sight), then hides and removes it. */
-            float dx = metres[0] - warfare.spirit[site].start[0], dy = metres[1] - warfare.spirit[site].start[1];
-            if (dx * dx + dy * dy < 40.0f * 40.0f) {
+            if (warfare_within_xy(metres, warfare.spirit[site].start, 40.0f)) {
                 snprintf(line, sizeof line, "(object_hide pwr_spirit_%d true)", place); warfare_hs(line);
                 warfare.spirit[site].shown = 0;
                 warfare_spirit_end(site, "flown back out of sight by its pilot; removed");
