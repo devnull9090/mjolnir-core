@@ -2,7 +2,8 @@
   "environment": {
     "aerial_perspective": 1.6,
     "reflections": {
-      "depth_thickness": 0.03
+      "depth_thickness": 0.03,
+      "trace_radius": 30000
     }
   },
   "range": {

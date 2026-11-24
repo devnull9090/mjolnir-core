@@ -1761,6 +1761,17 @@ local function spawnEnvironment(world)
                     set["r.Lumen.Reflections.HierarchicalScreenTraces.RelativeDepthThickness"] =
                         tonumber(reflections.depth_thickness)
                 end
+                -- `environment.reflections.trace_radius` (cm): with hardware ray
+                -- tracing, Lumen gives surfaces their lighting cards only within
+                -- the ray tracing culling radius, and the game ships it at -1.
+                -- So no surface had cards: a reflection ray that left the screen
+                -- found the terrain unlit and fell through to the sky, and the
+                -- lake drew a pale column behind every sapling in front of it
+                -- (Pelican Warfare's headwater, 2026-11-23; thickness did not
+                -- help). 300 m cleared it for 0.05-0.09 ms a frame at 4K.
+                if type(reflections) == "table" and tonumber(reflections.trace_radius) then
+                    set["r.RayTracing.Culling.Radius"] = tonumber(reflections.trace_radius)
+                end
                 for name, value in pairs(set) do
                     if Current.cvars[name] == nil then Current.cvars[name] = ks:GetConsoleVariableFloatValue(name) end
                     ks:ExecuteConsoleCommand(world, string.format("%s %g", name, value), getPlayerController())

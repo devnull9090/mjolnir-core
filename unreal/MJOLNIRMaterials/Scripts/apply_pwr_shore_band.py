@@ -41,9 +41,31 @@ float2 hwDx = ddx(hwXY), hwDy = ddy(hwXY);
     {
         // The river cobble scan (the outlet's), not the shared path gravel: that slot also
         // draws road shoulders, and a beach stone there outlined every road from the air.
-        float2 uv = hwXY/2.6 + float2(.343,.718);
-        float3 stone = Texture2DSampleGrad(RiverCobble,SiteEarthSampler,uv,hwDx/2.6,hwDy/2.6).rgb;
-        float2 grain = (Texture2DSampleGrad(RiverCobbleN,SiteEarthSampler,uv,hwDx/2.6,hwDy/2.6).rg*2.-1.)*float2(1,-1);
+        // One photo repeated every 2.6 m read as stripes along a long bank. Instead, as the
+        // surveyed reach does: a skewed triangle lattice (~3.7 m) picks three randomly rotated,
+        // offset and scaled copies, blended by barycentric weight sharpened so each patch reads
+        // whole and the seams are short.
+        float2 lg=mul(float2x2(.88,.27,-.16,.96),hwXY)*.268;
+        float2 lv=floor(lg),lf=frac(lg);
+        float2 lm=lf.x>lf.y ? float2(1,0) : float2(0,1);
+        float3 lw=float3(1.-max(lf.x,lf.y),abs(lf.x-lf.y),min(lf.x,lf.y));
+        lw*=lw; lw*=lw; lw/=max(.001,dot(lw,1.));
+        float3 stone=0.; float2 grain=0.;
+        [unroll] for(int lk=0;lk<3;lk++)
+        {
+            uint2 id=asuint(int2(lv+(lk==0?0.0.xx:(lk==1?lm:1.0.xx))));
+            uint bits=(id.x*0x68bc21ebu)^(id.y*0x02e5be93u);
+            bits^=bits>>16u;bits*=0x7feb352du;bits^=bits>>15u;bits*=0x846ca68bu;bits^=bits>>16u;
+            float4 h=float4(uint4(bits,bits>>8u,bits>>16u,bits>>24u)&255u)/255.;
+            float c,s; sincos(6.283185*h.z,s,c);
+            float2x2 rot=float2x2(c,-s,s,c);
+            float metre=1./(2.6*lerp(.85,1.15,h.w));
+            float2 uv=mul(rot,hwXY)*metre+h.xy;
+            float2 gx=mul(rot,hwDx)*metre,gy=mul(rot,hwDy)*metre;
+            stone+=lw[lk]*Texture2DSampleGrad(RiverCobble,SiteEarthSampler,uv,gx,gy).rgb;
+            float2 n=Texture2DSampleGrad(RiverCobbleN,SiteEarthSampler,uv,gx,gy).rg*2.-1.;
+            grain+=lw[lk]*mul(transpose(rot),n)*float2(1,-1);
+        }
         float3 earth = Texture2DSampleGrad(SiteEarth,SiteEarthSampler,hwXY/5.7,hwDx/5.7,hwDy/5.7).rgb;
         float wet = 1.-smoothstep(-.35,.95,level+.13*fringe);
         // More gravel toward the water, where the current sorts it; damp earth, not ochre, above.
