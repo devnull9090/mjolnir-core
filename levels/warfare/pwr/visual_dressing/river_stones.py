@@ -45,12 +45,12 @@ def m(path):
 KINDS = {
     "cobble": ([m(RS + "SM_Rock_River_Stone_01_C"), m(RS + "SM_Rock_River_Stone_01_E"),
                 m(RS + "SM_Rock_River_Stone_01_G")],
-               (4000, 5500), 34, (1.0, 2.1), 3.2, 1.4),
+               (9000, 11000), 34, (1.0, 2.1), 3.2, 1.4),
     # Not the Megascans Nordic_Beach_Rock_vgjidiqmw scan: it draws black in game, as
     # Nordic_Beach_Rocky_Ground_ukohbbi did.
     "stone": ([m(RS + "SM_Rock_River_Stone_01_I"),
                m(MA + "Nordic_Beach_Rock_vbumba2fa/SM_Nordic_Beach_Rock_vbumba2fa")],
-              (8000, 10000), 35, (1.4, 2.8), 0.30, 2.2),
+              (10000, 12000), 35, (1.4, 2.8), 0.30, 2.2),
 }
 BANK_M = (-1.2, 6.0)     # metres from the water's edge (negative = under water)
 LEVEL_M = (-0.30, 2.6)   # metres above the nearest water: shallow enough to show, low enough to be shore

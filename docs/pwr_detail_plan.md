@@ -197,8 +197,44 @@ within 4 m of any of the level's 262 gameplay points (15 m for zone candidates).
 tops were tested in game; sides and bullets use the same triangles. GPU at 4K, shots 1, 3, 8:
 12.94 / 14.42 / 11.49 ms.
 
-Next for step 2: the bank shapes themselves (long smooth slopes no texture fixes), and
-logs, driftwood and boulders in recycled collision slots.
+**River stones and the band without tiling (release 51, 2026-11-23).** From the air the
+band's cobble repeated every 2.6 m along a bank, and up close it was a photo on flat ground.
+
+- The band now samples the cobble scan the way the surveyed reach does
+  (`pwr_scanned_riverbank.ush`): a skewed triangle lattice of about 3.7 m picks three
+  rotated, offset, rescaled copies and blends them by sharpened barycentric weight.
+- `levels/warfare/pwr/visual_dressing/river_stones.py` scatters real stone meshes over the
+  same band, from the shore mask and the heightfield: about 64,700 cobbles (River Stone 01
+  C/E/G at 1-2.1x, 25-75 cm, densest just under the water and halving every 1.4 m up the
+  bank) and 7,200 larger stones with shadows (River Stone 01 I and Nordic Beach Rock
+  vbumba2fa at 1.4-2.8x). They sit a third sunk and tilt half way to the ground. None on
+  slopes steeper than 0.7, within 2.5 m of a road, or within 2 m of a bridge corridor. The
+  Megascans scan `Nordic_Beach_Rock_vgjidiqmw` draws black in game and is left out. They
+  bake into LPE as static instances (`apply_pwr_river_stones.py`, actor `PWR_RiverStones`,
+  through `bake_foliage` like the meadow life) and have no collision.
+- Cull: cobbles 90-110 m, stones 100-120 m. At 40-55 m (release 50) the cobbles were gone
+  from FlyCam shot 4, where the bank is 60-100 m off.
+- Cost: none measurable. With the stones hidden or shown, frame 15.39 / 16.67 / 14.00 ms and
+  GPU 12.92 / 14.37 / 11.55 ms at shots 1, 3, 8. This session's game thread ran about 1.5 ms
+  higher than the afternoon's at the same shots, stones hidden or not; GPU matched.
+
+Build: `round_shore.sh` with `STONES=<river_stones.py output>` bakes them right after the
+meadow life (round 51), then the world bake (997) from that round's `LPE.umap`, as above.
+
+    river_stones.py <level> <shore mask> <terrain dir> <out>
+
+**Reflections behind the saplings.** At FlyCam shot 1 the headwater lake drew a pale column
+behind every sapling in front of it. The screen-trace thickness (0.03, 2026-11-21) never
+fixed it: 0.03, 0.1 and 0.5 look the same. With hardware ray tracing, Lumen gives a surface
+its lighting cards only within `r.RayTracing.Culling.Radius`, and the game ships it at -1, so
+no surface had cards (Lumen's overview shows the terrain yellow, "no mesh cards"). A
+reflection ray that left the screen behind a sapling found the terrain unlit and fell through
+to the sky. LevelLoader 0.21.2 sets the radius from `environment.reflections.trace_radius`;
+PWR's `vista.json` sets 30000 (300 m). The columns are gone for +0.05-0.09 ms. Other maps
+with Lumen reflections may have the same dead cards ("far = black" on Containment, for one),
+not yet tried.
+
+Next for step 2: the bank shapes themselves (long smooth slopes no texture fixes).
 
 Each step is its own dressing round through the existing pipeline (the vegetation round
 for landscape and baked plants, the outcrop and decor passes for meshes with hulls,
