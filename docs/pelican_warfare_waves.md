@@ -368,6 +368,36 @@ Live, solo on PC 1, on a test bake with the routes:
 Not yet shown: two PCs (whether a joiner hides the same objects), and the
 Spirit's flight seen from the ground.
 
+**Pilots, so the transports sound (2026-11-23, not released).** A Pelican's
+and a Spirit's engine, hover and banking loops, thrusters and moving parts
+are scaled by their engine functions (`engine_rpm`, `hover`, `thrust`, the
+Spirit's `driver_seat_power`), which read the driver seat. The host flew them
+empty, so they flew silent and dark. `prepare_runtime.py` adds two squad kinds
+to `blam.bots.types`, `pilot_spirit` (the bots' own Elite) and `pilot_pelican`
+(`marine\ai\trooper_pilot_flying`), and the host seats one in the driver seat
+each time it makes a transport (`warfare_seat_pilot`): `ai_place`,
+`unit_enter_vehicle_immediate` (`vehicle_load_magic` and
+`ai_vehicle_enter_immediate` leave a driver seat empty), braindead, unkillable,
+disregarded by other AI. A seated AI never counts in the contest (it has a
+parent). A map without the squads flies its transports empty as before.
+
+Shown on PC 1: with a pilot the Spirit's pods swing and its thrusters glow
+(without, both are dark); a powered Spirit still follows `object_set_velocity`
+and brakes to a hover when the pushes stop; in a match both insertion Pelicans,
+each reinforcement sortie and each wave Spirit logged its pilot seated, the
+Spirit unloaded four squads (contest 4) and left on time, and no script call
+failed. The sound itself is for a listener.
+
+**Turning before it leaves: not working.** A powered Spirit keeps its heading
+whatever its velocity, so it still backs out of the hover. Orders from the
+host's evaluator did not turn it: `cs_face_object` and
+`cs_fly_to_object_marker` with the AI argument were accepted and did nothing
+on `elite_pilot`; a combat Elite turned only toward its target (the player).
+Bungie's Spirits turn inside command scripts (`cs_fly_to` along point sets),
+which PWR's cleared scripting data does not have, so that is the route:
+point sets from the transport routes in the bake, and a command script per
+drop.
+
 **Every place, PC 1, warm-up**: each of the 11 places' four squads placed by
 script, counted after 60 s, then erased. First pass: 10 places 4 of 4, and
 `koth_hill_0` 2 of 4 twice: two squads had spawned under a rock lying on the

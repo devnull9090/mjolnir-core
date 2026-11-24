@@ -144,6 +144,20 @@ def apply(source):
             vehicles.append({"type":"spirit","tag":SPIRIT_TAG,"name":name,
                              "pos":layout.ue(route["entry"]),"yaw":-route["yaw"],"placed":False})
             names.append(name)
+    # Transport pilots: a vehicle sounds, glows and swings its engines only with
+    # someone in its driver seat (its engine functions read the driver), and the
+    # host flies them by velocity. One squad per Pelican (pilot_pelican_<team>)
+    # and per site's Spirit (pilot_spirit_<site>), seated by the host and
+    # braindead. The Spirit's is the bots' own Elite (its driver seat is
+    # invisible): Bungie's elite_pilot took no orders and was not shown to power
+    # it. Not bot kinds: the HUD's bots take spartan, elite, grunt and jackal only.
+    bots = blam.get("bots")
+    if isinstance(bots, dict) and bots.get("types"):
+        bots["types"] = [t for t in bots["types"] if not t["name"].startswith("pilot_")]
+        bots["types"] += [
+            {"name":"pilot_spirit","character":r"objects\characters\elite\ai\mjolnir_bot_elite_normal","team":"covenant"},
+            {"name":"pilot_pelican","character":r"objects\characters\marine\ai\trooper_pilot_flying","team":"human"},
+        ]
 
     flags = blam.setdefault("cutscene_flags", [])
     flags[:] = [flag for flag in flags if not flag.get("name", "").startswith("pwr_")]

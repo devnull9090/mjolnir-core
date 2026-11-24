@@ -61,7 +61,7 @@ static struct {
     /* The Covenant count last written to each site marker (-1 none yet). */
     int contest[WARFARE_SITES];
     /* A Spirit per site bringing its wave (warfare_spirits). */
-    struct { int stage, place, site, candidate, leg, shown; float timer; float start[3], last[3]; int have_start; } spirit[WARFARE_SITES];
+    struct { int stage, place, site, candidate, leg, shown, pilot; float timer; float start[3], last[3]; int have_start; } spirit[WARFARE_SITES];
     /* Each team's reinforcement Pelican on the way in from out of sight. */
     int pelican_leg[2], pelican_shown[2];
     float pelican_hold[2][3];
@@ -282,6 +282,33 @@ static unsigned char *warfare_spirit_object(unsigned char *tls, const float *nea
     return best;
 }
 
+/* A transport's pilot: a vehicle's engine sound, thrusters and moving parts
+ * follow its driver seat's power (its engine functions read the driver), so
+ * an empty seat flies silent and dark however the host moves it. The map's
+ * pilot squads (prepare_runtime.py: pilot_spirit_<site>, pilot_pelican_<team>)
+ * give it one: seated, braindead (the host keeps flying it by velocity),
+ * unkillable and disregarded by other AI. vehicle_load_magic and
+ * ai_vehicle_enter_immediate leave a driver seat empty; this does not. A map
+ * without the squad keeps flying its transports empty. */
+static int warfare_seat_pilot(const char *squad, const char *vehicle, const char *seat) {
+    char line[256];
+    int living = 0;
+    snprintf(line, sizeof line, "(ai_living_count %s)", squad);
+    if (!warfare_hs_value(line, &living)) return 0; /* no such squad on this map */
+    mjolnir_bots_enable(NULL); /* the ai_place gate, once */
+    snprintf(line, sizeof line, "(ai_erase %s)", squad); warfare_hs(line);
+    snprintf(line, sizeof line, "(ai_place %s)", squad);
+    if (!warfare_hs(line)) return 0;
+    snprintf(line, sizeof line, "(unit_enter_vehicle_immediate (ai_get_unit %s) %s \"%s\")", squad, vehicle, seat);
+    warfare_hs(line);
+    snprintf(line, sizeof line, "(ai_braindead %s true)", squad); warfare_hs(line);
+    snprintf(line, sizeof line, "(ai_cannot_die %s true)", squad); warfare_hs(line);
+    snprintf(line, sizeof line, "(object_cannot_take_damage (ai_actors %s))", squad); warfare_hs(line);
+    snprintf(line, sizeof line, "(ai_disregard (ai_actors %s) true)", squad); warfare_hs(line);
+    fireteam_log("warfare: %s seated in %s (%s)", squad, vehicle, seat);
+    return 1;
+}
+
 static void warfare_spirit_velocity(int place, unsigned char *object, const float world[3]) {
     float local[3];
     if (!warfare_velocity_frame((const float *)(object + 0x50), (const float *)(object + 0x5c), world, local)) return;
@@ -293,6 +320,7 @@ static void warfare_spirit_velocity(int place, unsigned char *object, const floa
 
 static void warfare_spirit_end(int site, const char *why) {
     char line[96];
+    if (warfare.spirit[site].pilot) { snprintf(line, sizeof line, "(ai_erase pilot_spirit_%d)", site); warfare_hs(line); }
     snprintf(line, sizeof line, "(object_destroy pwr_spirit_%d)", warfare.spirit[site].place);
     warfare_hs(line);
     fireteam_log("warfare: Spirit for site %c (koth_hill_%d) %s", 'A' + site, warfare.spirit[site].place, why);
@@ -448,6 +476,13 @@ static void warfare_waves(const warfare_snapshot *s) {
             snprintf(line, sizeof line, "(object_cannot_take_damage pwr_spirit_%d)", place); warfare_hs(line);
         }
     }
+    int pilot = 0;
+    if (spirit) {
+        char squad[32], vehicle[32];
+        snprintf(squad, sizeof squad, "pilot_spirit_%d", target);
+        snprintf(vehicle, sizeof vehicle, "pwr_spirit_%d", place);
+        pilot = warfare_seat_pilot(squad, vehicle, "fork_d");
+    }
     int placed = 0;
     for (int k = 0; k < warfare.wave_squads[target] && placed < size; k++) {
         if (living[target][k] > 0) continue;
@@ -469,6 +504,7 @@ static void warfare_waves(const warfare_snapshot *s) {
         warfare.spirit[target].place = place;
         warfare.spirit[target].site = target;
         warfare.spirit[target].candidate = candidate;
+        warfare.spirit[target].pilot = pilot;
     }
     warfare.wave_last_target = target;
     fireteam_log("warfare: wave %d at %d s to site %c (koth_hill_%d): %d squad(s) placed%s, %d Covenant alive before",
@@ -732,6 +768,16 @@ static void warfare_set_velocity(int team, unsigned char *object, const float wo
     warfare_hs(line);
 }
 
+/* A team's Pelican pilot (pilot_pelican_0 red, _1 blue), in the pilot's seat
+ * of the Pelican just made: its engines run and sound (warfare_seat_pilot). */
+static int warfare_pelican_piloted[2];
+static void warfare_pelican_pilot(int team) {
+    char squad[32], vehicle[32];
+    snprintf(squad, sizeof squad, "pilot_pelican_%d", team);
+    snprintf(vehicle, sizeof vehicle, "pwr_pelican_%s", team ? "blue" : "red");
+    warfare_pelican_piloted[team] = warfare_seat_pilot(squad, vehicle, "pelican_d");
+}
+
 /* A team's transport, made anew, protected, parked: at its flight start, or,
  * when the layout gives it a route in (warfare_pelican_paths), where the map
  * placed it, out of sight behind the mountains. */
@@ -747,6 +793,7 @@ static void warfare_park(int team) {
     }
     warfare.pelican_shown[team] = warfare_pelican_paths[team].count <= 0;
     snprintf(line, sizeof line, "(object_cannot_take_damage pwr_pelican_%s)", name); warfare_hs(line);
+    warfare_pelican_pilot(team);
     warfare.pelican_leg[team] = 0;
     warfare.pelican_hold_valid[team] = 0;
 }
@@ -844,6 +891,8 @@ static void warfare_flight(unsigned char *tls, const warfare_snapshot *snapshot,
         warfare_hs("(object_teleport pwr_pelican_blue pwr_blue_flight_start)");
         warfare_hs("(object_cannot_take_damage pwr_pelican_red)");
         warfare_hs("(object_cannot_take_damage pwr_pelican_blue)");
+        warfare_pelican_pilot(0);
+        warfare_pelican_pilot(1);
         warfare.transport_created = 1;
         fireteam_log("warfare: insertion started; native physics transports requested");
     }
@@ -872,6 +921,9 @@ static void warfare_flight(unsigned char *tls, const warfare_snapshot *snapshot,
             if (snapshot->sample[i].valid && (snapshot->sample[i].parent_is_transport
                 || (warfare.player[i].carrier != WARFARE_NONE && !snapshot->sample[i].carrier_clear))) occupied = 1;
         if (!occupied) {
+            if (warfare_pelican_piloted[0]) warfare_hs("(ai_erase pilot_pelican_0)");
+            if (warfare_pelican_piloted[1]) warfare_hs("(ai_erase pilot_pelican_1)");
+            warfare_pelican_piloted[0] = warfare_pelican_piloted[1] = 0;
             warfare_hs("(object_destroy pwr_pelican_red)"); warfare_hs("(object_destroy pwr_pelican_blue)");
             warfare.transport_created = 0;
         }
