@@ -551,7 +551,8 @@ static void warfare_waves(const warfare_snapshot *s) {
     if (size <= 0) {
         fireteam_log("warfare: wave %d (tier %d) skipped at %d s: %d Covenant alive (cap %d), %s",
                      warfare.wave_count, tier, seconds, total, WARFARE_WAVE_CAP,
-                     free_fork < 0 ? "no free fork in its tier" : "no site's Spirit free");
+                     total >= WARFARE_WAVE_CAP ? "at the cap" : free_fork < 0 ? "no free fork in its tier"
+                     : target < 0 ? "no site's Spirit free" : "no room under the cap");
         return;
     }
     mjolnir_bots_enable(NULL); /* the ai_place gate, once */
