@@ -469,6 +469,50 @@ The plan this started from:
   it), check the Havok proxy budget with 16 players, the fleets and a wave, clone
   and cook the Spirit.
 
+## Playtest fixes (2026-11-23, Lobby 0.33.0, HUD 0.24.1, LevelLoader 0.21.3)
+
+From a two-PC playtest (host PC 1, joiner PC 3):
+
+- **Joining during the insertion.** A player who joins while less than half
+  the insertion has gone (`WARFARE_JOIN_INSERTION_FRACTION`) gets a free seat in
+  their team's Pelican (`warfare_insertion_seat`); later, or with all ten taken,
+  they wait at home for the first reinforcement wave. The host decides and seats
+  them; the joiner's own machine follows once it sees itself aboard. Shown: PC 3
+  connected 14.6 s into the insertion, was seated, rode, dropped and landed.
+- **Warmup** is 60 s by default (`--warmup-seconds`), for the rest to join.
+- **A joiner's parachute HUD stayed up on the ground.** Its descent never
+  counted as landed (0.3 s of still velocity samples in a row): a client's
+  simulation reaches the warfare tick in bursts (PC 3: 728 gapped ticks in a
+  minute and a half; the host 388), and every gap cleared the samples, so the
+  two-minute timeout sent it home instead. Now a velocity across up to 0.1 s of
+  ticks counts, a missing sample neither counts nor breaks the run, and a second
+  of unbroken world contact (`WARFARE_GROUNDED_SECONDS`) lands anyone. Shown: PC 3
+  landed 5-6 s after opening its canopy, in both matches.
+- **Countdown lag.** The HUD read the warfare state at 2 Hz, each machine at its
+  own phase; near a countdown it now reads at 10 Hz and has the state written each
+  time (`Warfare.countdownNear`). Screens taken together showed the same number;
+  what remains is replication.
+- **Troops jumped through the doors.** The Spirit opens over its spot and its
+  troops jump `WARFARE_SPIRIT_DOOR_SECONDS` (2) later; it leaves once only its
+  pilot rides (counted by parent), or 12 s after. Shown: 16 aboard, out in 5.1 s.
+- **A respawn rode a hidden Pelican.** Boarding counted anywhere on the Pelican's
+  way in from out of sight. Riders now board only at its flight start, where it
+  shows, and it gets there `WARFARE_PELICAN_BOARDING_LEAD` (15) s before the wave
+  leaves. Shown: a killed player boarded 16 s after it started in, inside a
+  visible cabin with nine seconds to departure.
+- **Full Spirits.** `tuning_fork` has 31 seats but 16 troop seats (`fork_p_l1`-`l8`,
+  `fork_p_r1`-`r8`, AI seat type passenger; the rest are its pilot's and cargo).
+  The bake's `waves.transport` makes one wave squad per troop seat from the tag;
+  PWR's waves are legendary kinds, half Elites. The alive cap is 48 (the
+  simulation keeps 96 actors). Shown: 31 placed lived, 16 rode, all 16 jumped and
+  walked off; wave 1 brought 16.
+- **Stronger, still open.** A Megalo match plays at Normal, so AI take their
+  character's normal vitality (an Elite 75 body, 75 shield; its legendary is 100
+  and 135). `units_set_maximum_vitality` did not change an AI's 75. The legendary
+  kinds aim better; their vitality would come from `build_bot_characters.sh`
+  copying legendary vitality into the normal slots, as it does accuracy, which
+  would also toughen LEGENDARY bots in every bot match (a runtime release).
+
 ## Testing
 
 Each rule gets a `warfare_behavior.rs` case and each native change a

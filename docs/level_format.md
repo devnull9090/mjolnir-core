@@ -410,6 +410,10 @@ shell's.
   "waves": { "squads": 4,          // squads wave_<place>_<k> per place, outside it,
              "kinds": ["elite_heroic", "grunt_heroic"], // whose first task holds it;
              "distance": 6 },      // kinds (bots.types names) taken in turn
+  // or, to fill the vehicle that brings them: one squad per troop seat its tag
+  // has (AI seat type passenger, label starting `seats`; tuning_fork: 16)
+  // "waves": { "transport": { "vehicle": "objects\vehicles\covenant\tuning_fork\tuning_fork",
+  //                           "seats": "fork_p" }, "kinds": [...] },
   "types": [                       // kinds of bot, `count` squads each: <name>_<k>
     { "name": "spartan", "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan",
       "weapon": "assault_rifle", "team": "covenant" },
