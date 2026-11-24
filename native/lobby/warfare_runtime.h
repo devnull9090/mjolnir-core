@@ -11,8 +11,10 @@
 /* Megalo rules revision in global slot 2 (blam-megalo warfare.rs MAGIC).
  * WARFARE_MAGIC (generated from layout.json) is the map's layout protocol,
  * carried by the published map; the two moved apart at 20570, when slot 3
- * began counting the warmup down. */
-#define WARFARE_RULES_MAGIC 20570
+ * began counting the warmup down. 20571: slot 4 is the connected players
+ * before combat and the Covenant's defeat clock from combat on (warfare.rs
+ * DEFEAT); `connected` in warfare_state.txt is that slot as it stands. */
+#define WARFARE_RULES_MAGIC 20571
 
 typedef struct {
     int ready, status, host, rate, tick, layout, insertion_seconds, globals[12];

@@ -132,6 +132,10 @@ pub struct WriteArgs {
     /// Warfare: minutes of combat after deployment (independent of the base round timer).
     #[arg(long, default_value_t = 20)]
     pub warfare_minutes: u8,
+    /// Warfare: seconds the Covenant must hold all three zones to win the match
+    /// (both teams lose); 0 turns the rule off.
+    #[arg(long, default_value_t = 60)]
+    pub covenant_hold_seconds: u16,
     /// Rounds in a game (1..=31). An end of round before the last resets
     /// the round in place; the last ends the game, and the game's own return
     /// to the menu then drops every fireteam client. MJOLNIR's matches are
@@ -359,6 +363,7 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                     covenant_capture_seconds: w.covenant_capture_seconds,
                     allow_mounted_capture: w.allow_mounted_capture,
                     match_minutes: w.warfare_minutes,
+                    covenant_hold_seconds: w.covenant_hold_seconds,
                 })
                 .map_err(|e| anyhow::anyhow!("{e}"))?,
                 Mode::Empty => Variant::empty(w.score.unwrap_or(25)),

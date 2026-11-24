@@ -184,7 +184,7 @@ The loader requires level metadata `warfare: {protocol: 20569, layout_revision: 
 and opens `MJOLNIRLobby/native/mjolnir_lobby.dll` with a configuration
 containing `warfare-config 2`, `map PWR`, `layout 3` and `protocol 20569`.
 That number is the map's layout protocol; the Megalo rules publish their own
-revision in slot 2 (20570), so a rules change needs no new map.
+revision in slot 2 (20571), so a rules change needs no new map.
 Its four exported Lua entrypoints
 are `mjolnir_warfare_open`, `close`, `action` and `pump` (all with the
 `mjolnir_warfare_` prefix). Space sends only a jump/deploy request. The native
@@ -195,8 +195,9 @@ Movement remains on the owning simulation
 peer; the host controls the named transports. Late joins and later
 respawns board the next reinforcement wave from the home base.
 
-Global number slots are phase 0, phase age in ticks 1, rules magic 20570
-at 2, the clock 3, connected count 4, scratch 5–6, Red/Blue
+Global number slots are phase 0, phase age in ticks 1, rules magic 20571
+at 2, the clock 3, connected count before combat and the defeat clock from
+combat on 4, scratch 5–6, Red/Blue
 score 7–8 and A/B/C site states 9–11. Phases are warmup 0, insertion 1, combat 2
 and complete 3. A site state packs `owner + 4 × (red present + 2 × blue present)
 + 16 × (progress + 17)`: owner neutral 0, Red 1, Blue 2 in the low two bits, and
@@ -207,12 +208,28 @@ is an owner alone (older variants, or before combat). Slot 3, the clock,
 counts the warmup down in whole seconds in phase 0 (-1 while fewer than the
 minimum players are connected), publishes the configured insertion duration
 in phase 1, then resets to zero and counts combat seconds in phase 2; the
-reinforcement schedule is derived from it. Phase, age, magic, clock,
+reinforcement schedule is derived from it, and the HUD shows it as MATCH TIME.
+Phase, age, magic, clock,
 scores and owners have high replication priority, connected count low priority,
 and scratch remains local. Native code reads this state; Megalo owns it.
 An absent team's native score operand is -1 in the supported build; the
 published score mirror clamps that sentinel to zero without creating or
 changing the absent team's engine score.
+
+### The Covenant can win
+
+If the Covenant hold all three sites (owner 3) for `covenant_hold_seconds`
+(default 60; `mjolnir megalo write --covenant-hold-seconds`, 0 turns it off),
+the match ends and both teams lose. Slot 4 carries it from combat on: the full
+hold when combat starts, one less each combat second while every chosen site is
+the Covenant's, back to the full hold the second any site is not, and -1 when
+the rule is off. At 0 the host sets phase 3 and ends the round; the end trigger
+checks the three owners again, so a stray 0 cannot end a match. The HUD's line
+says THE COVENANT HOLD EVERY ZONE with the time left while it runs, OPERATION
+FAILED at the end, and the post-game title is THE COVENANT WIN
+(`Match.winnerTitle`, read by `Scoreboard.winner`). Rules revision 20571 began
+this: the HUD and DLL reject an older variant, so HUD, DLL and variant ship
+together.
 
 `levels/warfare/pwr/layout.json` generates `native/lobby/warfare_layout.h`.
 The native build regenerates it; the portable test runner rejects stale output.

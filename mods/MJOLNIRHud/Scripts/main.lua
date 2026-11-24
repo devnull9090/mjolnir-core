@@ -778,6 +778,14 @@ local function finishMatch(how)
     table.sort(parts)
     Log(how .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "no players"))
     Scoreboard.sample(Match, now(), true)
+    -- Pelican Warfare: the Covenant held every zone to the end (warfare.lua
+    -- covenantWon), so neither team won whatever the score.
+    local snapshot = Match.warfare and Match.warfare.snapshot
+    if Match.mode.family == "warfare" and snapshot and snapshot.phase == 3 and snapshot.globals
+        and snapshot.globals[5] == 0 and snapshot.sites and #snapshot.sites == 3
+        and snapshot.sites[1].owner == 3 and snapshot.sites[2].owner == 3 and snapshot.sites[3].owner == 3 then
+        Match.winnerTitle = "THE COVENANT WIN"
+    end
     Match.over = { at = now(), winner = Scoreboard.winner(Match) }
     -- The match's id, which the post-game screen's reports cite: the host's
     -- own record's, or the one the host told this client.
