@@ -112,8 +112,9 @@ pub struct WriteArgs {
     /// Warfare: connected players required to start the warmup countdown.
     #[arg(long, default_value_t = 2)]
     pub minimum_players: u8,
-    /// Warfare: seconds of warmup once the minimum player count is met.
-    #[arg(long, default_value_t = 30)]
+    /// Warfare: seconds of warmup once the minimum player count is met, for
+    /// the rest to join and get ready.
+    #[arg(long, default_value_t = 60)]
     pub warmup_seconds: u16,
     /// Warfare: length of the initial transport/drop phase.
     #[arg(long, default_value_t = 60)]

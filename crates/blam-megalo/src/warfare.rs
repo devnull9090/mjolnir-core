@@ -133,7 +133,7 @@ impl Default for Warfare {
             score_to_win: 500,
             tick_rate: 60,
             minimum_players: 2,
-            warmup_seconds: 30,
+            warmup_seconds: 60,
             insertion_seconds: 60,
             capture_seconds: 15,
             covenant_capture_seconds: 30,

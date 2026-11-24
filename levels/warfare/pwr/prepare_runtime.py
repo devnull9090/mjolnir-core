@@ -199,6 +199,14 @@ def apply(source):
             {"name":"pilot_spirit","character":r"objects\characters\elite\ai\mjolnir_bot_elite_normal","team":"covenant"},
             {"name":"pilot_pelican","character":r"objects\characters\marine\ai\trooper_pilot_flying","team":"human"},
         ]
+    # A wave fills its Spirit: one wave squad per troop seat its tag has (the
+    # bake counts tuning_fork's passenger seats labelled fork_p, 16), of the
+    # legendary kinds, half of them Elites, as Bungie's Spirits come in.
+    if isinstance(bots, dict) and isinstance(bots.get("waves"), dict):
+        waves = bots["waves"]
+        waves.pop("squads", None)
+        waves["transport"] = {"vehicle": SPIRIT_TAG, "seats": "fork_p"}
+        waves["kinds"] = ["elite_legendary", "grunt_legendary", "elite_legendary", "jackal_legendary"]
 
     flags = blam.setdefault("cutscene_flags", [])
     flags[:] = [flag for flag in flags if not flag.get("name", "").startswith("pwr_")]

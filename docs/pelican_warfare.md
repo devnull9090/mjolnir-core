@@ -52,7 +52,7 @@ Warfare opts into a same-mode postgame rotation on its supported maps. With
 only PWR installed, no ballots replay PWR Warfare; LOBBY returns to manual
 map/mode selection. Other modes retain the existing mixed-map, mixed-mode vote.
 
-Defaults are two connected players, 30 seconds of warmup, 60 seconds of
+Defaults are two connected players, 60 seconds of warmup, 60 seconds of
 insertion, first to 500 control points, or 20 minutes of combat. The three
 neutral `koth_hill` markers use spawn sequences 0, 1 and 2, matching the
 three `koth_hills` entries in `level.json`. Living players on foot capture;
@@ -137,7 +137,7 @@ pwsh -NoProfile -File levels/warfare/pwr/install_runtime.ps1 -Game $pwrGame -Sol
 ```
 
 `-SoloPreview` builds a one-player, five-second warmup variant for the private
-test. Omit that flag to restore the normal two-player, 30-second warmup.
+test. Omit that flag to restore the normal two-player, 60-second warmup.
 The user's current local installation uses `-SoloPreview` with the default
 500-point target, recorded in
 [`out/pwr/runtime-20261108-224928/install-receipt.json`](../out/pwr/runtime-20261108-224928/install-receipt.json).

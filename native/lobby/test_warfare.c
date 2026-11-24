@@ -215,6 +215,24 @@ static void test_carrier_deck_and_airborne_pause(void) {
     s.parent = WARFARE_NONE; s.position[2] = 150; s.support_world = 1;
     for (int n = 0; n < 20; n++) step(&p, &s, 2, 201, 0, &o);
     assert(p.stage == WF_LANDED && !p.protected_fall);
+    /* A joiner's samples: unbroken contact, but velocity gappy and jittering
+     * (never three-tenths of a second still). A second of contact lands it;
+     * a break in contact starts the second again. */
+    p.stage = WF_CANOPY; p.protected_fall = 1; p.elapsed = 10; p.stable = p.grounded = 0;
+    for (int n = 0; n < 50; n++) {
+        s.velocity_valid = n % 3 != 0; s.velocity[2] = (n & 1) ? 0.9f : -0.8f;
+        step(&p, &s, 2, 202, 0, &o);
+    }
+    assert(p.stage == WF_CANOPY && p.protected_fall);
+    s.support_world = 0; step(&p, &s, 2, 202, 0, &o); s.support_world = 1;
+    for (int n = 0; n < 50; n++) {
+        s.velocity_valid = n % 3 != 0; s.velocity[2] = (n & 1) ? 0.9f : -0.8f;
+        step(&p, &s, 2, 202, 0, &o);
+    }
+    assert(p.stage == WF_CANOPY && p.protected_fall);
+    for (int n = 0; n < 12; n++) step(&p, &s, 2, 203, 0, &o);
+    assert(p.stage == WF_LANDED && !p.protected_fall);
+    s.velocity[2] = 0; s.velocity_valid = 1;
 }
 
 #include "warfare_inventory.h"
@@ -508,8 +526,8 @@ static void test_waves(void) {
     assert(warfare_site_owner(team) == 1 && warfare_site_candidate(team) == 5 && !warfare_site_covenant_present(team));
     assert(warfare_site_owner(0) == 0 && warfare_site_candidate(-1) == 0 && warfare_site_owner(2) == 2);
     /* Size: the cap holds. */
-    assert(warfare_wave_size(0, 4) == 4 && warfare_wave_size(10, 4) == 2);
-    assert(warfare_wave_size(12, 4) == 0 && warfare_wave_size(20, 4) == 0 && warfare_wave_size(0, 0) == 0);
+    assert(warfare_wave_size(0, 16) == 16 && warfare_wave_size(WARFARE_WAVE_CAP - 2, 16) == 2);
+    assert(warfare_wave_size(WARFARE_WAVE_CAP, 4) == 0 && warfare_wave_size(WARFARE_WAVE_CAP + 8, 4) == 0 && warfare_wave_size(0, 0) == 0);
     /* A piloted Spirit is home within 40 m in plan of where it came in, at any height. */
     float entry[3] = {-978.9f, -658.2f, 141.0f}, above[3] = {-978.9f, -658.2f, 176.0f};
     float near[3] = {-950.0f, -640.0f, 170.0f}, far[3] = {-900.0f, -658.2f, 141.0f};

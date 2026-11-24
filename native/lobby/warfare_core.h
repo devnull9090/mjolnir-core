@@ -41,6 +41,9 @@ typedef struct {
     /* next_sortie: after a failed combat boarding, the first sortie id to try again. */
     int next_sortie;
     float elapsed, retry, stable, departure_z;
+    /* grounded: seconds of unbroken world contact in the descent, whatever
+     * the velocity samples say (a joiner's are gappy and jitter). */
+    float grounded;
     float carrier_velocity[2], air_velocity[3], steering;
     int air_initialized, braking, deploy_requested;
 } warfare_player;
@@ -300,6 +303,13 @@ static float warfare_terrain(float x, float y, int ceiling) {
     return (1-v)*south + v*north;
 }
 
+/* A player who joins once the insertion has begun rides it if less than this
+ * fraction of it has gone; later they wait at home for the first wave. */
+#define WARFARE_JOIN_INSERTION_FRACTION 0.5f
+
+/* Unbroken world contact that lands a descent whatever its velocity samples. */
+#define WARFARE_GROUNDED_SECONDS 1.0f
+
 static int warfare_need_canopy(const warfare_player *p, const warfare_sample *s) {
     float roof = warfare_terrain(s->position[0], s->position[1], 1);
     float ahead = warfare_terrain(s->position[0] + p->air_velocity[0],
@@ -489,11 +499,18 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
     }
     /* Real world support plus continuous sampled motion is required. This
      * rejects an airborne pause, stale samples, and a detached Pelican deck. */
-    if (s->support_world && s->carrier_clear && s->velocity_valid
-        && p->departure_z - s->position[2] > 3.0f && fabsf(s->velocity[2]) < 0.6f)
-        p->stable += dt;
-    else p->stable = 0;
-    if (p->stable >= 0.3f) {
+    /* A missing velocity sample (a joiner's simulation updates come in
+     * bursts) neither counts nor breaks the run; a second of unbroken world
+     * contact lands anyone: a joiner stayed under canopy on the ground two
+     * minutes until the descent timeout sent them home (2026-11-23). */
+    int grounded = s->support_world && s->carrier_clear && p->departure_z - s->position[2] > 3.0f;
+    if (grounded) {
+        p->grounded += dt;
+        if (s->velocity_valid) {
+            if (fabsf(s->velocity[2]) < 0.6f) p->stable += dt; else p->stable = 0;
+        }
+    } else p->stable = p->grounded = 0;
+    if (p->stable >= 0.3f || p->grounded >= WARFARE_GROUNDED_SECONDS) {
         warfare_ready_weapon(p, o);
         o->flags |= WF_UNPROTECT; p->protected_fall = 0; p->stage = WF_LANDED; return;
     }
@@ -512,8 +529,13 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
 #define WARFARE_SITES 3
 #define WARFARE_WAVE_FIRST 45
 #define WARFARE_WAVE_INTERVAL 90
-#define WARFARE_WAVE_CAP 12
-#define WARFARE_WAVE_SQUADS 8
+/* Covenant alive at once: three full Spirits. A Spirit's troop seats (16 on
+ * tuning_fork) set a place's wave squads at bake time (level.rs, waves
+ * "transport"). The simulation keeps 96 actors; 31 lived and 16 rode, jumped
+ * and walked off on PWR (2026-11-23). */
+#define WARFARE_WAVE_CAP 48
+/* The most wave squads a place may have (looked for up to this many). */
+#define WARFARE_WAVE_SQUADS 32
 
 /* Which wave the combat clock is in: 0 before the first, then 1, 2, ... */
 static int warfare_wave_index(int combat_seconds) {
@@ -590,7 +612,15 @@ static int warfare_wave_size(int live_total, int free_squads) {
 #define WARFARE_PATH_LAND 1.5f          /* m: close enough to the last point */
 #define WARFARE_SPIRIT_SPEED 40.0f      /* m/s cruising */
 #define WARFARE_SPIRIT_FINAL_SPEED 12.0f
+/* Over its spot a Spirit opens, and its troops jump this long after (so
+ * not through the doors); it leaves once they are out, or after
+ * WARFARE_SPIRIT_UNLOAD_SECONDS more at most. */
+#define WARFARE_SPIRIT_DOOR_SECONDS 2.0f
+#define WARFARE_SPIRIT_UNLOAD_SECONDS 12.0f
 #define WARFARE_PELICAN_CLIMB_SPEED 40.0f
+/* A reinforcement Pelican reaches its flight start this long before its wave
+ * leaves, the time its riders have to board. */
+#define WARFARE_PELICAN_BOARDING_LEAD 15.0f
 
 static float warfare_length(const float a[3], const float b[3]) {
     float d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};

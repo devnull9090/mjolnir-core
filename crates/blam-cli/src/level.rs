@@ -882,7 +882,13 @@ pub struct Bots {
 #[serde(deny_unknown_fields)]
 pub struct BotWaves {
     /// Squads per place, `wave_<place>_0` .. `wave_<place>_<squads - 1>`.
+    /// With `transport`, its troop seats instead.
+    #[serde(default)]
     pub squads: usize,
+    /// The vehicle that brings a place's wave, whose troop seats set
+    /// `squads`: one single-actor squad per seat, so a full wave fills it.
+    #[serde(default)]
+    pub transport: Option<WaveTransport>,
     /// The kind of bot each squad is (cycled): names of `bots.types`.
     pub kinds: Vec<String>,
     /// How far outside a place's boundary its wave squads stand, wu.
@@ -892,6 +898,48 @@ pub struct BotWaves {
 
 fn default_wave_distance() -> f32 {
     6.0
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WaveTransport {
+    /// The vehicle tag (`objects\vehicles\covenant\tuning_fork\tuning_fork`).
+    pub vehicle: String,
+    /// The label its troop seats start with, the one a runtime loads and
+    /// unloads by (`fork_p`). Its seats so labelled whose AI seat type is
+    /// passenger are the troop seats (cargo seats share the prefix).
+    pub seats: String,
+}
+
+/// How many troop seats `t.vehicle` has: seats labelled `t.seats...` with AI
+/// seat type passenger, read from its tag.
+fn transport_troop_seats(idx: &index::Index, oodle: &[PathBuf], t: &WaveTransport) -> Result<usize> {
+    let want = t.vehicle.replace('\\', "/").to_lowercase();
+    let by_group = idx.by_group();
+    let entry = by_group
+        .get("vehicle")
+        .and_then(|v| v.iter().find(|e| e.path.to_lowercase().replace('\\', "/").contains(&format!("{want}-vehicle"))).copied())
+        .with_context(|| format!("bots.waves.transport: no vehicle tag {}", t.vehicle))?;
+    let file = idx.read(entry, None, oodle)?;
+    let mut paths = Vec::new();
+    for k in 0..64 {
+        paths.push(format!("unit.seats[{k}].label"));
+        paths.push(format!("unit.seats[{k}].ai seat type"));
+    }
+    let values = read_many(&file, &paths)?;
+    let mut seats = 0;
+    for pair in values.chunks(2) {
+        let (Some(label), Some(kind)) = (&pair[0], &pair[1]) else { break };
+        let label = label.display();
+        if label.trim_matches('"').starts_with(&t.seats) && kind.display().to_lowercase().contains("passenger") {
+            seats += 1;
+        }
+    }
+    if seats == 0 {
+        let seen: Vec<String> = values.iter().take(6).map(|v| v.as_ref().map_or("-".into(), |s| s.display())).collect();
+        bail!("bots.waves.transport: {} has no passenger seats labelled {}* (read {})", t.vehicle, t.seats, seen.join(", "));
+    }
+    Ok(seats)
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -3989,7 +4037,7 @@ impl Baker {
 }
 
 fn bake(a: BakeArgs) -> Result<()> {
-    let level = load_level(&a.file)?;
+    let mut level = load_level(&a.file)?;
     for note in validate_level(&level)? {
         println!("note: {note}");
     }
@@ -4013,6 +4061,14 @@ fn bake(a: BakeArgs) -> Result<()> {
     let original = idx.read(entry, None, &a.src.oodle_roots())?;
     println!("{}", entry.path);
     println!("  source   {} bytes", original.len());
+    // A wave's transport fills: one wave squad per troop seat its tag has.
+    if let Some(w) = level.blam.bots.as_mut().and_then(|b| b.waves.as_mut()) {
+        if let Some(t) = &w.transport {
+            let seats = transport_troop_seats(&idx, &a.src.oodle_roots(), t)?;
+            println!("  bots    {seats} wave squad(s) per place: the troop seats of {}", t.vehicle);
+            w.squads = seats;
+        }
+    }
 
     let mut baker = Baker {
         file: original.clone(),

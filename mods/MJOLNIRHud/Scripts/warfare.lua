@@ -39,6 +39,25 @@ function Warfare.insertionLeft(s)
     if not (s and s.phase == 1 and s.insertion_seconds and s.elapsed_ticks and s.rate and s.rate > 0) then return nil end
     return math.max(0, s.insertion_seconds - math.floor(s.elapsed_ticks / s.rate))
 end
+--- Whether a large countdown is showing or about to (warmup's or the
+--- insertion's last seconds, DEPLOY, CAPTURE): the HUD then reads ten times a
+--- second and has the native state written each time, as in flight. At the
+--- 2 Hz snapshot each machine showed a number up to half a second late, at
+--- its own phase, so a joiner's numbers trailed the host's (2026-11-23).
+Warfare.COUNTDOWN_NEAR = 13
+function Warfare.countdownNear(s)
+    if not s then return false end
+    if s.phase == 0 then
+        local left = s.globals and s.globals[4]
+        return type(left) == "number" and left >= 0 and left <= Warfare.COUNTDOWN_NEAR
+    end
+    if s.phase == 1 then
+        local left = Warfare.insertionLeft(s)
+        local age = s.elapsed_ticks and s.rate and s.rate > 0 and s.elapsed_ticks / s.rate
+        return (left ~= nil and left <= Warfare.COUNTDOWN_NEAR) or (age ~= nil and age < 3)
+    end
+    return false
+end
 -- Moving zones add CANDIDATE_STRIDE * the site's chosen candidate on top.
 Warfare.CANDIDATE_STRIDE = 1024
 function Warfare.site(value)
@@ -344,10 +363,11 @@ function Warfare.new(deps)
         if now < self.next then return false end
         local prev = self.snapshot and self.snapshot.players[me]
         local activeFlight = prev and prev.localUser >= 0 and (prev.stage == 2 or prev.stage == 7 or prev.stage == 3 or prev.stage == 4)
-        self.next = now + (activeFlight and FLIGHT_EVERY or EVERY)
+        local fast = activeFlight or Warfare.countdownNear(self.snapshot)
+        self.next = now + (fast and FLIGHT_EVERY or EVERY)
         local changed = false
         if not match.over then
-            if activeFlight and deps.pumpFlight then deps.pumpFlight() end
+            if fast and deps.pumpFlight then deps.pumpFlight() end
             local s = Warfare.parse(deps.readSnapshot())
             local accepted = self.accept(s, now)
             -- A verified terminal snapshot remains valid while the sim is
