@@ -569,6 +569,15 @@ static void warfare_waves(const warfare_snapshot *s) {
         if (!spirit) { snprintf(line, sizeof line, "(object_wake_physics (ai_get_unit %s))", name); warfare_hs(line); }
         placed++;
     }
+    /* The map's legendary vitality for this place's wave squads (the bake's
+     * wave_vitality_<place>; a Megalo match plays at Normal). It raises the
+     * maximum only, so earlier waves' survivors are not healed. A map baked
+     * without it has no such script: the call fails and nothing changes. */
+    int tough = 0;
+    if (placed > 0) {
+        snprintf(line, sizeof line, "(wave_vitality_koth_hill_%d)", place);
+        tough = warfare_hs(line);
+    }
     if (spirit) {
         memset(&warfare.spirit[target], 0, sizeof warfare.spirit[target]);
         warfare.spirit[target].stage = WARFARE_SPIRIT_FLY;
@@ -578,8 +587,9 @@ static void warfare_waves(const warfare_snapshot *s) {
         warfare.spirit[target].pilot = pilot;
     }
     warfare.wave_last_target = target;
-    fireteam_log("warfare: wave %d at %d s to site %c (koth_hill_%d): %d squad(s) placed%s, %d Covenant alive before",
-                 warfare.wave_count, seconds, 'A' + target, place, placed, spirit ? " in a Spirit" : "", total);
+    fireteam_log("warfare: wave %d at %d s to site %c (koth_hill_%d): %d squad(s) placed%s%s, %d Covenant alive before",
+                 warfare.wave_count, seconds, 'A' + target, place, placed, spirit ? " in a Spirit" : "",
+                 tough ? " at legendary vitality" : "", total);
 }
 
 static unsigned char *warfare_biped(unsigned char *tls, uint32_t handle) {

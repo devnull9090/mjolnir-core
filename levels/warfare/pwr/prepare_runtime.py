@@ -207,6 +207,9 @@ def apply(source):
         waves.pop("squads", None)
         waves["transport"] = {"vehicle": SPIRIT_TAG, "seats": "fork_p"}
         waves["kinds"] = ["elite_legendary", "grunt_legendary", "elite_legendary", "jackal_legendary"]
+        # and their legendary vitality: a Megalo match plays at Normal, and an
+        # Elite at Normal has 75 and 75 to legendary's 100 and 135.
+        waves["vitality"] = "legendary"
 
     flags = blam.setdefault("cutscene_flags", [])
     flags[:] = [flag for flag in flags if not flag.get("name", "").startswith("pwr_")]

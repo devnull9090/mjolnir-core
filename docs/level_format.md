@@ -413,7 +413,9 @@ shell's.
   // or, to fill the vehicle that brings them: one squad per troop seat its tag
   // has (AI seat type passenger, label starting `seats`; tuning_fork: 16)
   // "waves": { "transport": { "vehicle": "objects\vehicles\covenant\tuning_fork\tuning_fork",
-  //                           "seats": "fork_p" }, "kinds": [...] },
+  //                           "seats": "fork_p" }, "kinds": [...],
+  //   "vitality": "legendary" },  // scripts wave_vitality_<place>: each squad's
+  //                               // character's legendary body and shield
   "types": [                       // kinds of bot, `count` squads each: <name>_<k>
     { "name": "spartan", "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan",
       "weapon": "assault_rifle", "team": "covenant" },

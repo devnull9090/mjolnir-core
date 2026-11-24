@@ -506,12 +506,17 @@ From a two-PC playtest (host PC 1, joiner PC 3):
   PWR's waves are legendary kinds, half Elites. The alive cap is 48 (the
   simulation keeps 96 actors). Shown: 31 placed lived, 16 rode, all 16 jumped and
   walked off; wave 1 brought 16.
-- **Stronger, still open.** A Megalo match plays at Normal, so AI take their
-  character's normal vitality (an Elite 75 body, 75 shield; its legendary is 100
-  and 135). `units_set_maximum_vitality` did not change an AI's 75. The legendary
-  kinds aim better; their vitality would come from `build_bot_characters.sh`
-  copying legendary vitality into the normal slots, as it does accuracy, which
-  would also toughen LEGENDARY bots in every bot match (a runtime release).
+- **Stronger.** A Megalo match plays at Normal, so AI take their character's
+  normal vitality (an Elite 75 body and 75 shield, its legendary 100 and 135).
+  The bake's `waves.vitality: "legendary"` writes a script per place,
+  `wave_vitality_<place>`, raising each wave squad's maximum vitality to its
+  character's legendary values (read from the tag; `--extra-paks` reaches the CE
+  runtime's bot characters when `--paks` is a bare game copy), and the host calls
+  it after placing a wave. Maximum only: a fresh unit is full, an earlier
+  wave's hurt survivor is not healed. Bot matches are untouched. Shown: wave 1's
+  8 Elites read 100 and 135, its Grunts 60 and Jackals 80; the same 60 damage
+  left a raised Elite's shield at 56% and a normal one's at 20%. The kinds are
+  legendary, so they also aim better.
 
 ## Testing
 

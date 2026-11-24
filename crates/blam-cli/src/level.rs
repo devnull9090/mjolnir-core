@@ -125,6 +125,10 @@ pub struct BakeArgs {
     pub file: PathBuf,
     #[command(flatten)]
     pub src: Source,
+    /// A second Paks directory for tags the first lacks: the CE runtime's bot
+    /// characters (`bots.waves.vitality`) when `--paks` is a bare game copy.
+    #[arg(long, value_name = "PAKS")]
+    pub extra_paks: Option<PathBuf>,
     /// Directory to write the container into.
     #[arg(long, default_value = ".")]
     pub out_dir: PathBuf,
@@ -889,6 +893,15 @@ pub struct BotWaves {
     /// `squads`: one single-actor squad per seat, so a full wave fills it.
     #[serde(default)]
     pub transport: Option<WaveTransport>,
+    /// `"legendary"`: the bake adds a script per place,
+    /// `wave_vitality_<place>`, that raises each of its wave squads' units to
+    /// the legendary body and shield vitality of its character's tag. A
+    /// Megalo match plays at Normal, so AI otherwise take their normal
+    /// vitality (an Elite 75 and 75, legendary 100 and 135). It sets the
+    /// maximum only: a unit at full stays full, a hurt one is not healed. A
+    /// game type's director calls it after placing the place's wave.
+    #[serde(default)]
+    pub vitality: Option<String>,
     /// The kind of bot each squad is (cycled): names of `bots.types`.
     pub kinds: Vec<String>,
     /// How far outside a place's boundary its wave squads stand, wu.
@@ -909,6 +922,69 @@ pub struct WaveTransport {
     /// unloads by (`fork_p`). Its seats so labelled whose AI seat type is
     /// passenger are the troop seats (cargo seats share the prefix).
     pub seats: String,
+}
+
+/// A character tag's legendary (body, shield) vitality.
+fn character_legendary_vitality(indices: &[&index::Index], oodle: &[PathBuf], character: &str) -> Result<(f32, f32)> {
+    let want = format!("/{}-character", character.replace('\\', "/").to_lowercase());
+    let mut file = None;
+    for idx in indices {
+        let by_group = idx.by_group();
+        if let Some(entry) = by_group
+            .get("character")
+            .and_then(|v| v.iter().find(|e| e.path.to_lowercase().replace('\\', "/").contains(&want)).copied())
+        {
+            file = Some(idx.read(entry, None, oodle)?);
+            break;
+        }
+    }
+    let file = file.with_context(|| format!("bots.waves.vitality: no character tag {character} (the CE runtime's bot characters: --extra-paks)"))?;
+    let v = read_many(
+        &file,
+        &[
+            "vitality properties[0].legendary body vitality".to_string(),
+            "vitality properties[0].legendary shield vitality".to_string(),
+        ],
+    )?;
+    match (&v[0], &v[1]) {
+        (Some(Scalar::Real(body)), Some(Scalar::Real(shield))) if *body > 0.0 => Ok((*body, *shield)),
+        _ => bail!("bots.waves.vitality: {character} has no legendary vitality of its own"),
+    }
+}
+
+/// The `wave_vitality_<place>` scripts (`BotWaves::vitality`).
+fn wave_vitality_scripts(indices: &[&index::Index], oodle: &[PathBuf], bots: &Bots, places: &[String]) -> Result<String> {
+    let Some(w) = bots.waves.as_ref().filter(|w| w.vitality.is_some() && w.squads > 0) else {
+        return Ok(String::new());
+    };
+    if w.vitality.as_deref() != Some("legendary") {
+        bail!("bots.waves.vitality: only \"legendary\" is known");
+    }
+    let mut kinds = Vec::new();
+    for kind in &w.kinds {
+        let character = bots
+            .types
+            .iter()
+            .find(|t| &t.name == kind)
+            .and_then(|t| t.character.as_deref())
+            .with_context(|| format!("bots.waves.vitality: bot type {kind:?} names no character"))?;
+        kinds.push(character_legendary_vitality(indices, oodle, character)?);
+    }
+    let mut out = String::from("\n; bots.waves.vitality: each wave squad's legendary vitality, from its character\n");
+    for place in places {
+        out.push_str(&format!("(script static void wave_vitality_{place}\n"));
+        for k in 0..w.squads {
+            let (body, shield) = kinds[k % kinds.len()];
+            out.push_str(&format!("  (units_set_maximum_vitality (ai_actors wave_{place}_{k}) {body} {shield})\n"));
+        }
+        out.push_str(")\n");
+    }
+    println!(
+        "  bots    wave vitality: {} script(s), legendary {}",
+        places.len(),
+        kinds.iter().map(|(b, s)| format!("{b}/{s}")).collect::<Vec<_>>().join(", ")
+    );
+    Ok(out)
 }
 
 /// How many troop seats `t.vehicle` has: seats labelled `t.seats...` with AI
@@ -3986,6 +4062,9 @@ impl Baker {
                 None => unheld += w.squads,
             }
         }
+        if unheld > 0 && w.vitality.is_some() {
+            bail!("bots.waves.vitality: {unheld} wave squad(s) are for places not held, which its scripts name by place");
+        }
         println!(
             "  bots    wave squads: {placed} for {} place(s) to hold ({}), {unheld} for places not held",
             held_names.len(),
@@ -4129,11 +4208,25 @@ fn bake(a: BakeArgs) -> Result<()> {
                 bail!("blam.script needs clear.scripts: the script is compiled beside the startup script that clear writes");
             }
             let path = a.file.parent().unwrap_or(Path::new(".")).join(rel);
-            let text = std::fs::read_to_string(&path)
+            let mut text = std::fs::read_to_string(&path)
                 .with_context(|| format!("reading blam.script {}", path.display()))?;
+            if let Some(b) = &level.blam.bots {
+                // Every labelled place to hold (the wave squads' names); the
+                // bots' own pass, which keeps only those it can hold, runs later.
+                let places: Vec<String> =
+                    bot_objectives(&level.blam.objects, &b.objectives)?.into_iter().map(|o| o.name).collect();
+                let extra = a.extra_paks.as_ref().map(index::build).transpose()?;
+                let indices: Vec<&index::Index> = std::iter::once(&idx).chain(extra.as_ref()).collect();
+                text.push_str(&wave_vitality_scripts(&indices, &a.src.oodle_roots(), b, &places)?);
+            }
             Some((path, text))
         }
-        None => None,
+        None => {
+            if level.blam.bots.as_ref().and_then(|b| b.waves.as_ref()).is_some_and(|w| w.vitality.is_some()) {
+                bail!("bots.waves.vitality needs blam.script: its scripts are compiled with the level's own");
+            }
+            None
+        }
     };
     baker.clears(&level.blam.clear, script.as_ref().map(|(p, t)| (p.as_path(), t.as_str())))?;
     if level.blam.map_variant {
