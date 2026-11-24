@@ -7,7 +7,8 @@ water's edge thinning up the bank, and a few larger stones with shadows. They ba
 static instances (the meadow-life route: build_sweep_banks.pack_groups -> apply_pwr_river_stones.py
 -> MjolnirUIBuilderLibrary.bake_foliage), so nothing runs at load.
 
-They have no collision: the largest is under half a metre across and they sit a third sunk.
+They have no collision (cobbles 20-77 cm, stones up to 1.3 m across and 0.55 m tall, a third
+sunk), so the larger ones keep 4 m from the level's placed points (checked offline, release 51).
 
   python river_stones.py LEVEL.json SHORE_MASK.png TERRAIN_DIR OUT_DIR [--seed 53]
 
