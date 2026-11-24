@@ -206,10 +206,24 @@ def apply(source):
         waves = bots["waves"]
         waves.pop("squads", None)
         waves["transport"] = {"vehicle": SPIRIT_TAG, "seats": "fork_p"}
-        waves["kinds"] = ["elite_legendary", "grunt_legendary", "elite_legendary", "jackal_legendary"]
-        # and their legendary vitality: a Megalo match plays at Normal, and an
-        # Elite at Normal has 75 and 75 to legendary's 100 and 135.
-        waves["vitality"] = "legendary"
+        # Waves get harder as the match goes on: the host takes tier
+        # (wave - 1) // 3, so waves 1-3 are tier 0, 4-6 tier 1 and so on, the
+        # last tier from then on. A Megalo match plays at Normal, so vitality
+        # "legendary" (times scale) raises each unit to its character's
+        # legendary values (an Elite's normal 75 and 75, legendary 100 and 135).
+        # Tiers 2 and 3 take better-aiming characters once the runtime has them.
+        waves.pop("kinds", None)
+        waves.pop("vitality", None)
+        waves["forks"] = 3
+        waves["tiers"] = [
+            {"kinds": ["elite_heroic", "grunt_heroic", "grunt_heroic", "jackal_heroic"]},
+            {"kinds": ["elite_legendary", "grunt_legendary", "elite_legendary", "jackal_legendary"],
+             "vitality": "legendary"},
+            {"kinds": ["elite_legendary", "elite_legendary", "grunt_legendary", "elite_legendary"],
+             "vitality": "legendary", "scale": 1.25},
+            {"kinds": ["elite_legendary", "elite_legendary", "elite_legendary", "jackal_legendary"],
+             "vitality": "legendary", "scale": 1.5},
+        ]
 
     flags = blam.setdefault("cutscene_flags", [])
     flags[:] = [flag for flag in flags if not flag.get("name", "").startswith("pwr_")]

@@ -526,6 +526,10 @@ static void test_waves(void) {
     assert(warfare_site_owner(team) == 1 && warfare_site_candidate(team) == 5 && !warfare_site_covenant_present(team));
     assert(warfare_site_owner(0) == 0 && warfare_site_candidate(-1) == 0 && warfare_site_owner(2) == 2);
     /* Size: the cap holds. */
+    /* Harder as it goes: three waves a tier, then the last tier. */
+    assert(warfare_wave_tier(1, 4) == 0 && warfare_wave_tier(3, 4) == 0 && warfare_wave_tier(4, 4) == 1);
+    assert(warfare_wave_tier(9, 4) == 2 && warfare_wave_tier(10, 4) == 3 && warfare_wave_tier(40, 4) == 3);
+    assert(warfare_wave_tier(5, 1) == 0 && warfare_wave_tier(0, 4) == 0 && warfare_wave_tier(3, 0) == 0);
     assert(warfare_wave_size(0, 16) == 16 && warfare_wave_size(WARFARE_WAVE_CAP - 2, 16) == 2);
     assert(warfare_wave_size(WARFARE_WAVE_CAP, 4) == 0 && warfare_wave_size(WARFARE_WAVE_CAP + 8, 4) == 0 && warfare_wave_size(0, 0) == 0);
     /* A piloted Spirit is home within 40 m in plan of where it came in, at any height. */

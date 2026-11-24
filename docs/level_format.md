@@ -416,6 +416,12 @@ shell's.
   //                           "seats": "fork_p" }, "kinds": [...],
   //   "vitality": "legendary" },  // scripts wave_vitality_<place>: each squad's
   //                               // character's legendary body and shield
+  // or waves that get harder: a pool per tier of `forks` transports' worth,
+  // squads wave_t<tier>_<fork>_<seat>; a director sends them (ai_set_task) and
+  // calls wave_vitality_t<tier> (legendary vitality times `scale`)
+  // "waves": { "transport": {...}, "forks": 3, "tiers": [
+  //   { "kinds": ["elite_heroic", "grunt_heroic"] },
+  //   { "kinds": ["elite_legendary"], "vitality": "legendary", "scale": 1.25 } ] },
   "types": [                       // kinds of bot, `count` squads each: <name>_<k>
     { "name": "spartan", "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan",
       "weapon": "assault_rifle", "team": "covenant" },

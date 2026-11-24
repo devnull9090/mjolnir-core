@@ -518,6 +518,34 @@ From a two-PC playtest (host PC 1, joiner PC 3):
   left a raised Elite's shield at 56% and a normal one's at 20%. The kinds are
   legendary, so they also aim better.
 
+## Waves that get harder (2026-11-24)
+
+Each wave is harder than the last few: the host takes tier `(wave - 1) / 3`
+(`warfare_wave_tier`; `WARFARE_WAVES_PER_TIER`), the map's last tier from then
+on. The bake's `waves.tiers` makes a pool per tier of three Spirits' worth (one
+per site), `wave_t<tier>_<fork>_<seat>`, standing by the first place held; the
+host places a free fork of the wave's tier, sends its squads to the chosen
+spot's task (`ai_set_task <squad> mjolnir_bots koth_hill_<place>`), loads them
+into the Spirit and calls the tier's `wave_vitality_t<tier>`. A fork is the
+site's it was sent to until its squads are dead. A site whose Spirit is still
+out waits; with no Spirit at all the wave is skipped, as the pools stand away
+from every site.
+
+PWR's ladder (`prepare_runtime.py`):
+
+| Waves | From | Kinds | Vitality |
+|---|---|---|---|
+| 1-3 | 0:45 | heroic: Elite, 2 Grunts, Jackal in turn | normal (Elite 75/75) |
+| 4-6 | 5:15 | legendary: 2 Elites, Grunt, Jackal | legendary (Elite 100/135) |
+| 7-9 | 9:45 | legendary: 3 Elites, Grunt | legendary x1.25 |
+| 10- | 14:15 | legendary: 3 Elites, Jackal | legendary x1.5 |
+
+Planned: tiers 2 and 3 take characters that aim better than legendary (a
+warm-up to full accuracy of a quarter second or none, little or no projectile
+error, short burst separation, full weapon damage). Those are new character
+tags in the CE runtime (`build_bot_characters.sh`), so a runtime release; first
+a check of which of a weapon's four firing patterns a Megalo match reads.
+
 ## Testing
 
 Each rule gets a `warfare_behavior.rs` case and each native change a

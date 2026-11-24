@@ -534,8 +534,21 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
  * "transport"). The simulation keeps 96 actors; 31 lived and 16 rode, jumped
  * and walked off on PWR (2026-11-23). */
 #define WARFARE_WAVE_CAP 48
-/* The most wave squads a place may have (looked for up to this many). */
+/* The most squads a fork (one Spirit's load) may have, forks a tier and
+ * tiers a map (looked for up to these). */
 #define WARFARE_WAVE_SQUADS 32
+#define WARFARE_WAVE_FORKS 4
+#define WARFARE_WAVE_TIERS 8
+/* Waves get harder: this many waves to a tier. */
+#define WARFARE_WAVES_PER_TIER 3
+
+/* The tier wave `n` (1-based) takes: 1-3 the first, 4-6 the second, ...,
+ * and the last tier the map has from then on. */
+static int warfare_wave_tier(int n, int tiers) {
+    if (tiers <= 0) return 0;
+    int t = n > 0 ? (n - 1) / WARFARE_WAVES_PER_TIER : 0;
+    return t < tiers ? t : tiers - 1;
+}
 
 /* Which wave the combat clock is in: 0 before the first, then 1, 2, ... */
 static int warfare_wave_index(int combat_seconds) {

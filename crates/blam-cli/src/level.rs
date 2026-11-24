@@ -903,14 +903,58 @@ pub struct BotWaves {
     #[serde(default)]
     pub vitality: Option<String>,
     /// The kind of bot each squad is (cycled): names of `bots.types`.
+    #[serde(default)]
     pub kinds: Vec<String>,
     /// How far outside a place's boundary its wave squads stand, wu.
     #[serde(default = "default_wave_distance")]
     pub distance: f32,
+    /// Waves that get harder: instead of squads per place, a pool per tier
+    /// of `forks` transports' worth, `wave_t<tier>_<fork>_<k>` (`squads` per
+    /// fork). A game type's director picks the tier, sends a fork's squads to
+    /// the place it attacks (`ai_set_task`) and calls `wave_vitality_t<tier>`.
+    /// `kinds` and `vitality` above are then unused.
+    #[serde(default)]
+    pub tiers: Vec<WaveTier>,
+    /// How many of a tier's transports may be out at once (one per site).
+    #[serde(default = "default_wave_forks")]
+    pub forks: usize,
 }
 
 fn default_wave_distance() -> f32 {
     6.0
+}
+
+fn default_wave_forks() -> usize {
+    3
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WaveTier {
+    /// The kind of bot each seat is (cycled): names of `bots.types`.
+    pub kinds: Vec<String>,
+    /// `"legendary"`: the tier's script raises each unit's maximum vitality to
+    /// its character's legendary values (times `scale`). Unset: as placed.
+    #[serde(default)]
+    pub vitality: Option<String>,
+    /// A multiple of `vitality`'s values.
+    #[serde(default = "default_tier_scale")]
+    pub scale: f32,
+}
+
+fn default_tier_scale() -> f32 {
+    1.0
+}
+
+impl BotWaves {
+    /// Every wave squad the bake makes: per place, or the tiers' pools.
+    fn total(&self, places: usize) -> usize {
+        if self.tiers.is_empty() {
+            self.squads * places
+        } else {
+            self.tiers.len() * self.forks * self.squads
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -954,6 +998,43 @@ fn character_legendary_vitality(indices: &[&index::Index], oodle: &[PathBuf], ch
 
 /// The `wave_vitality_<place>` scripts (`BotWaves::vitality`).
 fn wave_vitality_scripts(indices: &[&index::Index], oodle: &[PathBuf], bots: &Bots, places: &[String]) -> Result<String> {
+    let character_of = |kind: &String| -> Result<&str> {
+        bots.types
+            .iter()
+            .find(|t| &t.name == kind)
+            .and_then(|t| t.character.as_deref())
+            .with_context(|| format!("bots.waves.vitality: bot type {kind:?} names no character"))
+    };
+    // Tiers: a script per tier with vitality, over its whole pool.
+    if let Some(w) = bots.waves.as_ref().filter(|w| !w.tiers.is_empty() && w.squads > 0) {
+        let mut out = String::from("\n; bots.waves.tiers: each tier's legendary vitality, from its characters\n");
+        let mut said = Vec::new();
+        for (t, tier) in w.tiers.iter().enumerate() {
+            match tier.vitality.as_deref() {
+                None => continue,
+                Some("legendary") => {}
+                Some(other) => bail!("bots.waves.tiers[{t}].vitality: {other:?}; only \"legendary\" is known"),
+            }
+            let mut kinds = Vec::new();
+            for kind in &tier.kinds {
+                let (b, sh) = character_legendary_vitality(indices, oodle, character_of(kind)?)?;
+                kinds.push((b * tier.scale, sh * tier.scale));
+            }
+            out.push_str(&format!("(script static void wave_vitality_t{t}\n"));
+            for f in 0..w.forks {
+                for k in 0..w.squads {
+                    let (body, shield) = kinds[k % kinds.len()];
+                    out.push_str(&format!("  (units_set_maximum_vitality (ai_actors wave_t{t}_{f}_{k}) {body} {shield})\n"));
+                }
+            }
+            out.push_str(")\n");
+            said.push(format!("t{t} x{}", tier.scale));
+        }
+        if !said.is_empty() {
+            println!("  bots    wave vitality: {}", said.join(", "));
+        }
+        return Ok(out);
+    }
     let Some(w) = bots.waves.as_ref().filter(|w| w.vitality.is_some() && w.squads > 0) else {
         return Ok(String::new());
     };
@@ -3096,7 +3177,7 @@ impl Baker {
             };
             Ok(if cleared { kept } else { before })
         };
-        let waves = bots.waves.as_ref().map_or(0, |w| w.squads * places);
+        let waves = bots.waves.as_ref().map_or(0, |w| w.total(places));
         let squad = base("squads", donor, count * bots.kinds().len() + waves)?;
         let zone = base("zones", bots.zone, 1)?;
         let objective = base("ai objectives", bots.objective, 1)?;
@@ -3957,14 +4038,21 @@ impl Baker {
         shell: &blam_sbsp::ce::Collision,
         components: &[usize],
     ) -> Result<()> {
-        if w.squads == 0 || w.kinds.is_empty() {
+        let pooled = !w.tiers.is_empty();
+        if w.squads == 0 || (!pooled && w.kinds.is_empty()) {
             return Ok(());
         }
-        let kinds: Vec<&ResolvedKind> = w
-            .kinds
-            .iter()
-            .map(|k| resolved.iter().find(|r| &r.0 == k).with_context(|| format!("bots.waves: no bot type named {k:?}")))
-            .collect::<Result<_>>()?;
+        let resolve = |names: &[String]| -> Result<Vec<&ResolvedKind>> {
+            if names.is_empty() {
+                bail!("bots.waves: a tier names no kinds");
+            }
+            names
+                .iter()
+                .map(|k| resolved.iter().find(|r| &r.0 == k).with_context(|| format!("bots.waves: no bot type named {k:?}")))
+                .collect()
+        };
+        let kinds: Vec<&ResolvedKind> = if pooled { Vec::new() } else { resolve(&w.kinds)? };
+        let tier_kinds: Vec<Vec<&ResolvedKind>> = w.tiers.iter().map(|t| resolve(&t.kinds)).collect::<Result<_>>()?;
         let first = ix.squad + ix.count * bots.kinds().len();
         // Ground round each place: positions on the main ground in a ring
         // outside its boundary, with nothing over them for a body's height.
@@ -4022,14 +4110,38 @@ impl Baker {
             if held.is_some() && around.is_empty() {
                 println!("  note    bots: {}: no ground {lo:.1} to {hi:.1} wu from it for wave squads; they stand at its centre", o.name);
             }
-            for k in 0..w.squads {
-                let s = format!("squads[{}]", first + j * w.squads + k);
-                let (name, character, weapons, team) = kinds[k % kinds.len()];
-                let at = if around.is_empty() { c } else { around[k * around.len() / w.squads].1 };
-                let squad_name = match held {
-                    Some(_) => format!("wave_{}_{k}", o.name),
-                    None => format!("wave_unheld_{j}_{k}"),
-                };
+            // (squad index, name, kind, where it stands, which weapon), then written alike.
+            let mut jobs: Vec<(usize, String, &ResolvedKind, [f32; 3], usize)> = Vec::new();
+            if pooled {
+                // The tiers' pools stand round the first place held; a director
+                // loads them into a transport at once and sends them on.
+                if held.is_none() || placed > 0 {
+                    continue;
+                }
+                let total = w.total(0);
+                for (t, tk) in tier_kinds.iter().enumerate() {
+                    for f in 0..w.forks {
+                        for k in 0..w.squads {
+                            let n = (t * w.forks + f) * w.squads + k;
+                            let at = if around.is_empty() { c } else { around[n * around.len() / total].1 };
+                            jobs.push((first + n, format!("wave_t{t}_{f}_{k}"), tk[k % tk.len()], at, k));
+                        }
+                    }
+                }
+            } else {
+                for k in 0..w.squads {
+                    let at = if around.is_empty() { c } else { around[k * around.len() / w.squads].1 };
+                    let squad_name = match held {
+                        Some(_) => format!("wave_{}_{k}", o.name),
+                        None => format!("wave_unheld_{j}_{k}"),
+                    };
+                    jobs.push((first + j * w.squads + k, squad_name, kinds[k % kinds.len()], at, k));
+                }
+            }
+            let count = jobs.len();
+            for (index, squad_name, kind, at, k) in jobs {
+                let s = format!("squads[{index}]");
+                let (name, character, weapons, team) = kind;
                 set_fixed_string(&mut self.file, &format!("{s}.name"), &squad_name)?;
                 // Facing the place.
                 let yaw = (c[1] - at[1]).atan2(c[0] - at[0]);
@@ -4058,18 +4170,28 @@ impl Baker {
                 }
             }
             match held {
-                Some(_) => placed += w.squads,
-                None => unheld += w.squads,
+                Some(_) => placed += count,
+                None => unheld += count,
             }
         }
-        if unheld > 0 && w.vitality.is_some() {
+        if unheld > 0 && w.vitality.is_some() && !pooled {
             bail!("bots.waves.vitality: {unheld} wave squad(s) are for places not held, which its scripts name by place");
         }
-        println!(
-            "  bots    wave squads: {placed} for {} place(s) to hold ({}), {unheld} for places not held",
-            held_names.len(),
-            w.kinds.join(", ")
-        );
+        if pooled {
+            println!(
+                "  bots    wave squads: {} tier(s) of {} fork(s) of {}: {placed} ({})",
+                w.tiers.len(),
+                w.forks,
+                w.squads,
+                w.tiers.iter().map(|t| t.kinds.join("+")).collect::<Vec<_>>().join(" / ")
+            );
+        } else {
+            println!(
+                "  bots    wave squads: {placed} for {} place(s) to hold ({}), {unheld} for places not held",
+                held_names.len(),
+                w.kinds.join(", ")
+            );
+        }
         Ok(())
     }
 

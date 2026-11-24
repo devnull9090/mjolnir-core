@@ -57,8 +57,10 @@ static struct {
      * so a client never waits to board a Pelican that is not there). */
     int clock_seconds, clock_tick, parked[2];
     /* Covenant waves (warfare_waves): looked for once a world; per site its
-     * place (marker order) and how many wave squads the map gives it. */
-    int wave_probed, wave_off, wave_place[WARFARE_SITES], wave_squads[WARFARE_SITES];
+     * place (marker order); the map's tiers, forks per tier and squads per
+     * fork; and the site each fork was last sent to (-1 free). */
+    int wave_probed, wave_off, wave_place[WARFARE_SITES];
+    int wave_tiers, wave_forks, wave_seats, wave_fork_site[WARFARE_WAVE_TIERS][WARFARE_WAVE_FORKS];
     int wave_last_seconds, wave_last_target, wave_count;
     /* The Covenant count last written to each site marker (-1 none yet). */
     int contest[WARFARE_SITES];
@@ -461,24 +463,28 @@ static void warfare_spirits(unsigned char *tls, int rate) {
     }
 }
 
-/* A wave squad's name: wave_koth_hill_<place>_<k>. */
-static void warfare_wave_squad(char *out, size_t size, int place, int k) {
-    snprintf(out, size, "wave_koth_hill_%d_%d", place, k);
+/* A wave squad's name: wave_t<tier>_<fork>_<seat> (the bake's bots.waves.tiers). */
+static void warfare_wave_squad(char *out, size_t size, int tier, int fork, int k) {
+    snprintf(out, size, "wave_t%d_%d_%d", tier, fork, k);
 }
 
 /* How many of a squad's AI live, or -1 when the map has no such squad. */
-static int warfare_wave_living(int place, int k) {
+static int warfare_wave_living(int tier, int fork, int k) {
     char name[64], line[128];
-    warfare_wave_squad(name, sizeof name, place, k);
+    warfare_wave_squad(name, sizeof name, tier, fork, k);
     snprintf(line, sizeof line, "(ai_living_count %s)", name);
     int value = -1;
     return warfare_hs_value(line, &value) ? value : -1;
 }
 
-/* Covenant waves, on the host in combat: once a world, which sites have wave
- * squads; then on each wave time (warfare_wave_due) the free squads of the
- * site warfare_wave_target picks are placed. Their first task holds the
- * site's chosen spot, baked in, so placing is the whole order. Nothing runs
+/* Covenant waves, on the host in combat. The map bakes a pool of squads per
+ * tier, each pool `forks` Spirits' worth (one per seat): wave_t<tier>_<fork>_<k>.
+ * Once a world the host counts them; then on each wave time
+ * (warfare_wave_due) it takes the tier for the wave number
+ * (warfare_wave_tier: the waves get harder), picks the site
+ * (warfare_wave_target), places a free fork of that tier, sends its squads to
+ * the site's chosen spot (its task koth_hill_<place>), loads them into the
+ * site's Spirit and calls the tier's wave_vitality_t<tier>. Nothing runs
  * between wave times but the due check. */
 static void warfare_waves(const warfare_snapshot *s) {
     if (!s->host || s->globals[0] != 2 || warfare.wave_off) return;
@@ -488,20 +494,21 @@ static void warfare_waves(const warfare_snapshot *s) {
     if (!hs_evaluate || GetCurrentThreadId() != sim_thread_id) return;
     if (!warfare.wave_probed) {
         warfare.wave_probed = 1;
-        int any = 0;
-        for (int site = 0; site < WARFARE_SITES; site++) {
-            int packed = s->globals[9 + site];
-            int candidate = warfare_site_candidate(packed);
-            warfare.wave_place[site] = site + 3 * candidate;
-            int k = 0;
-            while (k < WARFARE_WAVE_SQUADS && warfare_wave_living(warfare.wave_place[site], k) >= 0) k++;
-            warfare.wave_squads[site] = k;
-            any |= k > 0;
+        for (int site = 0; site < WARFARE_SITES; site++)
+            warfare.wave_place[site] = site + 3 * warfare_site_candidate(s->globals[9 + site]);
+        int t = 0, f = 0, k = 0;
+        while (t < WARFARE_WAVE_TIERS && warfare_wave_living(t, 0, 0) >= 0) t++;
+        if (t > 0) {
+            while (f < WARFARE_WAVE_FORKS && warfare_wave_living(0, f, 0) >= 0) f++;
+            while (k < WARFARE_WAVE_SQUADS && warfare_wave_living(0, 0, k) >= 0) k++;
         }
-        fireteam_log("warfare: waves: squads per site A %d (koth_hill_%d), B %d (koth_hill_%d), C %d (koth_hill_%d)%s",
-                     warfare.wave_squads[0], warfare.wave_place[0], warfare.wave_squads[1], warfare.wave_place[1],
-                     warfare.wave_squads[2], warfare.wave_place[2], any ? "" : "; this map has none, so no waves");
-        if (!any) { warfare.wave_off = 1; return; }
+        warfare.wave_tiers = t; warfare.wave_forks = f; warfare.wave_seats = k;
+        for (int a = 0; a < WARFARE_WAVE_TIERS; a++)
+            for (int b = 0; b < WARFARE_WAVE_FORKS; b++) warfare.wave_fork_site[a][b] = -1;
+        fireteam_log("warfare: waves: %d tier(s) of %d fork(s) of %d squad(s); spots A koth_hill_%d, B koth_hill_%d, C koth_hill_%d%s",
+                     t, f, k, warfare.wave_place[0], warfare.wave_place[1], warfare.wave_place[2],
+                     t > 0 && f > 0 && k > 0 ? "" : "; this map has none, so no waves");
+        if (t <= 0 || f <= 0 || k <= 0) { warfare.wave_off = 1; return; }
     }
     if (teams_installed) {
         /* The bots' team table puts red on the Covenant's side. */
@@ -512,84 +519,92 @@ static void warfare_waves(const warfare_snapshot *s) {
     int due = warfare_wave_due(warfare.wave_last_seconds, seconds);
     warfare.wave_last_seconds = seconds;
     if (!due) return;
+    int tier = warfare_wave_tier(warfare.wave_count + 1, warfare.wave_tiers);
+    /* Who lives where: a fork counts for the site it was sent to until its
+     * squads are all dead, then it is free again. */
     int live[WARFARE_SITES] = {0}, free_squads[WARFARE_SITES] = {0}, owner[WARFARE_SITES], total = 0;
-    int living[WARFARE_SITES][WARFARE_WAVE_SQUADS];
+    int free_fork = -1;
+    for (int t = 0; t < warfare.wave_tiers; t++) {
+        for (int f = 0; f < warfare.wave_forks; f++) {
+            int fork_live = 0;
+            for (int k = 0; k < warfare.wave_seats; k++) {
+                int n = warfare_wave_living(t, f, k);
+                if (n > 0) fork_live += n;
+            }
+            int site = warfare.wave_fork_site[t][f];
+            if (fork_live > 0 && site >= 0 && site < WARFARE_SITES) live[site] += fork_live;
+            total += fork_live;
+            if (fork_live == 0) warfare.wave_fork_site[t][f] = -1;
+            if (t == tier && fork_live == 0 && free_fork < 0) free_fork = f;
+        }
+    }
     for (int site = 0; site < WARFARE_SITES; site++) {
         owner[site] = warfare_site_owner(s->globals[9 + site]);
-        for (int k = 0; k < warfare.wave_squads[site]; k++) {
-            int n = warfare_wave_living(warfare.wave_place[site], k);
-            living[site][k] = n;
-            if (n > 0) live[site] += n; else free_squads[site]++;
-        }
-        total += live[site];
+        /* A site whose Spirit is still out waits for it. */
+        int spirit_free = warfare.spirit[site].stage == WARFARE_SPIRIT_NONE
+            && warfare_spirit_path(site, warfare.wave_place[site] / 3);
+        free_squads[site] = free_fork >= 0 && spirit_free ? warfare.wave_seats : 0;
     }
     int target = warfare_wave_target(live, free_squads, owner, warfare.wave_last_target);
     int size = target >= 0 ? warfare_wave_size(total, free_squads[target]) : 0;
     warfare.wave_count++;
     if (size <= 0) {
-        fireteam_log("warfare: wave %d skipped at %d s: %d Covenant alive (cap %d), free squads A %d B %d C %d",
-                     warfare.wave_count, seconds, total, WARFARE_WAVE_CAP, free_squads[0], free_squads[1], free_squads[2]);
+        fireteam_log("warfare: wave %d (tier %d) skipped at %d s: %d Covenant alive (cap %d), %s",
+                     warfare.wave_count, tier, seconds, total, WARFARE_WAVE_CAP,
+                     free_fork < 0 ? "no free fork in its tier" : "no site's Spirit free");
         return;
     }
     mjolnir_bots_enable(NULL); /* the ai_place gate, once */
     int place = warfare.wave_place[target], candidate = place / 3;
-    char line[160];
-    /* A Spirit brings them when the map has one for this spot and none is
-     * already on its way to the site; otherwise they walk in from round it. */
-    int spirit = 0;
-    if (warfare_spirit_path(target, candidate) && warfare.spirit[target].stage == WARFARE_SPIRIT_NONE) {
-        int health = 0;
-        snprintf(line, sizeof line, "(object_get_health pwr_spirit_%d)", place);
-        if (warfare_hs_value(line, &health)) {
-            snprintf(line, sizeof line, "(object_create_anew pwr_spirit_%d)", place);
-            spirit = warfare_hs(line);
-            snprintf(line, sizeof line, "(object_hide pwr_spirit_%d true)", place); warfare_hs(line);
-            snprintf(line, sizeof line, "(object_cannot_take_damage pwr_spirit_%d)", place); warfare_hs(line);
-        }
+    char line[192];
+    int spirit = 0, health = 0;
+    snprintf(line, sizeof line, "(object_get_health pwr_spirit_%d)", place);
+    if (warfare_hs_value(line, &health)) {
+        snprintf(line, sizeof line, "(object_create_anew pwr_spirit_%d)", place);
+        spirit = warfare_hs(line);
+        snprintf(line, sizeof line, "(object_hide pwr_spirit_%d true)", place); warfare_hs(line);
+        snprintf(line, sizeof line, "(object_cannot_take_damage pwr_spirit_%d)", place); warfare_hs(line);
     }
-    int pilot = 0;
-    if (spirit) {
-        char squad[32], vehicle[32];
-        snprintf(squad, sizeof squad, "pilot_spirit_%d", target);
-        snprintf(vehicle, sizeof vehicle, "pwr_spirit_%d", place);
-        pilot = warfare_seat_pilot(squad, vehicle, "fork_d");
+    if (!spirit) {
+        /* The pools stand away from every site: without its Spirit a wave
+         * would walk in from there. */
+        fireteam_log("warfare: wave %d skipped: no Spirit pwr_spirit_%d", warfare.wave_count, place);
+        return;
     }
+    char squad[32], vehicle[32];
+    snprintf(squad, sizeof squad, "pilot_spirit_%d", target);
+    snprintf(vehicle, sizeof vehicle, "pwr_spirit_%d", place);
+    int pilot = warfare_seat_pilot(squad, vehicle, "fork_d");
     int placed = 0;
-    for (int k = 0; k < warfare.wave_squads[target] && placed < size; k++) {
-        if (living[target][k] > 0) continue;
+    for (int k = 0; k < warfare.wave_seats && placed < size; k++) {
         char name[64];
-        warfare_wave_squad(name, sizeof name, place, k);
+        warfare_wave_squad(name, sizeof name, tier, free_fork, k);
         snprintf(line, sizeof line, "(ai_place %s)", name);
         if (!warfare_hs(line)) continue;
-        if (spirit) {
-            snprintf(line, sizeof line, "(vehicle_load_magic pwr_spirit_%d \"fork_p\" (ai_actors %s))", place, name);
-            warfare_hs(line);
-        }
+        snprintf(line, sizeof line, "(ai_set_task %s mjolnir_bots koth_hill_%d)", name, place); warfare_hs(line);
+        snprintf(line, sizeof line, "(vehicle_load_magic pwr_spirit_%d \"fork_p\" (ai_actors %s))", place, name); warfare_hs(line);
         snprintf(line, sizeof line, "(ai_force_active %s true)", name); warfare_hs(line);
-        if (!spirit) { snprintf(line, sizeof line, "(object_wake_physics (ai_get_unit %s))", name); warfare_hs(line); }
         placed++;
     }
-    /* The map's legendary vitality for this place's wave squads (the bake's
-     * wave_vitality_<place>; a Megalo match plays at Normal). It raises the
-     * maximum only, so earlier waves' survivors are not healed. A map baked
-     * without it has no such script: the call fails and nothing changes. */
+    /* The tier's vitality (the bake's wave_vitality_t<tier>; a Megalo match
+     * plays at Normal). Maximum only, so a hurt survivor is not healed. A tier
+     * without one has no script: the call fails and nothing changes. */
     int tough = 0;
     if (placed > 0) {
-        snprintf(line, sizeof line, "(wave_vitality_koth_hill_%d)", place);
+        snprintf(line, sizeof line, "(wave_vitality_t%d)", tier);
         tough = warfare_hs(line);
     }
-    if (spirit) {
-        memset(&warfare.spirit[target], 0, sizeof warfare.spirit[target]);
-        warfare.spirit[target].stage = WARFARE_SPIRIT_FLY;
-        warfare.spirit[target].place = place;
-        warfare.spirit[target].site = target;
-        warfare.spirit[target].candidate = candidate;
-        warfare.spirit[target].pilot = pilot;
-    }
+    warfare.wave_fork_site[tier][free_fork] = target;
+    memset(&warfare.spirit[target], 0, sizeof warfare.spirit[target]);
+    warfare.spirit[target].stage = WARFARE_SPIRIT_FLY;
+    warfare.spirit[target].place = place;
+    warfare.spirit[target].site = target;
+    warfare.spirit[target].candidate = candidate;
+    warfare.spirit[target].pilot = pilot;
     warfare.wave_last_target = target;
-    fireteam_log("warfare: wave %d at %d s to site %c (koth_hill_%d): %d squad(s) placed%s%s, %d Covenant alive before",
-                 warfare.wave_count, seconds, 'A' + target, place, placed, spirit ? " in a Spirit" : "",
-                 tough ? " at legendary vitality" : "", total);
+    fireteam_log("warfare: wave %d (tier %d, fork %d) at %d s to site %c (koth_hill_%d): %d squad(s) placed in a Spirit%s, %d Covenant alive before",
+                 warfare.wave_count, tier, free_fork, seconds, 'A' + target, place, placed,
+                 tough ? " with the tier's vitality" : "", total);
 }
 
 static unsigned char *warfare_biped(unsigned char *tls, uint32_t handle) {
