@@ -1120,14 +1120,19 @@ pub struct BotType {
     /// character fights players only on a team that is not theirs.
     #[serde(default)]
     pub team: Option<String>,
+    /// A kind for `waves` alone: no `<name>_<k>` squads of its own (a map's
+    /// squads are few, 512 on a scenario).
+    #[serde(default)]
+    pub wave_only: bool,
 }
 
 impl Bots {
+    /// The kinds with squads of their own.
     fn kinds(&self) -> Vec<BotType> {
         if self.types.is_empty() {
-            vec![BotType { name: "bot".into(), character: None, weapon: None, weapons: Vec::new(), team: None }]
+            vec![BotType { name: "bot".into(), character: None, weapon: None, weapons: Vec::new(), team: None, wave_only: false }]
         } else {
-            self.types.clone()
+            self.types.iter().filter(|t| !t.wave_only).cloned().collect()
         }
     }
 }
@@ -3929,7 +3934,8 @@ impl Baker {
         self.file = blockedit::select(&self.file, &keep)?;
         // Each kind's character and weapons, for the wave squads.
         let mut resolved: Vec<ResolvedKind> = Vec::new();
-        for (t, kind) in bots.kinds().iter().enumerate() {
+        let wave_only: Vec<BotType> = bots.types.iter().filter(|t| t.wave_only).cloned().collect();
+        for (t, kind) in bots.kinds().iter().chain(wave_only.iter()).enumerate() {
             let wanted: Vec<&String> = if kind.weapons.is_empty() {
                 kind.weapon.as_ref().or(bots.weapon.as_ref()).into_iter().collect()
             } else {
@@ -3973,6 +3979,9 @@ impl Baker {
                 None => None,
             };
             resolved.push((kind.name.clone(), character, weapons.clone(), kind.team.clone()));
+            if kind.wave_only {
+                continue;
+            }
             for i in 0..ix.count {
                 let s = format!("squads[{}]", ix.squad + t * ix.count + i);
                 let (pos, yaw) = spawns[i % spawns.len()];

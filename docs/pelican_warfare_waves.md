@@ -537,14 +537,27 @@ PWR's ladder (`prepare_runtime.py`):
 |---|---|---|---|
 | 1-3 | 0:45 | heroic: Elite, 2 Grunts, Jackal in turn | normal (Elite 75/75) |
 | 4-6 | 5:15 | legendary: 2 Elites, Grunt, Jackal | legendary (Elite 100/135) |
-| 7-9 | 9:45 | legendary: 3 Elites, Grunt | legendary x1.25 |
-| 10- | 14:15 | legendary: 3 Elites, Jackal | legendary x1.5 |
+| 7-9 | 9:45 | veteran: 3 Elites, Grunt | legendary x1.25 |
+| 10- | 14:15 | ace: 3 Elites, Jackal | legendary x1.5 |
 
-Planned: tiers 2 and 3 take characters that aim better than legendary (a
-warm-up to full accuracy of a quarter second or none, little or no projectile
-error, short burst separation, full weapon damage). Those are new character
-tags in the CE runtime (`build_bot_characters.sh`), so a runtime release; first
-a check of which of a weapon's four firing patterns a Megalo match reads.
+**Aim past legendary.** A Megalo match reads each weapon's firing pattern 1,
+the Normal one: an Elite whose plasma rifle fired 1, 3, 6 and 12 shots a second
+in patterns 0-3 fired 2.74 and 2.82 a second over two 13 s counts, every bolt
+seen in two samples (2026-11-24). `build_bot_characters.sh` makes two levels
+past legendary for the Covenant kinds and their generic parent, which holds
+the Covenant weapons' patterns:
+
+| | Accuracy | Projectile error | Burst separation | Tracking, leading | Damage modifier |
+|---|---|---|---|---|---|
+| veteran | (0.85, 1) after 0.25 s | x0.5 | x0.6 | 1, 1 | 1 where set |
+| ace | (1, 1) at once | 0 | x0.35 | 1, 1 | 1 where set |
+
+The error and separation scale the tightest of normal, heroic and legendary
+(Bungie's legendary is not always the tightest). They are wave-only kinds
+(`bots.types[].wave_only`: no bot squads of their own; PWR has 402 squads of
+512). They ship in the CE runtime as `pakchunk995-MJOLNIRBOT-<kind>-<level>_P`,
+so the map needs a runtime release that carries them; until then they are
+developer builds on PC 1 and PC 3.
 
 ## Testing
 

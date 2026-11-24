@@ -287,7 +287,8 @@ kinds has `bot_<k>` squads only, which every kind falls back to.
 
 Every kind plays a character of MJOLNIR's own at each difficulty level
 (`tools/level/build_bot_characters.sh`): `mjolnir_bot_<kind>_<level>` for
-spartan, elite, grunt and jackal, and normal, heroic and legendary, each with
+spartan, elite, grunt and jackal, and normal, heroic and legendary (and, for
+the Covenant kinds, Warfare's wave-only veteran and ace), each with
 `mjolnir_bot_generic_<level>` as its parent. A map bakes a squad set per kind
 and level (`spartan_legendary_<k>`; 180 squads on Blood Gulch) and the host's
 BOT DIFFICULTY (default LEGENDARY) or `/bots 6 elites heroic` picks one. A

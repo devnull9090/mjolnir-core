@@ -211,7 +211,17 @@ def apply(source):
         # last tier from then on. A Megalo match plays at Normal, so vitality
         # "legendary" (times scale) raises each unit to its character's
         # legendary values (an Elite's normal 75 and 75, legendary 100 and 135).
-        # Tiers 2 and 3 take better-aiming characters once the runtime has them.
+        # Tiers 2 and 3 are the runtime's veteran and ace characters, which aim
+        # past legendary (tools/level/build_bot_characters.sh): wave-only kinds,
+        # cloned here from the legendary ones with their character swapped.
+        types = bots.setdefault("types", [])
+        types[:] = [t for t in types if not t["name"].endswith(("_veteran", "_ace"))]
+        for grade in ("veteran", "ace"):
+            for kind in ("elite", "grunt", "jackal"):
+                base = next((t for t in types if t["name"] == f"{kind}_legendary"), None)
+                if base:
+                    types.append(dict(base, name=f"{kind}_{grade}", wave_only=True,
+                                      character=base["character"].replace("_legendary", f"_{grade}")))
         waves.pop("kinds", None)
         waves.pop("vitality", None)
         waves["forks"] = 3
@@ -219,9 +229,9 @@ def apply(source):
             {"kinds": ["elite_heroic", "grunt_heroic", "grunt_heroic", "jackal_heroic"]},
             {"kinds": ["elite_legendary", "grunt_legendary", "elite_legendary", "jackal_legendary"],
              "vitality": "legendary"},
-            {"kinds": ["elite_legendary", "elite_legendary", "grunt_legendary", "elite_legendary"],
+            {"kinds": ["elite_veteran", "elite_veteran", "grunt_veteran", "elite_veteran"],
              "vitality": "legendary", "scale": 1.25},
-            {"kinds": ["elite_legendary", "elite_legendary", "elite_legendary", "jackal_legendary"],
+            {"kinds": ["elite_ace", "elite_ace", "elite_ace", "jackal_ace"],
              "vitality": "legendary", "scale": 1.5},
         ]
 

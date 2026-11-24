@@ -39,6 +39,16 @@ trap 'rm -r "$work"' EXIT
 # The --set lines that copy a character's accuracy for difficulty $2 (heroic,
 # legendary) into its normal slots, one pair per weapon entry it has; none for
 # normal.
+#
+# Two levels past legendary, for Pelican Warfare's later Covenant waves
+# (docs/pelican_warfare_waves.md "Waves that get harder"): `veteran` and `ace`
+# start from legendary and sharpen it. A Megalo match reads each weapon's
+# firing pattern 1 (the Normal one: measured 2026-11-24, an Elite fired at slot
+# 1's rate of fire and no other's), so those go there too:
+#   accuracy     veteran (0.85, 1) after 0.25 s; ace (1, 1) at once
+#   tracking and leading 1; projectile error legendary's x0.5 / x0
+#   burst separation legendary's x0.6 / x0.35; a damage modifier set below 1
+#   (0 is unset) becomes 1, a player's damage.
 level_sets() {
     [ "$2" = normal ] && return 0
     "$mjolnir" values --group character --tag "$1" --json --elements 200 > "$work/donor.json"
@@ -46,10 +56,39 @@ level_sets() {
 import json, sys
 level = sys.argv[2]
 fields = {f["name"]: f for f in json.load(open(sys.argv[1]))["fields"]}
+sharp = {"veteran": {"bounds": "(0.85, 1)", "time": 0.25, "error": 0.5, "separation": 0.6},
+         "ace": {"bounds": "(1, 1)", "time": 0, "error": 0.0, "separation": 0.35}}.get(level)
+base = "legendary" if sharp else level
 for i, e in enumerate(fields["weapons properties"].get("children", [])):
     v = {f["name"]: f.get("value") for f in e["children"]}
-    print(f"weapons properties[{i}].normal accuracy bounds={v[level + ' accuracy bounds']}")
-    print(f"weapons properties[{i}].normal accuracy time={v[level + ' accuracy time']}")
+    print(f"weapons properties[{i}].normal accuracy bounds={sharp['bounds'] if sharp else v[base + ' accuracy bounds']}")
+    print(f"weapons properties[{i}].normal accuracy time={sharp['time'] if sharp else v[base + ' accuracy time']}")
+if sharp:
+    def bounds(text):
+        return [float(x) for x in text.strip("()").split(",")]
+    for i, e in enumerate(fields.get("firing pattern properties", {}).get("children", [])):
+        pats = [c for c in e["children"] if c["name"] == "firing patterns"]
+        patterns = pats[0].get("children", []) if pats else []
+        if len(patterns) < 4:
+            continue
+        legendary = {f["name"]: f.get("value") for f in patterns[3]["children"]}
+        at = f"firing pattern properties[{i}].firing patterns[1]."
+        for name in ("rate of fire", "burst origin radius", "burst origin angle", "burst return length",
+                     "burst return angle", "burst duration", "burst angular velocity", "maximum error angle"):
+            if legendary.get(name) is not None:
+                print(f"{at}{name}={legendary[name]}")
+        print(f"{at}target tracking=1")
+        print(f"{at}target leading=1")
+        # The tightest of normal, heroic and legendary: Bungie's legendary
+        # slot is not always the sharpest (an Elite's assault rifle).
+        tiers = [{f["name"]: f.get("value") for f in p["children"]} for p in patterns[1:4]]
+        error = min(float(t["projectile error"]) for t in tiers)
+        print(f"{at}projectile error={error * sharp['error']}")
+        lo = min(bounds(t["burst separation"])[0] for t in tiers)
+        hi = min(bounds(t["burst separation"])[1] for t in tiers)
+        print(f"{at}burst separation=({lo * sharp['separation']}, {hi * sharp['separation']})")
+        if float(legendary["weapon damage modifier"]) > 0:
+            print(f"{at}weapon damage modifier=1")
 PY
 }
 
@@ -125,12 +164,25 @@ spartan_body='objects\characters\spartans\spartans'
 # matches tags by that, case and all.
 vitality_sets "characters/Spartans/spartans-model" > "$work/spartan-vitality.sets"
 
-for level in normal heroic legendary; do
+for level in ${MAIN_LEVELS-normal heroic legendary}; do
     generic="objects\characters\ai\mjolnir_bot_generic_$level"
     build "generic-$level" "$level" "ai/generic-character" "$generic"
     EXTRA_SETS="$work/spartan-vitality.sets" build "spartan-$level" "$level" "marine/ai/trooper-character" \
         "objects\characters\spartans\ai\mjolnir_bot_spartan_$level" \
         --set "unit=bipd:$spartan_body" --set "parent character=char:$generic"
+    build "elite-$level" "$level" "Elite/ai/elite-character" \
+        "objects\characters\elite\ai\mjolnir_bot_elite_$level" --set "parent character=char:$generic"
+    build "grunt-$level" "$level" "grunt/ai/grunt-character" \
+        "objects\characters\grunt\ai\mjolnir_bot_grunt_$level" --set "parent character=char:$generic"
+    build "jackal-$level" "$level" "Jackal/ai/jackal-character" \
+        "objects\characters\jackal\ai\mjolnir_bot_jackal_$level" --set "parent character=char:$generic"
+done
+
+# Past legendary, for Warfare's later waves only: the Covenant kinds and their
+# generic parent (which holds the Covenant weapons' firing patterns).
+for level in ${EXTRA_LEVELS-veteran ace}; do
+    generic="objects\characters\ai\mjolnir_bot_generic_$level"
+    build "generic-$level" "$level" "ai/generic-character" "$generic"
     build "elite-$level" "$level" "Elite/ai/elite-character" \
         "objects\characters\elite\ai\mjolnir_bot_elite_$level" --set "parent character=char:$generic"
     build "grunt-$level" "$level" "grunt/ai/grunt-character" \
