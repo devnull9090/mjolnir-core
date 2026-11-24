@@ -419,8 +419,14 @@ point by its name, and B40's banshee path (28 points) is named `p0` to `p4`
 then `pa0` ...; scripts naming `p5` and `p6` were dropped at load. The bake's
 donor is now the set with the longest `p0`, `p1` ... run (14).
 
-Not yet shown: two PCs (the pilot is the host's AI; its Spirit replicates as
-before) and the Spirit's flight heard from the ground. A release bake needs
+Two PCs (host PC 1, joiner PC 3, 2026-11-23): the joiner sees the pilot
+marines in both insertion Pelicans, and wave 1's Spirit (site A) turns in its
+hover and leaves nose-first on both screens. Sampled every 3.5 s, the joiner's
+copy stays within about 1.5 wu of the host's and within 1 degree of its yaw
+(-153.5 on the host against -153.5 to -154.0 on the joiner, matching its
+travel), and both remove it on the same sample; both show the dropped Elites.
+
+Not yet shown: the Spirit's flight heard from the ground. A release bake needs
 `pwr_transports.hsc` beside its level file (`prepare_runtime.py` writes it
 there).
 
