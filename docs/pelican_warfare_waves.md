@@ -388,15 +388,33 @@ each reinforcement sortie and each wave Spirit logged its pilot seated, the
 Spirit unloaded four squads (contest 4) and left on time, and no script call
 failed. The sound itself is for a listener.
 
-**Turning before it leaves: not working.** A powered Spirit keeps its heading
-whatever its velocity, so it still backs out of the hover. Orders from the
-host's evaluator did not turn it: `cs_face_object` and
-`cs_fly_to_object_marker` with the AI argument were accepted and did nothing
-on `elite_pilot`; a combat Elite turned only toward its target (the player).
-Bungie's Spirits turn inside command scripts (`cs_fly_to` along point sets),
-which PWR's cleared scripting data does not have, so that is the route:
-point sets from the transport routes in the bake, and a command script per
-drop.
+**Its pilot flies it out (2026-11-23, not released).** A powered Spirit keeps
+its heading whatever its velocity, so the host alone could only back it out
+of the hover. Orders straight from the host's evaluator (`cs_face_object`,
+`cs_fly_to_object_marker` with the AI argument) did nothing; a combat Elite
+turned only toward its target. Inside a command script they work, as in
+Bungie's missions:
+
+- `prepare_runtime.py` writes a point set per Spirit route, `ps_spirit_<place>`
+  (the hover, the route in backwards, the entry), into `blam.point_sets`, and
+  a command script per route into `pwr_transports.hsc` (`blam.script`):
+  `cs_fly_to_and_face` the hover facing the first point out, `cs_fly_by` the
+  rest, `cs_fly_to` the entry.
+- After the 8 s hover the host wakes the pilot and runs
+  `cs_spirit_leave_<place>` on it, stops pushing, and removes the Spirit once
+  it is within 40 m of where it came in (120 s at most). A map without the
+  script or pilot backs out as before.
+
+Shown on PC 1 (site A, koth_hill_0): from the hover it turned 33.8 -> -172
+degrees in about four seconds, climbed, and flew its route out nose-first
+(heading -146 against travel -146, about 29 m/s), and was removed out of
+sight. Every route's points resolve. Found on the way: the engine finds a
+point by its name, and B40's banshee path (28 points) is named `p0` to `p4`
+then `pa0` ...; scripts naming `p5` and `p6` were dropped at load. The bake's
+donor is now the set with the longest `p0`, `p1` ... run (14).
+
+Not yet shown: two PCs (the pilot is the host's AI; its Spirit replicates as
+before) and the Spirit's flight heard from the ground.
 
 **Every place, PC 1, warm-up**: each of the 11 places' four squads placed by
 script, counted after 60 s, then erased. First pass: 10 places 4 of 4, and

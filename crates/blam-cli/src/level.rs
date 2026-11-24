@@ -335,6 +335,13 @@ pub struct BlamSection {
     /// a `clear` of "cutscene flags".
     #[serde(default)]
     pub cutscene_flags: Vec<CutsceneFlag>,
+    /// Script point sets (`scripting data`'s `point sets`), for a level's
+    /// command scripts (`cs_fly_to ps_name/p0`). They replace the canvas's
+    /// own: each is a clone of the canvas set with the most points (so its
+    /// points keep their shipped `p0`, `p1` ... ids), renamed and moved, as
+    /// flying points (no sector). Written before the clears, which keep them.
+    #[serde(default)]
+    pub point_sets: Vec<PointSet>,
     /// Names a script can call objects by. A placement claims one with its
     /// `name`; a name no placement claims stays in the block and the engine
     /// refuses any script that uses it. Kept by a `clear` of "object names".
@@ -1117,6 +1124,15 @@ pub struct CutsceneFlag {
     pub pitch: f64,
     #[serde(default)]
     pub name: Option<String>,
+}
+
+/// A named point set: positions in Unreal centimetres from the canvas origin,
+/// like every other position, named `p0`, `p1` ... in order.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PointSet {
+    pub name: String,
+    pub points: Vec<[f64; 3]>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -2366,6 +2382,76 @@ impl Baker {
             println!("  flag    [{i}] {} <- ({x:.3}, {y:.3}, {z:.3}) wu", name.display());
         }
         *self.added.entry("cutscene flags").or_default() += flags.len();
+        Ok(())
+    }
+
+    /// Replace the scenario's point sets with `sets` (see
+    /// `BlamSection::point_sets`). `bsp` is the structure BSP's final index.
+    fn point_sets(&mut self, sets: &[PointSet], bsp: usize) -> Result<()> {
+        if sets.is_empty() {
+            return Ok(());
+        }
+        const SETS: &str = "scripting data[0].point sets";
+        if block_count(&self.file, "scripting data")? == 0 {
+            bail!("blam.point_sets: the canvas has no scripting data to clone point sets from");
+        }
+        // The donor: the set with the longest run of points named `p0`, `p1`
+        // ... in order, so every point a set needs is one of its own, with its
+        // shipped `pN` id. The engine finds a point by that name: B40's
+        // banshee path has 28 points, but after `p4` they are `pa0`,
+        // `pa0_turn` ..., and a script naming its `p5` was dropped at load.
+        let count = block_count_at(&self.file, SETS)?;
+        let mut donor = None;
+        let mut most = 0;
+        for j in 0..count {
+            let n = block_count_at(&self.file, &format!("{SETS}[{j}].points"))?;
+            let paths: Vec<String> = (0..n).map(|k| format!("{SETS}[{j}].points[{k}].name")).collect();
+            let ids = read_many(&self.file, &paths)?;
+            let run = ids
+                .iter()
+                .enumerate()
+                .take_while(|(k, id)| matches!(id, Some(Scalar::Text(t)) if *t == format!("p{k}")))
+                .count();
+            if run > most {
+                most = run;
+                donor = Some(j);
+            }
+        }
+        let donor = donor.context("blam.point_sets: the canvas has no point set with points to clone")?;
+        for s in sets {
+            if s.points.is_empty() || s.points.len() > most {
+                bail!("point set {:?} has {} point(s); 1 to {most} are possible (the canvas set with the longest p0, p1 ... run)", s.name, s.points.len());
+            }
+        }
+        self.file = blockedit::select(&self.file, &[(SETS.to_string(), vec![donor; sets.len()])])?;
+        let keep: Vec<(String, Vec<usize>)> = sets
+            .iter()
+            .enumerate()
+            .map(|(j, s)| (format!("{SETS}[{j}].points"), (0..s.points.len()).collect()))
+            .collect();
+        self.file = blockedit::select(&self.file, &keep)?;
+        for (j, s) in sets.iter().enumerate() {
+            let set = |n: &str| format!("{SETS}[{j}].{n}");
+            set_fixed_string(&mut self.file, &set("name"), &s.name)?;
+            for field in ["bsp index", "manual reference frame", "editor folder"] {
+                apply_set(&mut self.file, &set(field), "none")?;
+            }
+            apply_set(&mut self.file, &set("flags"), "0x0")?;
+            for (k, p) in s.points.iter().enumerate() {
+                let (x, y, z) = ue_to_blam(abs_pos(self.origin, *p));
+                let q = |n: &str| format!("{SETS}[{j}].points[{k}].{n}");
+                apply_set(&mut self.file, &q("position"), &format!("({x}, {y}, {z})"))?;
+                apply_set(&mut self.file, &q("reference frame"), "none")?;
+                apply_set(&mut self.file, &q("structure bsp"), &format!("#{bsp}"))?;
+                // Flying points, as Bungie's flight paths: no BSP, no sector.
+                apply_set(&mut self.file, &q("bsp index"), "-1")?;
+                apply_set(&mut self.file, &q("sector index"), "-1")?;
+                apply_set(&mut self.file, &q("facing direction"), "(0, 0)")?;
+            }
+            println!("  points  {} <- {} point(s), cloned from point set [{donor}]", s.name, s.points.len());
+        }
+        // A clear of "scripting data" keeps its last element: this one.
+        self.added.insert("scripting data", 1);
         Ok(())
     }
 
@@ -3975,6 +4061,12 @@ fn bake(a: BakeArgs) -> Result<()> {
         }
         None => None,
     };
+    let points_bsp = if level.blam.single_bsp.is_some() {
+        0
+    } else {
+        level.blam.active_bsps.first().copied().unwrap_or(0)
+    };
+    baker.point_sets(&level.blam.point_sets, points_bsp)?;
     let script = match &level.blam.script {
         Some(rel) => {
             if !level.blam.clear.scripts {

@@ -67,7 +67,7 @@ static struct {
     float pelican_hold[2][3];
     int pelican_hold_valid[2];
 } warfare;
-enum { WARFARE_SPIRIT_NONE, WARFARE_SPIRIT_FLY, WARFARE_SPIRIT_HOVER, WARFARE_SPIRIT_LEAVE };
+enum { WARFARE_SPIRIT_NONE, WARFARE_SPIRIT_FLY, WARFARE_SPIRIT_HOVER, WARFARE_SPIRIT_LEAVE, WARFARE_SPIRIT_PILOTED };
 
 static int warfare_build(void) {
     if (warfare.base) return warfare.supported;
@@ -371,6 +371,36 @@ static void warfare_spirits(unsigned char *tls, int rate) {
             if (warfare.spirit[site].timer > 8.0f) {
                 snprintf(line, sizeof line, "(unit_close pwr_spirit_%d)", place); warfare_hs(line);
                 warfare.spirit[site].stage = WARFARE_SPIRIT_LEAVE; warfare.spirit[site].leg = 0; warfare.spirit[site].timer = 0;
+                /* Its pilot flies it out, as Bungie's dropships leave: the
+                 * map's command script cs_spirit_leave_<place> turns it in the
+                 * hover to face the way out and flies its route back
+                 * (prepare_runtime.py). Only a pilot turns a Spirit; the host's
+                 * velocity cannot. Without the script it backs out as before. */
+                if (warfare.spirit[site].pilot) {
+                    snprintf(line, sizeof line, "(ai_braindead pilot_spirit_%d false)", site); warfare_hs(line);
+                    snprintf(line, sizeof line, "(ai_force_active pilot_spirit_%d true)", site); warfare_hs(line);
+                    snprintf(line, sizeof line, "(cs_run_command_script pilot_spirit_%d cs_spirit_leave_%d)", site, place);
+                    int value = 0;
+                    if (warfare_hs_value(line, &value)) {
+                        warfare.spirit[site].stage = WARFARE_SPIRIT_PILOTED;
+                        fireteam_log("warfare: Spirit for site %c: its pilot flies it out", 'A' + site);
+                    } else {
+                        snprintf(line, sizeof line, "(ai_braindead pilot_spirit_%d true)", site); warfare_hs(line);
+                    }
+                }
+            }
+            break;
+        }
+        case WARFARE_SPIRIT_PILOTED: {
+            /* The pilot flies; the host only watches for it to be back where
+             * it came in (out of sight), then hides and removes it. */
+            float dx = metres[0] - warfare.spirit[site].start[0], dy = metres[1] - warfare.spirit[site].start[1];
+            if (dx * dx + dy * dy < 40.0f * 40.0f) {
+                snprintf(line, sizeof line, "(object_hide pwr_spirit_%d true)", place); warfare_hs(line);
+                warfare.spirit[site].shown = 0;
+                warfare_spirit_end(site, "flown back out of sight by its pilot; removed");
+            } else if (warfare.spirit[site].timer > 120.0f) {
+                warfare_spirit_end(site, "its pilot never got it out; removed");
             }
             break;
         }

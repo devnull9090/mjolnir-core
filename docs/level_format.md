@@ -309,6 +309,13 @@ elevator room.
 - `cutscene_flags`: `[{ "pos": [x, y, z], "yaw": 0 }]` moves the canvas's first
   cutscene flags to these points, so their names stay valid for
   `player_teleport` / `object_teleport` from the Blam console.
+- `point_sets`: `[{ "name": "ps_way_out", "points": [[x, y, z], ...] }]`
+  replaces the canvas's script point sets, for `blam.script`'s command scripts
+  (`cs_fly_to ps_way_out/p0`). Each is a clone of the canvas set with the
+  longest run of points named `p0`, `p1` ... (the engine finds a point by that
+  name; B40's longest is 14), renamed and moved, as flying points with no
+  sector. A `clear` of "scripting data" keeps them. Pelican Warfare's Spirits
+  leave this way (`levels/warfare/pwr/prepare_runtime.py`).
 
 A `blam.objects`, `vehicles`, `weapons` or `equipment` element also takes `set`:
 fields of the placement, relative to its element
