@@ -210,7 +210,8 @@ minimum players are connected), publishes the configured insertion duration
 in phase 1, then resets to zero and counts combat seconds in phase 2; the
 reinforcement schedule is derived from it, and the HUD shows it as MATCH TIME.
 Phase, age, magic, clock,
-scores and owners have high replication priority, connected count low priority,
+scores, owners and slot 4 (the connected count, then the defeat clock) have high
+replication priority,
 and scratch remains local. Native code reads this state; Megalo owns it.
 An absent team's native score operand is -1 in the supported build; the
 published score mirror clamps that sentinel to zero without creating or

@@ -225,7 +225,7 @@ impl Variant {
             },
             vars: Variables {
                 global_numbers: 12,
-                global_number_priorities: [2, 2, 2, 2, 1, 0, 0, 2, 2, 2, 2, 2],
+                global_number_priorities: [2, 2, 2, 2, 2, 0, 0, 2, 2, 2, 2, 2],
                 global_objects: 5,
                 object_numbers: 8,
                 player_numbers: 1,
@@ -809,7 +809,8 @@ mod tests {
             "independent CU4 grammar agrees with team scoring and vehicle query encoding");
         crate::variant::tests::check_ranges(&v);
         assert!(v.teams);
-        assert_eq!(v.vars.global_number_priorities, [2, 2, 2, 2, 1, 0, 0, 2, 2, 2, 2, 2]);
+        assert_eq!(v.vars.global_number_priorities, [2, 2, 2, 2, 2, 0, 0, 2, 2, 2, 2, 2],
+            "slot 4 (the defeat clock) replicates with phase and owners, so a client sees it reach 0");
         assert_eq!(v.base.team_scoring, 3);
         assert_eq!((v.base.lives, v.base.team_lives), (0, 0));
         assert!(

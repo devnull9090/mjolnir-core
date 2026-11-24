@@ -142,7 +142,7 @@ while (Date.now() < until) {
   const local = s.players.find(p => p.localUser === 0);
   const summary = `ready=${s.ready} status=${s.status} phase=${s.phase} tick=${s.tick} score=${s.score} local=${local?.stage} xyz=${local ? `${local.x},${local.y},${local.z}` : 'none'}`;
   if (summary !== last) { console.log(summary); last = summary; }
-  if (s.ready === 1 && s.status === 2 && s.layout === 3 && s.globals?.[2] === 20570) {
+  if (s.ready === 1 && s.status === 2 && s.layout === 3 && s.globals?.[2] === 20571) {
     sawReady = true;
     if (local?.stage === 2) sawSeated = true;
     if (local?.stage === 4) sawCanopy = true;

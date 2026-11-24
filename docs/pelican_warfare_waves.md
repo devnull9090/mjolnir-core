@@ -43,7 +43,7 @@ does; reinforcements use one shared 60-second clock for both teams.
 ## Protocol
 
 The map's metadata keeps `protocol 20569` and layout 3, so the published map
-does not change. The Megalo rules get their own magic in slot 2, **20570**.
+does not change. The Megalo rules get their own magic in slot 2, **20570** (20571 from the Covenant defeat clock, docs/pelican_warfare.md).
 The native DLL, HUD and variant ship together; each refuses the other's old
 revision.
 
