@@ -1255,37 +1255,96 @@ local function onHook(kind, ctx)
     if ok and actor and actor:IsValid() then queueTint(actor, kind == "pawn", kind == "start") end
 end
 
---- Whether the function a hook was put on is still there: valid, and by
---- name, since a collected function's slot can hold another object.
+--- Whether a hook is still in: the object it was armed against (the
+--- function, or its Blueprint class) is valid, and is still that object by
+--- name, since a collected object's slot can hold another. A level change can
+--- collect a Blueprint, and a hook on the old one never fires again.
 local function hooked(path)
-    local fn = Armor.hooks[path]
-    if fn == nil then return false end
-    local ok, name = pcall(function() return fn:IsValid() and fn:GetFullName() end)
-    return ok and type(name) == "string" and name:sub(-#path) == path
+    local held = Armor.hooks[path]
+    if held == nil then return false end
+    local want = path
+    local ok, name = pcall(function() return held:IsValid() and held:GetFullName() end)
+    if ok and type(name) == "string" and name:sub(-#want) == want then return true end
+    want = path:match("^(.-):") or path
+    return ok and type(name) == "string" and name:sub(-#want) == want
+end
+
+--- A hook's Blueprint class while it is loaded, or nil: the Spartan one from
+--- any Spartan the biped watch has seen (Teams.Bipeds), the pawn's from the
+--- local pawn. Got from a live actor, so no lookup by path: on PC 3 a
+--- Blueprint path takes ~18 ms to find even when it is there, and ~22 ms to
+--- miss (2026-11-25). false without the watch (no MJOLNIRHud): the caller
+--- then finds the function by path, as before.
+local function hookClass(kind)
+    local actor
+    if kind == "pawn" then
+        actor = env.getPawn()
+    else
+        local watch = Teams.Bipeds
+        if not watch then return false end
+        for _, a in pairs(watch.of("BP_SpartansBipedActor_C")) do
+            -- Checked before use: a stored actor crashes the game once freed.
+            local ok, alive = pcall(function() return a:IsValid() end)
+            if ok and alive then actor = a break end
+        end
+    end
+    local ok, cls, name = pcall(function()
+        local c = actor and actor:GetClass()
+        return c, c and c:GetFName():ToString()
+    end)
+    local want = kind == "pawn" and "BP_MeteoritePawn_C" or "BP_SpartansBipedActor_C"
+    if ok and name == want then return cls end
+    return nil
 end
 
 --- RegisterHook raises while the Blueprint is not loaded (not at the main
---- menu, where the mod starts), so the hooks are armed in a map, each once
---- its function is found (~2 ms by path), at most every 10 s. A level change
---- can collect a Blueprint's functions, and a hook on the old one never
---- fires again: one whose function is gone is hooked again, as MJOLNIRHud
---- does its frame hook. Hooks are never removed.
+--- menu, where the mod starts), so the hooks are armed in a map, once their
+--- Blueprint is loaded (hookClass), one a tick. All four in one tick, each
+--- with its own lookup by path, then the Spartan seed's FindAllOf, made a
+--- 104-107 ms frame at a Blood Gulch start (2026-11-25). A hook whose
+--- Blueprint is gone is armed again, as MJOLNIRHud does its frame hook.
+--- Hooks are never removed.
 local function armHooks()
-    local missing = false
     for _, h in ipairs(HOOKS) do
-        if not hooked(h[1]) then missing = true end
-    end
-    if not missing or not env.mayArm("team hooks") then return end
-    for _, h in ipairs(HOOKS) do
-        local fn = not hooked(h[1]) and env.findObject(h[1])
-        if fn then
-            local kind = h[2]
-            if pcall(RegisterHook, h[1], function(ctx) onHook(kind, ctx) end) then
-                Armor.hooks[h[1]] = fn
-                Log("team colours: hooked " .. h[1]:match("([^%.]+)$"))
+        local path, kind = h[1], h[2]
+        if not hooked(path) then
+            -- nil while not loaded: the next hook may be.
+            local cls = hookClass(kind)
+            if cls ~= nil and env.mayArm("team hook " .. path) then
+                -- Without the watch, the function by path, as before.
+                local held = cls or env.findObject(path)
+                if held and pcall(RegisterHook, path, function(ctx) onHook(kind, ctx) end) then
+                    Armor.hooks[path] = held
+                    Log("team colours: hooked " .. path:match("([^%.]+)$"))
+                end
+                return
             end
         end
     end
+end
+
+--- The Spartans already in this world when the hooks went in: from the
+--- biped watch, which saw each one made (no object walk), or one FindAllOf
+--- (~22-30 ms on PWR) without it.
+local function existingSpartans()
+    local watch = Teams.Bipeds
+    if not watch then return FindAllOf("BP_SpartansBipedActor_C") or {} end
+    local world = env.getWorld()
+    local okW, here = pcall(function() return world and world:GetAddress() end)
+    local out = {}
+    for at, actor in pairs(watch.of("BP_SpartansBipedActor_C")) do
+        -- Checked before use: a stored actor crashes the game once freed.
+        local ok, same = pcall(function()
+            return actor:IsValid() and actor:GetWorld():GetAddress() == here
+        end)
+        if ok and same then
+            out[#out + 1] = actor
+        elseif not (ok and actor:IsValid()) then
+            watch.of("BP_SpartansBipedActor_C")[at] = nil
+        end
+    end
+    if not okW then return {} end
+    return out
 end
 
 function Teams.teamGame()
@@ -1306,7 +1365,8 @@ function Teams.armorTick()
     if pawn then record(pawn, true) end
     if not Armor.seeded and hooked(HOOKS[1][1]) then
         Armor.seeded = true
-        for _, actor in ipairs(FindAllOf("BP_SpartansBipedActor_C") or {}) do record(actor, false) end
+        for _, actor in ipairs(existingSpartans()) do record(actor, false) end
+        return
     end
     for key, r in pairs(Armor.records) do
         if not (r.actor and r.actor:IsValid()) then

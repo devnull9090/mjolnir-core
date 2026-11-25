@@ -7386,6 +7386,12 @@ end
 local function initialize()
     -- Kill floors (#234) and Halo 2's lifts (#235), kept on Teams: main.lua
     -- is at Lua's 200 locals. Both run Blam script through sim_script.lua.
+    -- MJOLNIRHud's biped watch (Scripts/bipeds.lua): one NotifyOnNewObject on
+    -- the native ancestor, armed here before any map, so team colours know
+    -- each Spartan as it is made instead of walking every object for them.
+    -- Without MJOLNIRHud, Teams falls back to a scan.
+    local okB, bipedWatch = pcall(dofile, MOD_DIR .. "\\..\\MJOLNIRHud\\Scripts\\bipeds.lua")
+    if okB and type(bipedWatch) == "table" and bipedWatch.arm(Log) then Teams.Bipeds = bipedWatch end
     Teams.Script = dofile(MOD_DIR .. "\\Scripts\\sim_script.lua")
     Teams.Script.init(MOD_DIR)
     Teams.KillFloor = dofile(MOD_DIR .. "\\Scripts\\kill_floor.lua")
