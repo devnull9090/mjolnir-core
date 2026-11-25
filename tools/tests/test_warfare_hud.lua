@@ -78,7 +78,7 @@ fakeHill.field = function(name)
     field.ensureLine = function() end
     field.say = function(text) field.line = text end
     field.hideLine = function() field.line = nil; field.lineHidden = true end
-    field.draw = function(_, _, _, spot) field.draws = field.draws + 1; field.spot = spot; field.hidden = false end
+    field.draw = function(_, _, key, spot) field.draws = field.draws + 1; field.drawn = key; field.spot = spot; field.hidden = false end
     field.paint = function(colour) field.colour = colour end
     field.mark = function(_, _, _, _, text) field.label = text end
     field.frame = function() end
@@ -110,6 +110,8 @@ eq(Board.summary(match, 0).left, 17)
 eq(Board.winner(match), "RED TEAM WINS")
 eq(fields[1].colour, "Red"); eq(fields[2].colour, "empty"); eq(fields[3].colour, "Blue")
 eq(fields[1].spot.x, -9000, "authored coordinates used unchanged")
+eq(fields[1].draws + fields[2].draws + fields[3].draws, 1, "one new zone wall a tick (each spawns and traces its panels)")
+eq(fields[2].spot, nil, "the second zone waits a tick")
 eq(fields[3].label, "C  /  BLUE")
 eq(fields[4].line, "MATCH TIME 0:10   /   M: MAP", "in combat the zone tiles say who holds what; the line keeps the clock")
 eq(#sites, 0, "the first accepted combat sample is a baseline, never a capture")
@@ -271,7 +273,7 @@ do
         hookIncidents=noop, ensureWidgets=noop, ensureFrameHook=noop,
         refreshLocalPlayer=noop, isHostWorld=function() return false end,
         findBipeds=noop, Markers=dispatch, now=function() return stamp end,
-        HudHidden=true, LOCAL_PLAYER=0, boardDirty=false, Bots={tick=noop},
+        HudHidden=true, LOCAL_PLAYER=0, boardDirty=false, Bots={tick=noop}, WidgetBudget={ tick = 0, spent = -1 },
         -- The first roster refresh immediately after objective dispatch marks
         -- the end of this test's portion of the full game-thread poll.
         syncBotNames=function() error(stop) end,

@@ -73,6 +73,28 @@ local function call(dll, name)
     return true
 end
 
+--- One request to the map registry DLL: the reply text, or nil and why. The
+--- request goes as an argument and the reply comes back (mjolnir_map_call);
+--- a DLL without that export gets `request_file` and answers in
+--- `reply_file`. On a PC with Windows Defender's real-time scan each of those
+--- files waited ~5 ms when opened a moment after it was written.
+local mapCall = nil
+local function exchange(export, request_file, reply_file, request)
+    local dll = loaderNative .. "mjolnir_map_registry.dll"
+    if mapCall == nil then
+        mapCall = package and package.loadlib and package.loadlib(dll, "mjolnir_map_call") or false
+    end
+    if mapCall then
+        local ok, reply = pcall(mapCall, export, request)
+        if ok and type(reply) == "string" then return reply end
+    end
+    if not writeFile(loaderNative .. request_file, request) then return nil, "cannot write the request" end
+    os.remove(loaderNative .. reply_file)
+    local ok, err = call(dll, export)
+    if not ok then return nil, err end
+    return readFile(loaderNative .. reply_file) or "error no reply"
+end
+
 local function valid(o)
     local ok, v = pcall(function() return o and o:IsValid() end)
     return ok and v
@@ -243,13 +265,10 @@ function MapLive.register(code)
     local okA, request = pcall(function()
         return string.format("%x %x %s %s\n", dt:GetAddress(), da:GetAddress(), code, TEMPLATE)
     end)
-    if not okA or not writeFile(loaderNative .. "scenario_request.txt", request) then
-        return false, "cannot write the scenario request"
-    end
-    os.remove(loaderNative .. "scenario_reply.txt")
-    local ok, err = call(loaderNative .. "mjolnir_map_registry.dll", "mjolnir_scenario_add")
-    if not ok then return false, err end
-    local reply = (readFile(loaderNative .. "scenario_reply.txt") or "error no reply"):gsub("%s+$", "")
+    if not okA then return false, "cannot write the scenario request" end
+    local answer, err = exchange("mjolnir_scenario_add", "scenario_request.txt", "scenario_reply.txt", request)
+    if not answer then return false, err end
+    local reply = answer:gsub("%s+$", "")
     if reply:match("^ok") then
         registered[code] = true
         if reply == "ok added" then
@@ -288,13 +307,10 @@ function MapLive.place(code, index)
     local okA, request = pcall(function()
         return string.format("%x %s%s\n", da:GetAddress(), code, index and (" " .. tostring(math.floor(index))) or "")
     end)
-    if not okA or not writeFile(loaderNative .. "place_request.txt", request) then
-        return nil, "cannot write the place request"
-    end
-    os.remove(loaderNative .. "place_reply.txt")
-    local ok, err = call(loaderNative .. "mjolnir_map_registry.dll", "mjolnir_scenario_place")
-    if not ok then return nil, err end
-    local reply = (readFile(loaderNative .. "place_reply.txt") or "error no reply"):gsub("%s+$", "")
+    if not okA then return nil, "cannot write the place request" end
+    local answer, err = exchange("mjolnir_scenario_place", "place_request.txt", "place_reply.txt", request)
+    if not answer then return nil, err end
+    local reply = answer:gsub("%s+$", "")
     local at = tonumber(reply:match("^ok (%d+)") or "")
     if at then return at end
     return nil, reply:gsub("^error ", "")
@@ -315,13 +331,10 @@ end
 --- is no error): true, or false and why.
 function MapLive.unmount(paks)
     if #paks == 0 then return true end
-    if not writeFile(loaderNative .. "unmount_request.txt", table.concat(paks, "\n") .. "\n") then
-        return false, "cannot write the unmount request"
-    end
-    os.remove(loaderNative .. "unmount_reply.txt")
-    local ok, err = call(loaderNative .. "mjolnir_map_registry.dll", "mjolnir_unmount_paks")
-    if not ok then return false, err end
-    local reply = (readFile(loaderNative .. "unmount_reply.txt") or "error no reply"):gsub("%s+$", "")
+    local answer, err = exchange("mjolnir_unmount_paks", "unmount_request.txt", "unmount_reply.txt",
+        table.concat(paks, "\n") .. "\n")
+    if not answer then return false, err end
+    local reply = answer:gsub("%s+$", "")
     if reply:match("^ok") then
         log("map update: " .. reply:gsub("^ok ", "") .. " container(s) of the old release unmounted")
         return true
@@ -368,14 +381,11 @@ end
 --- Mount `paks` (the engine's relative .pak paths): true, or false and why.
 function MapLive.mount(paks)
     if #paks == 0 then return true end
-    if not writeFile(loaderNative .. "mount_request.txt", table.concat(paks, "\n") .. "\n") then
-        return false, "cannot write the mount request"
-    end
-    os.remove(loaderNative .. "mount_reply.txt")
-    local ok, err = call(loaderNative .. "mjolnir_map_registry.dll", "mjolnir_mount_paks")
+    local answer, err = exchange("mjolnir_mount_paks", "mount_request.txt", "mount_reply.txt",
+        table.concat(paks, "\n") .. "\n")
     worlds.at = nil
-    if not ok then return false, err end
-    local reply = (readFile(loaderNative .. "mount_reply.txt") or "error no reply"):gsub("%s+$", "")
+    if not answer then return false, err end
+    local reply = answer:gsub("%s+$", "")
     if reply:match("^ok") then return true end
     return false, reply:gsub("^error ", "")
 end
@@ -403,10 +413,10 @@ function MapLive.worlds(codes, fresh)
     end
     if due and #names > 0 then
         worlds.at, worlds.failed = os.clock(), true
-        if writeFile(loaderNative .. "world_request.txt", table.concat(names, "\n") .. "\n") then
-            os.remove(loaderNative .. "world_reply.txt")
-            local ok, why = call(loaderNative .. "mjolnir_map_registry.dll", "mjolnir_worlds_known")
-            local reply = ok and readFile(loaderNative .. "world_reply.txt") or ("error " .. tostring(why))
+        do
+            local answer, why = exchange("mjolnir_worlds_known", "world_request.txt", "world_reply.txt",
+                table.concat(names, "\n") .. "\n")
+            local reply = answer or ("error " .. tostring(why))
             if not reply:match("^ok") and not worlds.warned then
                 worlds.warned = true
                 log("map worlds: cannot check (" .. reply:gsub("^error ", ""):gsub("%s+$", "")
@@ -514,8 +524,9 @@ local function poll()
     -- The launcher gone without a word, or silent for too long.
     if os.time() - (job.checked or 0) >= 1 then
         job.checked = os.time()
+        local route = Games.claim("map_install_status.txt")
         call(nativeDir .. "mjolnir_lobby.dll", "mjolnir_map_install_status")
-        local status = readFile(nativeDir .. "map_install_status.txt") or ""
+        local status = Games.reply("map_install_status.txt", route) or ""
         local code = status:match("^exited (%d+)")
         if code then
             -- Its last word may have landed after this poll read the file:
@@ -548,12 +559,13 @@ function MapLive.install(code, onEvent, release)
     end
     if release and not release:match("^[%x%-]+$") then return false, "not a release id" end
     local request = code .. (release and (" " .. release) or "")
-    if not writeFile(nativeDir .. "map_install_request.txt", request) then return false, "cannot write the request" end
     os.remove(nativeDir .. "map_install_reply.txt")
+    local route = Games.put("map_install_request.txt", request, "map_install_reply.txt")
+    if not route then return false, "cannot write the request" end
     os.remove(nativeDir .. "map_install_progress.json")
     local ok, err = call(nativeDir .. "mjolnir_lobby.dll", "mjolnir_map_install")
     if not ok then return false, err end
-    local reply = (readFile(nativeDir .. "map_install_reply.txt") or "error no reply"):gsub("%s+$", "")
+    local reply = (Games.reply("map_install_reply.txt", route) or "error no reply"):gsub("%s+$", "")
     if not reply:match("^ok") then return false, (reply:gsub("^error ", "")) end
     job = { code = code, release = release, listeners = { onEvent }, started = os.time(), heard = os.time(),
         event = { stage = "start" } }

@@ -97,6 +97,47 @@ local function worldAddress()
 end
 UI.worldAddress = worldAddress
 
+--- Widgets as they are made. The cache above only keeps a widget that is up:
+--- a menu that is hidden or gone (the main and title menus behind the
+--- post-game vote) missed it on every call, and each miss walked every object.
+--- With a map's objects still loaded that was ~20 ms a walk, three walks
+--- every 1.5 s: a 60-72 ms frame on the vote screen (GTX 1080 Ti test PC,
+--- 2026-11-25). One NotifyOnNewObject on the native UserWidget sees every
+--- widget made, Blueprint ones too, so each class asked for is walked for
+--- once (the widgets made before it was asked for) and then only listed.
+local MADE_CAP = 64
+local seen = { armed = nil, classes = {} } -- class name -> widgets, oldest first
+
+local function armWatch()
+    if seen.armed ~= nil then return seen.armed end
+    seen.armed = false
+    if type(NotifyOnNewObject) ~= "function" then return false end
+    seen.armed = pcall(NotifyOnNewObject, "/Script/UMG.UserWidget", function(w)
+        local ok, class = pcall(function() return w:GetClass():GetFName():ToString() end)
+        local list = ok and seen.classes[class]
+        if not list then return end
+        list[#list + 1] = w
+        if #list > MADE_CAP then table.remove(list, 1) end
+    end) == true
+    return seen.armed
+end
+
+--- The widgets of a class there are, newest first; nil without the watch.
+local function madeOf(className)
+    if not armWatch() then return nil end
+    local list = seen.classes[className]
+    if not list then
+        list = {}
+        for _, w in ipairs(FindAllOf(className) or {}) do list[#list + 1] = w end
+        seen.classes[className] = list
+    end
+    local out = {}
+    for i = #list, 1, -1 do
+        if valid(list[i]) then out[#out + 1] = list[i] else table.remove(list, i) end
+    end
+    return out
+end
+
 function UI.liveWidget(className, alive)
     local world = worldAddress()
     local kept = liveCache[className]
@@ -105,7 +146,7 @@ function UI.liveWidget(className, alive)
         if ok and yes then return kept.widget end
     end
     liveCache[className] = nil
-    for _, w in ipairs(FindAllOf(className) or {}) do
+    for _, w in ipairs(madeOf(className) or FindAllOf(className) or {}) do
         if valid(w) and isScreen(w) then
             local ok, yes = pcall(alive, w)
             if ok and yes then

@@ -38,12 +38,29 @@
  *   call of either finds it (one scan of .text, a few hundred milliseconds).
  *
  * Both run on the game thread, inside the Lua call.
+ *
+ * A recorder, for finding where single long frames went (a mean hides them):
+ *
+ *   package.loadlib(dll, "mjolnir_frame_times_record")  starts a thread that
+ *       watches GGameThreadTime about every half millisecond and, each time
+ *       it changes (once a frame), keeps that frame's figures in a ring of
+ *       the last 65536 frames (about 18 minutes at 60 fps). Calling it again
+ *       does nothing. It costs the game thread nothing.
+ *   package.loadlib(dll, "mjolnir_frame_times_record_dump")  writes the ring
+ *       to nativerame_record.csv, oldest first:
+ *
+ *       clock,frame,game,game_cp,draw,draw_cp,rhit,gpu
+ *
+ *   `clock` is seconds on Lua's os.clock (the CRT's clock()), so a frame
+ *   lines up with hitches.log; `frame` is the time since the frame before,
+ *   to the watch's half millisecond.
  */
 #define _CRT_SECURE_NO_WARNINGS
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 /* FStatUnitData::DrawStat from its first `vmovsd xmm3, SecondsPerCycle`
    through the GPU loop's virtual call, CU4 (2026-10-17), at RVA 0x675b125.
@@ -241,5 +258,93 @@ __declspec(dllexport) int mjolnir_frame_times_flush(void *L) {
     }
     memset(sum, 0, sizeof sum);
     frames = 0;
+    return 0;
+}
+
+/* ---- Recorder ---------------------------------------------------------- */
+
+enum { RING = 1 << 16 };
+typedef struct {
+    LONGLONG at;  /* QueryPerformanceCounter when the change was seen */
+    float v[N];
+} record_t;
+static record_t *ring;
+static volatile LONG ring_next; /* total frames recorded; the writer's only */
+static volatile LONG recording;
+
+static DWORD WINAPI record_thread(LPVOID arg) {
+    (void)arg;
+    HANDLE timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    unsigned last = 0;
+    while (recording) {
+        if (timer) {
+            LARGE_INTEGER due;
+            due.QuadPart = -5000; /* 0.5 ms */
+            SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE);
+            WaitForSingleObject(timer, INFINITE);
+        } else {
+            Sleep(1);
+        }
+        unsigned now;
+        __try {
+            now = *g_game;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            continue;
+        }
+        if (now == last) continue;
+        last = now;
+        double f[N];
+        if (!read_frame(f)) continue;
+        LARGE_INTEGER qpc;
+        QueryPerformanceCounter(&qpc);
+        record_t *r = &ring[ring_next & (RING - 1)];
+        r->at = qpc.QuadPart;
+        for (int i = 0; i < N; i++) r->v[i] = (float)f[i];
+        InterlockedIncrement(&ring_next);
+    }
+    return 0;
+}
+
+__declspec(dllexport) int mjolnir_frame_times_record(void *L) {
+    (void)L;
+    resolve();
+    if (resolved != 1 || InterlockedCompareExchange(&recording, 1, 0) != 0) return 0;
+    ring = (record_t *)VirtualAlloc(NULL, sizeof(record_t) * RING, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    HANDLE t = ring ? CreateThread(NULL, 0, record_thread, NULL, 0, NULL) : NULL;
+    if (!t) {
+        recording = 0;
+        return 0;
+    }
+    SetThreadPriority(t, THREAD_PRIORITY_ABOVE_NORMAL);
+    CloseHandle(t);
+    return 0;
+}
+
+__declspec(dllexport) int mjolnir_frame_times_record_dump(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%sframe_record.csv", dir);
+    FILE *f = fopen(path, "w");
+    if (!f) return 0;
+    fprintf(f, "clock,frame,game,game_cp,draw,draw_cp,rhit,gpu\n");
+    if (recording && ring) {
+        LARGE_INTEGER freq, qpc;
+        QueryPerformanceFrequency(&freq);
+        QueryPerformanceCounter(&qpc);
+        const double offset = (double)clock() / CLOCKS_PER_SEC - (double)qpc.QuadPart / freq.QuadPart;
+        const LONG end = ring_next;
+        const LONG start = end > RING ? end - RING : 0;
+        LONGLONG prev = 0;
+        for (LONG i = start; i < end; i++) {
+            const record_t *r = &ring[i & (RING - 1)];
+            const double t = (double)r->at / freq.QuadPart;
+            fprintf(f, "%.4f,%.2f", t + offset, prev ? (double)(r->at - prev) * 1000.0 / freq.QuadPart : 0.0);
+            for (int k = 0; k < N; k++) fprintf(f, ",%.2f", r->v[k]);
+            fprintf(f, "\n");
+            prev = r->at;
+        }
+    }
+    fclose(f);
     return 0;
 }

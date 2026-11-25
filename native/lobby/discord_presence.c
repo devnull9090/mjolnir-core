@@ -2,9 +2,12 @@
  * https://docs.discord.com/developers/topics/rpc
  *
  * This translation unit deliberately has no UE/Steam or Discord SDK dependency.
- * Lua writes discord_activity.json, then calls mjolnir_discord_update on the
- * game thread. Only a bounded file read and a memory copy happen there; a
- * worker owns all pipe I/O. The enclosing lobby DLL is pinned for process life.
+ * Lua hands the activity JSON to mjolnir_discord_set on the game thread
+ * (lua_channel.h); only a bounded copy happens there, and a worker owns all
+ * pipe I/O. mjolnir_discord_update, which reads discord_activity.json, stays
+ * for an older Lobby and the RPC tests: on a PC with Windows Defender's
+ * real-time scan, opening that file a moment after Lua rewrote it waited
+ * ~5 ms each second. The enclosing lobby DLL is pinned for process life.
  * Join callbacks are data, never commands: the only output is the existing
  * pending_join.txt queue, consumed and checked by the game's normal join flow.
  */
@@ -16,6 +19,7 @@
 #include <string.h>
 #include <wchar.h>
 #include <time.h>
+#include "lua_channel.h"
 
 #define DISCORD_APP_ID "1533237469259104458"
 #define ACTIVITY_CAP 4096
@@ -446,10 +450,39 @@ disconnected:
     return 0;
 }
 
-/* Exported like the other lobby native functions: no Lua C API, no results. */
+/* Keeps `snapshot` (length bytes, NUL-terminated) for the worker if it is a
+   JSON object or null, and "null" otherwise, then wakes the worker. */
+static void store_activity(char *snapshot, size_t length, int valid) {
+    json_doc d;
+    valid = valid && json_parse(&d, snapshot, (int)length) &&
+        (d.tokens[0].type == '{' || (d.tokens[0].type == 'n' && d.tokens[0].end - d.tokens[0].start == 4));
+    if (!valid) strcpy(snapshot, "null");
+    AcquireSRWLockExclusive(&snapshot_lock);
+    strcpy(activity_snapshot, snapshot);
+    snapshot_at = GetTickCount64();
+    if (!worker_thread) worker_thread = CreateThread(NULL, 0, worker, NULL, 0, NULL);
+    ReleaseSRWLockExclusive(&snapshot_lock);
+    SetEvent(wake_event);
+}
+
+/* Lua: mjolnir_discord_set(json). Returns true once the activity is kept, or
+   nil without UE4SS's Lua wrapper (the caller then uses the file). */
+__declspec(dllexport) int mjolnir_discord_set(void *L) {
+    static char snapshot[ACTIVITY_CAP];
+    size_t length = 0;
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    int ok = InitOnceExecuteOnce(&initialized, initialize, NULL, NULL) != FALSE;
+    int text = lc_take_string(&f, 1, snapshot, sizeof snapshot, &length);
+    if (ok) store_activity(snapshot, text && length < sizeof snapshot ? length : 0, text && length < sizeof snapshot);
+    lc_push_bool(&f, ok);
+    lc_end(&f);
+    return 1;
+}
+
+/* An older Lobby's route: the activity in discord_activity.json. No results. */
 __declspec(dllexport) int mjolnir_discord_update(void *L) {
     char snapshot[ACTIVITY_CAP];
-    json_doc d;
     FILE *f;
     size_t length = 0;
     int valid = 0;
@@ -462,15 +495,7 @@ __declspec(dllexport) int mjolnir_discord_update(void *L) {
         fclose(f);
     }
     snapshot[length] = 0;
-    valid = valid && json_parse(&d, snapshot, (int)length) &&
-        (d.tokens[0].type == '{' || (d.tokens[0].type == 'n' && d.tokens[0].end - d.tokens[0].start == 4));
-    if (!valid) strcpy(snapshot, "null");
-    AcquireSRWLockExclusive(&snapshot_lock);
-    strcpy(activity_snapshot, snapshot);
-    snapshot_at = GetTickCount64();
-    if (!worker_thread) worker_thread = CreateThread(NULL, 0, worker, NULL, 0, NULL);
-    ReleaseSRWLockExclusive(&snapshot_lock);
-    SetEvent(wake_event);
+    store_activity(snapshot, length, valid);
     return 0;
 }
 

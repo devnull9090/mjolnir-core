@@ -28,7 +28,7 @@ local CHECK_TIMEOUT = 180     -- no answer in this long: give up until next visi
 local QUIT_DELAY_MS = 2500    -- time for the launcher to start before the game goes
 local SHOWN_ITEMS = 6
 
-local Json, UI, log, nativeDir
+local Json, UI, log, nativeDir, Games
 local state = {
     lastTick = nil,      -- os.time() of the previous tick
     asked = nil,         -- os.time() a check was started, while it runs
@@ -55,7 +55,10 @@ end
 
 --- Ask the launcher: `verb` is "check" or "update". true, or false and why.
 local function askLauncher(verb)
-    if not writeFile(nativeDir .. "launcher_request.txt", verb .. "\n") then
+    -- In memory through games.lua when it is there (Games.put), else the file.
+    local route = Games and Games.put("launcher_request.txt", verb .. "\n", "launcher_reply.txt")
+        or (writeFile(nativeDir .. "launcher_request.txt", verb .. "\n") and "file")
+    if not route then
         return false, "cannot write the request"
     end
     local dll = nativeDir .. "mjolnir_lobby.dll"
@@ -63,7 +66,7 @@ local function askLauncher(verb)
     if not fn then return false, "the native half has no mjolnir_launcher (update MJOLNIR Lobby)" end
     local ok, err = pcall(fn)
     if not ok then return false, tostring(err) end
-    local reply = readFile(nativeDir .. "launcher_reply.txt") or ""
+    local reply = (Games and Games.reply("launcher_reply.txt", route) or readFile(nativeDir .. "launcher_reply.txt")) or ""
     if reply:match("^ok") then return true end
     return false, (reply:match("^error (.-)%s*$") or "no answer from the native half")
 end
@@ -319,6 +322,7 @@ end
 --- deps: { json, ui, log, nativeDir }.
 function Outdated.init(deps)
     Json, UI, log, nativeDir = deps.json, deps.ui, deps.log, deps.nativeDir
+    Games = deps.games
 end
 
 return Outdated
