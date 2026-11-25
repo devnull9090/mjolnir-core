@@ -631,7 +631,21 @@ from its `BlamPlayerStateComponent` (`BlamAbsolutePlayerIndex`: 0 on the
 host, the joiner's own slot on a fireteam client; 2026-10-01).
 
 The waves are loaded when the level is furnished, and the hook only queues
-the event; a 100 ms game-thread loop plays it. Loading and playing inside
+the event; a 100 ms game-thread loop plays it. Voice lines (the tag's path is
+`sound\dialog\...`, cooked as `sound_dialog_*`) then go through the announcer
+queue (`MJOLNIRLevelLoader/Scripts/announcer.lua`):
+- **Bursts collapse.** A line waits 0.35 s, so a burst can settle. A
+  higher multi-kill or spree replaces a waiting one: one grenade into a
+  squad says "Overkill", not the four lines before it.
+- **One at a time.** Lines play in turn, each for the wave's own `Duration`.
+  The queue never talks over MJOLNIRHud's Warfare voice, because both keep
+  the shared variable `MJOLNIR.voiceUntil`.
+- **Stale lines drop.** A line kept waiting more than 2.5 s is dropped,
+  apart from a game's start and `game_over`.
+- **Effects don't wait.** Respawn ticks, pickups and teleports play at once.
+
+The engine's sound concurrency was not enough on its own: it can stop or
+refuse a sound but not hold one for later. Loading and playing inside
 the hook froze the game on the first teleport. No game-start event is
 raised on a converted map, so the game type's announcement ("Slayer",
 "King of the Hill" and so on) plays once per match, picked by the variant

@@ -76,6 +76,9 @@ local VehicleSets = dofile(MOD_DIR .. "\\Scripts\\vehicle_sets.lua")
 local Teams = dofile(MOD_DIR .. "\\Scripts\\teams.lua")
 Teams.descriptors = dofile(MOD_DIR .. "\\Scripts\\mode_descriptors.lua")
 Teams.warfare = dofile(MOD_DIR .. "\\Scripts\\warfare.lua")
+-- The announcer's lines one at a time (playEvent); on Teams, as the file is
+-- at Lua's 200 locals.
+Teams.Announcer = dofile(MOD_DIR .. "\\Scripts\\announcer.lua")
 for id, descriptor in pairs(Teams.descriptors) do
     Teams.TEAM_GAMES[id] = descriptor.teams
     VariantSettings.VARIANT_SLOTS[id] = descriptor.slot
@@ -2459,7 +2462,36 @@ local function playEvent(name, cause, value, effect)
     -- the value (CTF: the flag's, 0 red or 1 blue), keyed "name:value".
     local waves = (value and EventWaves[name .. ":" .. tostring(value)]) or EventWaves[name]
     if not waves then return end
-    local wave = resolveMesh(waves[math.random(#waves)])
+    local path = waves[math.random(#waves)]
+    -- Voice lines wait their turn (announcer.lua: a burst of multi-kills says
+    -- its best one, and never over another line); effects play at once.
+    if Teams.Announcer.isVoice(path) then
+        Teams.voice = Teams.voice or Teams.Announcer.new({
+            now = os.clock,
+            schedule = function(seconds, fn)
+                ExecuteInGameThreadWithDelay(math.floor(seconds * 1000 + 0.5), function() pcall(fn) end)
+            end,
+            play = function(p)
+                local w = resolveMesh(p)
+                local statics = findObject("/Script/Engine.Default__GameplayStatics")
+                local at, gain = getWorld(), gameVolume("announcer")
+                if not (w and statics and at) or gain <= 0 then return nil end
+                pcall(function() statics:PlaySound2D(at, w, gain, 1.0, 0.0, nil, nil, true) end)
+                local okD, seconds = pcall(function() return w.Duration end)
+                return okD and type(seconds) == "number" and seconds > 0 and seconds or 1.5
+            end,
+            floor = function()
+                local okF, v = pcall(function() return rawget(_G, "ModRef"):GetSharedVariable(Teams.Announcer.FLOOR) end)
+                return okF and tonumber(v) or 0
+            end,
+            setFloor = function(t)
+                pcall(function() rawget(_G, "ModRef"):SetSharedVariable(Teams.Announcer.FLOOR, tostring(t)) end)
+            end,
+        })
+        Teams.voice.push(name, path)
+        return
+    end
+    local wave = resolveMesh(path)
     local gs = findObject("/Script/Engine.Default__GameplayStatics")
     local world = getWorld()
     -- The announcer follows the dialogue slider (syncVolumes' sliders).

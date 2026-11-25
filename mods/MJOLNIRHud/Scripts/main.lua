@@ -195,6 +195,15 @@ local VoiceIO = {
         return 1
     end,
     log = function(text) Log(text) end,
+    -- Shared with MJOLNIRLevelLoader's announcer queue (announcer.lua): the
+    -- os.clock time until which a voice is speaking, so the two take turns.
+    floor = function()
+        local ok, v = pcall(function() return rawget(_G, "ModRef"):GetSharedVariable("MJOLNIR.voiceUntil") end)
+        return ok and tonumber(v) or 0
+    end,
+    setFloor = function(t)
+        pcall(function() rawget(_G, "ModRef"):SetSharedVariable("MJOLNIR.voiceUntil", tostring(t)) end)
+    end,
 }
 local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua"),
