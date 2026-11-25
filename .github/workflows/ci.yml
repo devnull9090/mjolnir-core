@@ -70,6 +70,7 @@ jobs:
           lua5.4 tools/tests/test_warfare_canopy.lua
           lua5.4 tools/tests/test_warfare_countdown.lua
           lua5.4 tools/tests/test_warfare_spectate.lua
+          lua5.4 tools/tests/test_warfare_voice.lua
 
       - name: Test the lobby after a match (Quit, missing worlds, a joiner told why)
         run: |

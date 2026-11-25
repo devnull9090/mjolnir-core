@@ -14,9 +14,11 @@ container is not installed.
 
 Why 950: an IoStore container's id is CityHash64 of its cooked name
 (`mjolnir packageid --name pakchunk<N>-Windows`), whatever the file is renamed
-to, and a container whose id is already mounted does not load. Hub maps are
-cooked under many numbers (Gephyrophobia as 972, which first hid this one);
-no installed container had 950's id on 2026-11-24.
+to, and hub maps are cooked under many numbers (Gephyrophobia's container has
+972's id). Whether a shared id stops a container loading is unproven: the
+first 972 build failed for another reason (a wave named `_1`, below), and
+containers sharing an id (981-983, 988) are installed side by side. 950 was
+chosen because no installed container had its id on 2026-11-24.
 """
 import os
 

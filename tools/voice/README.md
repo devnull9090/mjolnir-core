@@ -69,7 +69,8 @@ powershell -File tools/ue/cook.ps1
 The cook stages `pakchunk950-Windows.*`; install it as `pakchunk950-MJOLNIRVOICE*_P`.
 
 Why chunk 950: a container's id is CityHash64 of its cooked name, and hub
-maps already use several numbers (`build_warfare_voice.py` explains).
+maps already use several numbers. No installed container shares 950's id,
+though whether a shared id matters is unproven (`build_warfare_voice.py`).
 
 `mods/MJOLNIRHud/Scripts/warfare_voice.lua` decides from the warfare snapshot
 what is said and when. It stays silent when the container is not installed.

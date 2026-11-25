@@ -27,9 +27,9 @@ eq(said(Voice.decide(m, snap({ phase = 0, clock = 21 }), 0, 1)), "")
 eq(said(Voice.decide(m, snap({ phase = 0, clock = 20 }), 0, 2)), "warmup", "twenty seconds left")
 eq(said(Voice.decide(m, snap({ phase = 0, clock = 19 }), 0, 3)), "", "said once")
 eq(said(Voice.decide(m, snap({ phase = 1, ticks = 0, stage = 2 }), 0, 4)), "insertion")
-eq(said(Voice.decide(m, snap({ phase = 1, ticks = 7 * 60, stage = 2 }), 0, 11)), "briefing", "seven seconds in")
+eq(said(Voice.decide(m, snap({ phase = 1, ticks = 3 * 60, stage = 2 }), 0, 7)), "briefing", "three seconds in")
 eq(said(Voice.decide(m, snap({ phase = 1, ticks = 9 * 60, stage = 2 }), 0, 13)), "", "nine seconds seated")
-eq(said(Voice.decide(m, snap({ phase = 1, ticks = 22 * 60, stage = 2 }), 0, 26)), "jump_now", "ten seconds seated, still aboard")
+eq(said(Voice.decide(m, snap({ phase = 1, ticks = 22 * 60, stage = 2 }), 0, 26)), "jump_now", "eleven seconds seated, still aboard")
 eq(said(Voice.decide(m, snap({ phase = 1, ticks = 23 * 60, stage = 2 }), 0, 27)), "", "told once")
 
 -- The drop: warn, yell, and the joke when the chute opens itself.
@@ -152,6 +152,30 @@ local before = loads
 missing.observe(snap({ phase = 0, clock = 40 }), 0, 0)
 missing.pump(0); missing.observe(snap({ phase = 0, clock = 20 }), 0, 1); missing.pump(10)
 eq(loads - before, 1, "one failed load, then silence"); eq(missing.disabled, true)
+
+-- The launch sequence as it plays: the launch line, the briefing after it,
+-- and the call to jump waiting for the briefing to finish, never cutting it.
+local heard, cut = {}, {}
+local seq = Voice.new({
+    lines = { insertion = { { "cortana_insertion_a", 2.7 } }, briefing = { { "cortana_briefing_a", 6.0 } },
+        jump_now = { { "cortana_jump_now_a", 2.0 } } },
+    load = function(path) return { path = path } end,
+    spawn = function(wave) heard[#heard + 1] = wave.path:match("([%w_]+)%.") return { name = wave.path } end,
+    stop = function(c) cut[#cut + 1] = c.name end, volume = function() return 1 end, random = function() return 1 end })
+seq.observe(snap({ phase = 0, clock = 1, stage = 0 }), 0, 0)
+local t = 0
+for i = 1, 140 do
+    t = i / 10
+    seq.observe(snap({ phase = 1, ticks = math.floor(t * 60), stage = 2 }), 0, t)
+    seq.pump(t)
+end
+eq(table.concat(heard, ","), "cortana_insertion_a,cortana_briefing_a,cortana_jump_now_a", "launch, briefing, jump")
+eq(#cut, 0, "nothing in the launch sequence is cut off")
+
+-- The wave timing restates native warfare_core.h: keep them equal.
+local core = _G.io.open("native/lobby/warfare_core.h"):read("a")
+eq(tonumber(core:match("#define WARFARE_WAVE_FIRST (%d+)")), Voice.WAVE_FIRST, "WARFARE_WAVE_FIRST")
+eq(tonumber(core:match("#define WARFARE_WAVE_INTERVAL (%d+)")), Voice.WAVE_INTERVAL, "WARFARE_WAVE_INTERVAL")
 
 -- The loader no longer announces Warfare as King of the Hill; the voice does.
 local modes = dofile("mods/MJOLNIRLevelLoader/Scripts/mode_descriptors.lua")

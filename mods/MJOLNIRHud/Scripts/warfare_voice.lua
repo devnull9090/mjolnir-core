@@ -23,8 +23,9 @@ Voice.ROOT = "/Game/MJOLNIR/Sounds/Warfare/"
 -- (zones open, the Covenant holding everything), 1 the rest. TTL: seconds a
 -- line may wait in the queue before it is stale.
 local LINE = {
-    title = { 2, 6 }, warmup = { 1, 4 }, insertion = { 2, 4 }, briefing = { 1, 8 },
-    jump_now = { 3, 3 }, altitude_warn = { 2, 1.5 }, altitude_yell = { 3, 1.2 }, auto_chute = { 3, 2 },
+    title = { 2, 6 }, warmup = { 1, 4 }, insertion = { 2, 4 }, briefing = { 2, 8 },
+    -- The same priority as the briefing, so it waits for it rather than cut it off.
+    jump_now = { 2, 4 }, altitude_warn = { 2, 1.5 }, altitude_yell = { 3, 1.2 }, auto_chute = { 3, 2 },
     zones_open = { 2, 4 }, first_wave = { 1, 6 }, wave_inbound = { 1, 6 },
     covenant_landing = { 1, 5 }, covenant_take = { 2, 6 }, covenant_two = { 2, 6 },
     covenant_all = { 3, 6 }, defeat_ten = { 3, 3 }, covenant_broken = { 2, 5 },
@@ -42,7 +43,9 @@ Voice.WARN_M, Voice.YELL_M, Voice.AUTO_BELOW_M = 320, 170, 115
 -- wave (one is skipped at the cap), so later warnings are hedged by presence:
 -- none while Covenant already stand in a zone.
 Voice.WAVE_FIRST, Voice.WAVE_INTERVAL, Voice.WAVE_LEAD = 45, 90, 10
-Voice.WARMUP_AT, Voice.BRIEFING_AT, Voice.JUMP_NOW_AT, Voice.QUIET_BEFORE_LANDING = 20, 7, 10, 20
+-- The briefing (up to 6 s) follows the launch line, and the call to jump comes
+-- after it: riders are put out about 15 s after boarding on PWR.
+Voice.WARMUP_AT, Voice.BRIEFING_AT, Voice.JUMP_NOW_AT, Voice.QUIET_BEFORE_LANDING = 20, 3, 11, 20
 local LETTER = { "a", "b", "c" }
 local COVENANT = 3
 
@@ -53,9 +56,9 @@ local function team(s, me)
     return nil
 end
 
-local function covenantCount(s)
+local function covenantCount(owner)
     local n = 0
-    for i = 1, 3 do if s.owner[i] == COVENANT then n = n + 1 end end
+    for i = 1, 3 do if owner[i] == COVENANT then n = n + 1 end end
     return n
 end
 
@@ -66,9 +69,11 @@ end
 --- The defeat clock while the Covenant hold all three, else nil (warfare.lua's
 --- Warfare.defeatIn, restated so this module stands alone in tests).
 local function defeatIn(s)
-    if s.phase ~= 2 or not s.globals or s.globals[5] <= 0 or covenantCount(s) < 3 then return nil end
+    if s.phase ~= 2 or not s.globals or s.globals[5] <= 0 or covenantCount(s.owner) < 3 then return nil end
     return s.globals[5]
 end
+
+local function add(out, event) out[#out + 1] = event end
 
 local function combatSeconds(s)
     if (s.phase == 2 or s.phase == 3) and s.globals then return math.max(0, s.globals[4]) end
@@ -78,10 +83,11 @@ end
 
 --- The lines a change from `m` (the memory of the last sample) to snapshot
 --- `s` calls for, as event names (zone events carry their letter), in the
---- order they should be heard. Updates `m`. Pure apart from `m`.
-function Voice.decide(m, s, me, now)
-    local out = {}
-    local function say(event) out[#out + 1] = event end
+--- order they should be heard, into `out` (cleared; a new table when nil).
+--- Updates `m`. Pure apart from `m` and `out`. It runs on every accepted
+--- sample (10 Hz in flight), so a quiet sample allocates nothing.
+function Voice.decide(m, s, me, now, out)
+    if out then for k = #out, 1, -1 do out[k] = nil end else out = {} end
     local mine = team(s, me)
     local p = s.players and s.players[me]
     local stage = p and p.localUser >= 0 and p.stage or nil
@@ -95,20 +101,20 @@ function Voice.decide(m, s, me, now)
         m.defeat, m.stage, m.clearance = defeatIn(s), stage, clearance
         m.warmupLeft, m.combat, m.covenantSeenAt = s.phase == 0 and s.globals[4] or nil, combatSeconds(s), nil
         m.briefed = s.phase ~= 0 and s.phase ~= 1
-        if s.phase == 0 then say("title") end
+        if s.phase == 0 then add(out, "title") end
         return out
     end
     -- Warmup and insertion.
     if s.phase == 0 then
         local left = s.globals[4]
-        if m.warmupLeft and left >= 0 and m.warmupLeft > Voice.WARMUP_AT and left <= Voice.WARMUP_AT then say("warmup") end
+        if m.warmupLeft and left >= 0 and m.warmupLeft > Voice.WARMUP_AT and left <= Voice.WARMUP_AT then add(out, "warmup") end
         m.warmupLeft = left
     end
-    if m.phase == 0 and s.phase == 1 then say("insertion") end
+    if m.phase == 0 and s.phase == 1 then add(out, "insertion") end
     if s.phase == 1 then
         if not m.briefed and s.rate > 0 and s.elapsed_ticks / s.rate >= Voice.BRIEFING_AT then
             m.briefed = true
-            say("briefing")
+            add(out, "briefing")
         end
         -- A rider who has not jumped is put out when the Pelican's flight ends
         -- (native WF_SEATED -> WF_EXITING on flight_over), which can be long
@@ -116,7 +122,7 @@ function Voice.decide(m, s, me, now)
         -- 2026-11-24): so she calls it from the time seated, not time left.
         if stage == 2 and m.seatedAt and now - m.seatedAt >= Voice.JUMP_NOW_AT and not m.toldToJump then
             m.toldToJump = true
-            say("jump_now")
+            add(out, "jump_now")
         end
     end
     if stage == 2 and m.stage ~= 2 then m.seatedAt = now end
@@ -125,30 +131,30 @@ function Voice.decide(m, s, me, now)
     if stage == 3 and m.drop and clearance then
         if not m.drop.warned and clearance < Voice.WARN_M and now - m.drop.at >= 2 then
             m.drop.warned = true
-            say("altitude_warn")
+            add(out, "altitude_warn")
         end
         if not m.drop.yelled and clearance < Voice.YELL_M and now - m.drop.at >= 1 then
             m.drop.yelled, m.drop.warned = true, true
-            say("altitude_yell")
+            add(out, "altitude_yell")
         end
     end
-    if m.stage == 3 and stage == 4 and m.clearance and m.clearance < Voice.AUTO_BELOW_M then say("auto_chute") end
+    if m.stage == 3 and stage == 4 and m.clearance and m.clearance < Voice.AUTO_BELOW_M then add(out, "auto_chute") end
     -- Boarding a reinforcement Pelican: at the HUD's 2 Hz a respawn went from
     -- the ground straight to seated (PC 1, 2026-11-24), so either counts.
     local aboard = stage == 1 or stage == 2
-    if s.phase == 2 and aboard and not (m.stage == 1 or m.stage == 2) then say("reinforcements") end
+    if s.phase == 2 and aboard and not (m.stage == 1 or m.stage == 2) then add(out, "reinforcements") end
     -- Combat.
-    if m.phase == 1 and s.phase == 2 then say("zones_open") end
+    if m.phase == 1 and s.phase == 2 then add(out, "zones_open") end
     local combat = combatSeconds(s)
     if s.phase == 2 and combat and m.combat then
         local anyPresent = present(s, 1) or present(s, 2) or present(s, 3)
         if m.combat < Voice.WAVE_FIRST - Voice.WAVE_LEAD and combat >= Voice.WAVE_FIRST - Voice.WAVE_LEAD then
-            say("first_wave")
+            add(out, "first_wave")
         else
             for k = 1, 64 do
                 local at = Voice.WAVE_FIRST + k * Voice.WAVE_INTERVAL - Voice.WAVE_LEAD
                 if at > combat then break end
-                if m.combat < at and not anyPresent then say("wave_inbound") end
+                if m.combat < at and not anyPresent then add(out, "wave_inbound") end
             end
         end
     end
@@ -159,22 +165,22 @@ function Voice.decide(m, s, me, now)
         for i = 1, 3 do
             local was, is, letter = m.owner[i], s.owner[i], LETTER[i]
             if is ~= was then
-                if is == COVENANT then say("covenant_take_" .. letter)
+                if is == COVENANT then add(out, "covenant_take_" .. letter)
                 elseif mine and is == mine then
-                    if was == COVENANT then say("retaken") end
-                    say("zone_secured_" .. letter)
-                elseif mine and is == 3 - mine then say("zone_enemy_" .. letter)
-                elseif mine and was == mine then say("zone_lost_" .. letter) end
+                    if was == COVENANT then add(out, "retaken") end
+                    add(out, "zone_secured_" .. letter)
+                elseif mine and is == 3 - mine then add(out, "zone_enemy_" .. letter)
+                elseif mine and was == mine then add(out, "zone_lost_" .. letter) end
             end
             if present(s, i) and not m.present[i] then
-                if mine and s.owner[i] == mine then say("zone_contested_" .. letter)
+                if mine and s.owner[i] == mine then add(out, "zone_contested_" .. letter)
                 elseif quiet and not landed then
                     landed = true
-                    say("covenant_landing_" .. letter)
+                    add(out, "covenant_landing_" .. letter)
                 end
             end
         end
-        if covenantCount(s) == 2 and covenantCount({ owner = m.owner }) < 2 then say("covenant_two") end
+        if covenantCount(s.owner) == 2 and covenantCount(m.owner) < 2 then add(out, "covenant_two") end
         local defeat = defeatIn(s)
         if defeat and not m.defeat then
             -- "They hold every zone" says what the third zone's line would,
@@ -183,23 +189,22 @@ function Voice.decide(m, s, me, now)
             for k = #out, 1, -1 do
                 if out[k]:find("^covenant_take_") or out[k] == "covenant_two" then table.remove(out, k) end
             end
-            say("covenant_all")
-        elseif defeat and m.defeat and m.defeat > 10 and defeat <= 10 then say("defeat_ten")
-        elseif m.defeat and not defeat then say("covenant_broken") end
+            add(out, "covenant_all")
+        elseif defeat and m.defeat and m.defeat > 10 and defeat <= 10 then add(out, "defeat_ten")
+        elseif m.defeat and not defeat then add(out, "covenant_broken") end
     end
     if present(s, 1) or present(s, 2) or present(s, 3) then m.covenantSeenAt = now end
     -- The end.
     if m.phase ~= 3 and s.phase == 3 then
-        if s.globals[5] == 0 and covenantCount(s) == 3 then say("covenant_win")
+        if s.globals[5] == 0 and covenantCount(s.owner) == 3 then add(out, "covenant_win")
         elseif mine then
             local ours, theirs = s.score[mine], s.score[3 - mine]
-            if ours > theirs then say("victory"); say("well_done")
-            elseif ours < theirs then say("defeat") end
+            if ours > theirs then add(out, "victory"); add(out, "well_done")
+            elseif ours < theirs then add(out, "defeat") end
         end
     end
     m.phase, m.combat, m.defeat = s.phase, combat, defeatIn(s)
-    m.owner = { s.owner[1], s.owner[2], s.owner[3] }
-    m.present = { present(s, 1), present(s, 2), present(s, 3) }
+    for i = 1, 3 do m.owner[i], m.present[i] = s.owner[i], present(s, i) end
     m.stage, m.clearance = stage, clearance
     return out
 end
@@ -243,16 +248,19 @@ function Voice.new(io)
         return true
     end
 
+    local said = {}
+
     --- Feed an accepted snapshot (warfare.lua's tick).
     function self.observe(s, me, now)
         if self.disabled or not s then return end
-        for _, event in ipairs(Voice.decide(self.memory, s, me, now)) do enqueue(event, now) end
+        for _, event in ipairs(Voice.decide(self.memory, s, me, now, said)) do enqueue(event, now) end
     end
 
-    --- The snapshot went stale or the match ended: the next sample is a new baseline.
+    --- The snapshot went stale or the match ended: the next sample is a new
+    --- baseline. Called every tick off the map, so it clears in place.
     function self.reset()
-        self.memory = {}
-        self.queue = {}
+        for k in pairs(self.memory) do self.memory[k] = nil end
+        for k = #self.queue, 1, -1 do self.queue[k] = nil end
     end
 
     --- Play or cut what the queue holds; called every tick.
