@@ -83,7 +83,7 @@ print("warfare countdown: ok")
 -- Reinforcement waves (60 s interval, 30 s flights).
 local function combat(seconds, stage)
     return { phase = 2, instance = "7", connected = 2, reinforcement = { interval = 60, flight = 30 },
-        globals = { 2, 0, Warfare.RULES, seconds }, players = { [0] = { stage = stage, localUser = 0 } } }
+        globals = { 2, 0, Warfare.RULES, seconds, -1 }, players = { [0] = { stage = stage, localUser = 0 } } }
 end
 local w = Warfare.wave(combat(12)); eq(w.flying, false); eq(w.departs, 48)
 w = Warfare.wave(combat(65)); eq(w.flying, true, "wave 1 in the air")
@@ -93,5 +93,5 @@ local parked = Warfare.describe(combat(37, 2), 0, "SPACE")
 assert(parked:find("REINFORCEMENTS DEPART IN 0:23") and parked:find("SPACE: JUMP NOW"), parked)
 assert(Warfare.describe(combat(65, 2), 0, "E"):find("E TO JUMP"))
 assert(Warfare.describe(combat(37, 1), 0):find("BOARDING"))
-eq(Warfare.describe(combat(37, 0), 0), nil, "on foot in combat: the zone tiles say it")
+eq(Warfare.describe(combat(37, 0), 0), "MATCH TIME 0:37", "on foot in combat: the match clock (the zone tiles say who holds what)")
 print("warfare reinforcement lines: ok")
