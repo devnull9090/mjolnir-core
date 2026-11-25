@@ -25,7 +25,7 @@ Voice.ROOT = "/Game/MJOLNIR/Sounds/Warfare/"
 local LINE = {
     title = { 2, 6 }, warmup = { 1, 4 }, insertion = { 2, 4 }, briefing = { 2, 8 },
     -- The same priority as the briefing, so it waits for it rather than cut it off.
-    jump_now = { 2, 4 }, altitude_warn = { 2, 1.5 }, altitude_yell = { 3, 1.2 }, auto_chute = { 3, 2 },
+    jump_now = { 2, 4 }, altitude_warn = { 2, 1.5 }, altitude_yell = { 3, 1.2 }, splat = { 3, 3 },
     zones_open = { 2, 4 }, first_wave = { 1, 6 }, wave_inbound = { 1, 6 },
     covenant_landing = { 1, 5 }, covenant_take = { 2, 6 }, covenant_two = { 2, 6 },
     covenant_all = { 3, 6 }, defeat_ten = { 3, 3 }, covenant_broken = { 2, 5 },
@@ -34,10 +34,11 @@ local LINE = {
     victory = { 2, 10 }, defeat = { 2, 10 }, well_done = { 1, 12 }, covenant_win = { 3, 10 },
 }
 
--- The drop: the chute opens itself at max(38, 18 + 1.05 x sink) metres
--- (native warfare_need_canopy, about 76 m at freefall's ~55 m/s), so she warns
--- above that and, if the player never pulls it, makes the joke as it opens.
-Voice.WARN_M, Voice.YELL_M, Voice.AUTO_BELOW_M = 320, 170, 115
+-- The drop: the parachute opens only when pulled, and meeting the ground
+-- faster than WARFARE_SPLAT_SINK (native warfare_core.h, 20 m/s) kills. She
+-- warns at 320 m and yells at 170 m (about 3 s out at freefall's ~55 m/s);
+-- leaving the air that fast, a few metres up, is the splat she warned of.
+Voice.WARN_M, Voice.YELL_M, Voice.SPLAT_SINK, Voice.SPLAT_BELOW_M = 320, 170, 20, 30
 -- The Covenant's waves leave on the combat clock (native warfare_core.h
 -- WARFARE_WAVE_FIRST / WARFARE_WAVE_INTERVAL). The clock only predicts a
 -- wave (one is skipped at the cap), so later warnings are hedged by presence:
@@ -92,6 +93,8 @@ function Voice.decide(m, s, me, now, out)
     local p = s.players and s.players[me]
     local stage = p and p.localUser >= 0 and p.stage or nil
     local clearance = s.clearance and s.clearance[me]
+    local flight = s.flight and s.flight[me]
+    local sink = flight and -flight.vz or nil
     if m.instance ~= s.instance then
         -- A new match, or a join: baseline only, apart from the title for
         -- anyone who arrives during warmup.
@@ -99,7 +102,7 @@ function Voice.decide(m, s, me, now, out)
         m.instance = s.instance
         m.phase, m.owner, m.present = s.phase, { s.owner[1], s.owner[2], s.owner[3] }, { present(s, 1), present(s, 2), present(s, 3) }
         m.held = { s.owner[1], s.owner[2], s.owner[3] }
-        m.defeat, m.stage, m.clearance = defeatIn(s), stage, clearance
+        m.defeat, m.stage, m.clearance, m.sink = defeatIn(s), stage, clearance, sink
         m.warmupLeft, m.combat, m.covenantSeenAt = s.phase == 0 and s.globals[4] or nil, combatSeconds(s), nil
         m.briefed = s.phase ~= 0 and s.phase ~= 1
         if s.phase == 0 then add(out, "title") end
@@ -139,7 +142,12 @@ function Voice.decide(m, s, me, now, out)
             add(out, "altitude_yell")
         end
     end
-    if m.stage == 3 and stage == 4 and m.clearance and m.clearance < Voice.AUTO_BELOW_M then add(out, "auto_chute") end
+    -- Out of the air (not landed under canopy, not a failed descent sent home,
+    -- not back in a Pelican) from a fall still too fast, near the ground.
+    if (m.stage == 3 or m.stage == 4) and stage ~= 3 and stage ~= 4 and stage ~= 6 and stage ~= 7
+        and m.sink and m.sink > Voice.SPLAT_SINK and m.clearance and m.clearance < Voice.SPLAT_BELOW_M then
+        add(out, "splat")
+    end
     -- Boarding a reinforcement Pelican: at the HUD's 2 Hz a respawn went from
     -- the ground straight to seated (PC 1, 2026-11-24), so either counts.
     local aboard = stage == 1 or stage == 2
@@ -212,7 +220,7 @@ function Voice.decide(m, s, me, now, out)
         m.owner[i], m.present[i] = s.owner[i], present(s, i)
         if s.owner[i] ~= 0 then m.held[i] = s.owner[i] end
     end
-    m.stage, m.clearance = stage, clearance
+    m.stage, m.clearance, m.sink = stage, clearance, sink
     return out
 end
 
@@ -232,7 +240,7 @@ function Voice.new(io)
 
     local function start(entry, now, pc)
         -- A zone line is asked for by its full name (zone_secured_b), any
-        -- other by its event, which lists its variants (auto_chute: a, b, c).
+        -- other by its event, which lists its variants (splat: a, b, c).
         local waves = io.lines[entry.event]
         if not waves or #waves == 0 then return false end
         local pick = waves[random(#waves)]
@@ -252,6 +260,7 @@ function Voice.new(io)
         local okS, component = pcall(io.spawn, wave, volume, pc)
         playing = { component = okS and component or nil, priority = entry.priority,
             ends = now + pick[2] + 0.35, event = entry.event }
+        if io.setFloor then pcall(io.setFloor, playing.ends) end
         return true
     end
 
@@ -285,6 +294,10 @@ function Voice.new(io)
         if playing and now < playing.ends then
             if best.priority <= playing.priority then return end
             if playing.component and io.stop then pcall(io.stop, playing.component) end
+        elseif best.priority < 3 and io.floor and now < (io.floor() or 0) then
+            -- The announcer (MJOLNIRLevelLoader announcer.lua) is speaking:
+            -- wait, unless it is the player's own fall, which cannot.
+            return
         end
         table.remove(self.queue, index)
         playing = nil

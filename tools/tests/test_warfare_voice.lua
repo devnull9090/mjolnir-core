@@ -13,7 +13,7 @@ local function snap(t)
         instance = t.instance or "7", phase = t.phase or 2, globals = g, owner = owner, sites = sites,
         score = t.score or { 0, 0 }, rate = 60, elapsed_ticks = t.ticks or 0, insertion_seconds = t.insertion or 30,
         players = { [0] = { team = t.team == nil and 0 or t.team, stage = t.stage or 0, localUser = 0 } },
-        clearance = { [0] = t.clearance },
+        clearance = { [0] = t.clearance }, flight = { [0] = t.sink and { vz = -t.sink } or nil },
     }
 end
 
@@ -32,17 +32,26 @@ eq(said(Voice.decide(m, snap({ phase = 1, ticks = 9 * 60, stage = 2 }), 0, 13)),
 eq(said(Voice.decide(m, snap({ phase = 1, ticks = 22 * 60, stage = 2 }), 0, 26)), "jump_now", "eleven seconds seated, still aboard")
 eq(said(Voice.decide(m, snap({ phase = 1, ticks = 23 * 60, stage = 2 }), 0, 27)), "", "told once")
 
--- The drop: warn, yell, and the joke when the chute opens itself.
-eq(said(Voice.decide(m, snap({ phase = 1, ticks = 24 * 60, stage = 3, clearance = 280 }), 0, 28)), "",
+-- The drop: warn, yell, and the line when the ground wins (no chute opens
+-- itself any more; native WF_SPLAT).
+eq(said(Voice.decide(m, snap({ phase = 1, ticks = 24 * 60, stage = 3, clearance = 280, sink = 30 }), 0, 28)), "",
     "no warning in the first two seconds of a fall")
-eq(said(Voice.decide(m, snap({ phase = 1, ticks = 26 * 60, stage = 3, clearance = 250 }), 0, 30.5)), "altitude_warn")
-eq(said(Voice.decide(m, snap({ phase = 1, ticks = 27 * 60, stage = 3, clearance = 140 }), 0, 31.5)), "altitude_yell")
-eq(said(Voice.decide(m, snap({ phase = 1, ticks = 28 * 60, stage = 3, clearance = 80 }), 0, 32)), "")
-eq(said(Voice.decide(m, snap({ phase = 1, ticks = 28 * 60, stage = 4, clearance = 70 }), 0, 32.2)), "auto_chute",
-    "the chute opened itself")
+eq(said(Voice.decide(m, snap({ phase = 1, ticks = 26 * 60, stage = 3, clearance = 250, sink = 45 }), 0, 30.5)), "altitude_warn")
+eq(said(Voice.decide(m, snap({ phase = 1, ticks = 27 * 60, stage = 3, clearance = 140, sink = 52 }), 0, 31.5)), "altitude_yell")
+eq(said(Voice.decide(m, snap({ phase = 1, ticks = 28 * 60, stage = 3, clearance = 6, sink = 54 }), 0, 33.9)), "")
+eq(said(Voice.decide(m, snap({ phase = 1, ticks = 28 * 60, stage = 5 }), 0, 34)), "splat", "hit the ground at freefall speed")
+local landed = {}
+Voice.decide(landed, snap({ phase = 1, stage = 4, clearance = 4, sink = 16 }), 0, 0)
+eq(said(Voice.decide(landed, snap({ phase = 1, stage = 5 }), 0, 0.1)), "", "a canopy landing: nothing to say")
+local late = {}
+Voice.decide(late, snap({ phase = 1, stage = 4, clearance = 3, sink = 40 }), 0, 0)
+eq(said(Voice.decide(late, snap({ phase = 1, stage = 0 }), 0, 0.1)), "splat", "a pull too late is still a splat")
+local sent = {}
+Voice.decide(sent, snap({ phase = 1, stage = 3, clearance = 20, sink = 50 }), 0, 0)
+eq(said(Voice.decide(sent, snap({ phase = 1, stage = 6 }), 0, 0.1)), "", "a failed descent sent home is not a splat")
 local high = {}
-Voice.decide(high, snap({ phase = 1, stage = 3, clearance = 600 }), 0, 0)
-eq(said(Voice.decide(high, snap({ phase = 1, stage = 4, clearance = 590 }), 0, 1)), "", "a pull up high: nothing to say")
+Voice.decide(high, snap({ phase = 1, stage = 3, clearance = 600, sink = 20 }), 0, 0)
+eq(said(Voice.decide(high, snap({ phase = 1, stage = 4, clearance = 590, sink = 25 }), 0, 1)), "", "a pull up high: nothing to say")
 
 -- Combat: zones open, the waves, the zones.
 eq(said(Voice.decide(m, snap({ phase = 2, clock = 0 }), 0, 40)), "zones_open")
@@ -159,6 +168,22 @@ missing.observe(snap({ phase = 0, clock = 40 }), 0, 0)
 missing.pump(0); missing.observe(snap({ phase = 0, clock = 20 }), 0, 1); missing.pump(10)
 eq(loads - before, 1, "one failed load, then silence"); eq(missing.disabled, true)
 
+-- Turns with the loader's announcer (MJOLNIR.voiceUntil): a calm line waits
+-- for it, the player's own fall does not, and a line takes the floor.
+local sharedUntil, spoke = 5, {}
+local turns = Voice.new({
+    lines = { briefing = { { "cortana_briefing_a", 4.0 } }, altitude_yell = { { "cortana_altitude_yell_a", 1.8 } } },
+    load = function(path) return { path = path } end,
+    spawn = function(wave) spoke[#spoke + 1] = wave.path:match("([%w_]+)%.") return {} end,
+    volume = function() return 1 end, random = function() return 1 end,
+    floor = function() return sharedUntil end, setFloor = function(t) sharedUntil = t end })
+turns.queue = { { event = "briefing", priority = 2, expires = 9, at = 0 } }
+turns.pump(1); eq(#spoke, 0, "a calm line waits while the announcer speaks")
+turns.pump(5.1); eq(spoke[1], "cortana_briefing_a", "then plays"); assert(sharedUntil > 9, "and holds the floor")
+sharedUntil = 20
+turns.queue = { { event = "altitude_yell", priority = 3, expires = 21, at = 19.9 } }
+turns.pump(19.95); eq(spoke[2], "cortana_altitude_yell_a", "the fall does not wait")
+
 -- The launch sequence as it plays: the launch line, the briefing after it,
 -- and the call to jump waiting for the briefing to finish, never cutting it.
 local heard, cut = {}, {}
@@ -182,6 +207,7 @@ eq(#cut, 0, "nothing in the launch sequence is cut off")
 local core = _G.io.open("native/lobby/warfare_core.h"):read("a")
 eq(tonumber(core:match("#define WARFARE_WAVE_FIRST (%d+)")), Voice.WAVE_FIRST, "WARFARE_WAVE_FIRST")
 eq(tonumber(core:match("#define WARFARE_WAVE_INTERVAL (%d+)")), Voice.WAVE_INTERVAL, "WARFARE_WAVE_INTERVAL")
+eq(tonumber(core:match("#define WARFARE_SPLAT_SINK ([%d.]+)f")), Voice.SPLAT_SINK, "WARFARE_SPLAT_SINK")
 
 -- The loader no longer announces Warfare as King of the Hill; the voice does.
 local modes = dofile("mods/MJOLNIRLevelLoader/Scripts/mode_descriptors.lua")
@@ -193,7 +219,7 @@ local f = _G.io.open("mods/MJOLNIRHud/Scripts/warfare_voice_lines.lua")
 if f then
     f:close()
     local lines = dofile("mods/MJOLNIRHud/Scripts/warfare_voice_lines.lua")
-    local wanted = { "title", "warmup", "insertion", "briefing", "jump_now", "altitude_warn", "altitude_yell", "auto_chute",
+    local wanted = { "title", "warmup", "insertion", "briefing", "jump_now", "altitude_warn", "altitude_yell", "splat",
         "zones_open", "first_wave", "wave_inbound", "covenant_two", "covenant_all", "defeat_ten", "covenant_broken",
         "retaken", "reinforcements", "victory", "defeat", "well_done", "covenant_win" }
     for _, zone in ipairs({ "zone_secured", "zone_lost", "zone_enemy", "zone_contested", "covenant_landing", "covenant_take" }) do

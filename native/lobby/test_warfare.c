@@ -237,7 +237,7 @@ static void test_carrier_deck_and_airborne_pause(void) {
 
 #include "warfare_inventory.h"
 
-typedef struct { float opened, landed, remaining, horizontal, max_sink, final_sink; } flight_result;
+typedef struct { float opened, landed, remaining, horizontal, max_sink, final_sink; int splat; } flight_result;
 
 static flight_result fly_course(int rate, float open_at, int brake) {
     float dt = 1.0f / rate;
@@ -261,6 +261,7 @@ static flight_result fly_course(int rate, float open_at, int brake) {
         if (p.stage == WF_LANDED) {
             result.landed = age;
             result.horizontal = s.position[0] - x0;
+            result.splat = (o.flags & WF_SPLAT) != 0;
             return result;
         }
         if (o.flags & WF_VELOCITY) memcpy(s.velocity, o.velocity, sizeof s.velocity);
@@ -279,20 +280,25 @@ static flight_result fly_course(int rate, float open_at, int brake) {
 
 static void test_flight_controls(void) {
     flight_result early = fly_course(60, 1, 0), brake = fly_course(60, 1, 1);
-    flight_result automatic = fly_course(60, -1, 0);
-    assert(early.opened == 1 && early.landed > 19 && early.landed < 35);
+    flight_result never = fly_course(60, -1, 0);
+    assert(early.opened == 1 && early.landed > 19 && early.landed < 35 && !early.splat && !brake.splat);
     assert(brake.landed > early.landed && brake.landed < 50 && brake.horizontal < early.horizontal);
     assert(fabsf(early.final_sink - 16.0f) < 0.1f && fabsf(brake.final_sink - 10.5f) < 0.1f);
-    assert(automatic.opened > 6 && automatic.remaining > 45 && automatic.remaining < 130);
-    assert(automatic.max_sink > 45 && automatic.landed < early.landed);
+    /* The chute never opens itself: no pull meets the ground at freefall
+     * speed, and the contact is fatal (WF_SPLAT), at any tick rate. */
+    assert(!never.opened && never.splat && never.max_sink > 45 && never.landed < early.landed);
     for (int rate=30; rate<=120; rate*=2) {
         flight_result r = fly_course(rate, -1, 0);
-        assert(fabsf(r.opened - automatic.opened) < 0.08f && fabsf(r.landed - automatic.landed) < 0.13f);
+        assert(!r.opened && r.splat && fabsf(r.landed - never.landed) < 0.13f);
     }
-    printf("PWR 550m route exit above red home: auto %.2fs at %.1fm, peak sink %.1fm/s, landed %.2fs; "
-           "1s pull landed %.2fs/%.0fm forward, held brake %.2fs/%.0fm forward.\n",
-           automatic.opened, automatic.remaining, automatic.max_sink, automatic.landed,
-           early.landed, early.horizontal, brake.landed, brake.horizontal);
+    /* A pull in the last moments is too late to shed freefall speed; one
+     * with room to spare lands. */
+    flight_result late = fly_course(60, never.landed - 0.4f, 0);
+    flight_result timely = fly_course(60, never.landed - 4.0f, 0);
+    assert(late.opened && late.splat && timely.opened && !timely.splat);
+    printf("PWR 550m route exit above red home: no pull hits at %.1fm/s after %.2fs (splat); "
+           "a pull 0.4s out splats, 4s out lands at %.2fs; 1s pull landed %.2fs/%.0fm forward, held brake %.2fs/%.0fm forward.\n",
+           never.max_sink, never.landed, timely.landed, early.landed, early.horizontal, brake.landed, brake.horizontal);
     warfare_player p; warfare_player_reset(&p); warfare_sample s = sample(42); warfare_output o;
     p.unit = s.unit; p.stage = WF_CANOPY; p.departure_z = 550; s.position[2] = 350;
     s.facing[0] = 1; s.right_input = 1;
@@ -339,7 +345,7 @@ static void test_owned_inventory(void) {
     assert(kit.cleared && inventory_calls==1 && inventory_clears==1 && inventory_grants==0);
     s.position[2]=100; s.velocity[2]=-5;
     for(int n=0;n<160;n++) {
-        step(&p,&s,1,21,0,&o);
+        step(&p,&s,1,21,n==0,&o); /* the player pulls: the chute never opens itself */
         warfare_inventory_apply(&kit,80,s.unit,3,o.flags,fake_inventory_submit);
     }
     assert(p.stage==WF_CANOPY && inventory_calls==1);
@@ -615,7 +621,7 @@ int main(void) {
     assert(p.weapon_lowered && (o.flags & WF_LOWER_WEAPON));
     s.position[2] = 140; s.velocity[0] = 20; s.velocity[2] = -25;
     for (int n = 0; n < 125; n++) {
-        step(&p, &s, 1, 6.2f, 0, &o);
+        step(&p, &s, 1, 6.2f, n == 0, &o); /* pulled: the chute never opens itself */
         assert(!(o.flags & (WF_LOWER_WEAPON | WF_RAISE_WEAPON)));
     }
     assert(p.stage == WF_CANOPY && o.velocity[2] < -15 && o.velocity[2] > -17 && o.velocity[0] > 15);

@@ -14,13 +14,14 @@ ai	briefing_a	Three capture sites on this island: Alpha, Bravo and Charlie. Hold
 ai	briefing_b	The Covenant want this island. Take Alpha, Bravo and Charlie before they do.
 ai	jump_now_a	Chief, that's your stop. Out you go!	Urgent, speaking quickly.
 ai	jump_now_b	We're over the drop zone. Jump!	Urgent, speaking quickly.
-# The fall: the chute opens itself near 76 m (warfare_need_canopy), so the
-# joke is that she pulls it for you.
+# The fall: the chute opens only when pulled, and the ground kills a player who
+# meets it faster than 20 m/s (native WARFARE_SPLAT_SINK). She warns, yells,
+# and has the last word.
 ai	altitude_warn_a	You're getting pretty close to the ground, Chief. Pull your chute!	Urgent, speaking quickly.
 ai	altitude_yell_a	Chief! Chief! Pull your chute!	Shouting urgently at the top of her voice, alarmed.
-ai	auto_chute_a	Well. I tried to warn you.	Dry and wry, mildly exasperated.
-ai	auto_chute_b	Fine. I'll do it myself.	Dry and wry, mildly exasperated.
-ai	auto_chute_c	Chute's open. You're welcome.	Dry and wry, mildly exasperated.
+ai	splat_a	Well. I tried to warn you.	Dry and wry, mildly exasperated.
+ai	splat_b	That's going to leave a mark.	Dry and wry, mildly exasperated.
+ai	splat_c	I'll log that as a hard landing.	Dry and wry, mildly exasperated.
 # Combat: the Covenant
 ai	first_wave_a	Alert! Covenant dropships on long-range sensors. Here they come.	Urgent and focused.
 ai	wave_inbound_a	The next wave is inbound. Get ready.	Urgent and focused.

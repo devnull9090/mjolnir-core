@@ -19,7 +19,11 @@ enum warfare_command {
     WF_LOWER_WEAPON = 256, WF_RAISE_WEAPON = 512,
     /* Wake the biped's physics at the start of a fall: a body detached from
      * a stationary (parked) Pelican sleeps and hung at 550 m for seconds. */
-    WF_WAKE = 1024
+    WF_WAKE = 1024,
+    /* Kill the unit: it met the ground falling too fast (no parachute, or
+     * one pulled too late). The descent is protected from falling damage, so
+     * the death is this explicit one, decided on the host at first contact. */
+    WF_SPLAT = 2048
 };
 typedef struct {
     uint32_t unit, parent;
@@ -310,13 +314,12 @@ static float warfare_terrain(float x, float y, int ceiling) {
 /* Unbroken world contact that lands a descent whatever its velocity samples. */
 #define WARFARE_GROUNDED_SECONDS 1.0f
 
-static int warfare_need_canopy(const warfare_player *p, const warfare_sample *s) {
-    float roof = warfare_terrain(s->position[0], s->position[1], 1);
-    float ahead = warfare_terrain(s->position[0] + p->air_velocity[0],
-                                  s->position[1] + p->air_velocity[1], 1);
-    float sink = fmaxf(0, -p->air_velocity[2]);
-    return s->position[2] - fmaxf(roof, ahead) <= fmaxf(38, 18 + sink * 1.05f);
-}
+/* The parachute opens only when the player pulls it. Meeting the ground
+ * faster than this (the descent controller's own sink, m/s) is fatal: freefall
+ * runs to 55-63 m/s, a canopy settles at 10.5-18.5, so an open canopy always
+ * lands and a pull in the last few metres does not. MJOLNIRHud's
+ * warfare_voice.lua uses the same figure for "I tried to warn you". */
+#define WARFARE_SPLAT_SINK 20.0f
 
 static void warfare_air_motion(warfare_player *p, const warfare_sample *s, float dt, warfare_output *o) {
     int canopy = p->stage == WF_CANOPY;
@@ -492,8 +495,7 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
     if (p->elapsed > WARFARE_DESCENT_TIMEOUT_SECONDS || !warfare_inside(s->position, warfare_play_min, warfare_play_max)) {
         warfare_fail(p, o); return;
     }
-    if (p->stage == WF_FALLING && p->elapsed >= 0.25f
-        && (p->deploy_requested || warfare_need_canopy(p, s))) {
+    if (p->stage == WF_FALLING && p->elapsed >= 0.25f && p->deploy_requested) {
         p->stage = WF_CANOPY;
         p->deploy_requested = 0;
     }
@@ -504,6 +506,12 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
      * contact lands anyone: a joiner stayed under canopy on the ground two
      * minutes until the descent timeout sent them home (2026-11-23). */
     int grounded = s->support_world && s->carrier_clear && p->departure_z - s->position[2] > 3.0f;
+    /* The first real contact decides it, from the controller's sink (it is not
+     * applied while supported, so it is the speed the body met the ground at). */
+    if (grounded && -p->air_velocity[2] > WARFARE_SPLAT_SINK) {
+        warfare_ready_weapon(p, o);
+        o->flags |= WF_SPLAT | WF_UNPROTECT; p->protected_fall = 0; p->stage = WF_LANDED; return;
+    }
     if (grounded) {
         p->grounded += dt;
         if (s->velocity_valid) {

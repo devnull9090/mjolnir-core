@@ -35,7 +35,9 @@ fresh native acceptance evidence live under `out/pwr/world-v5`.
 Select map **PWR / Pelican Warfare** and mode **PELICAN WARFARE** in the
 MJOLNIR lobby, then start a private match. The installed preview starts with
 one player after a five-second warmup. Press **Space** to leave the Pelican
-and again to deploy the parachute; automatic exit and deployment are fallbacks.
+and again to deploy the parachute. Exit from the Pelican is automatic at the end
+of its flight; the parachute is not. A player who never pulls it, or pulls it
+too late, meets the ground faster than 20 m/s and dies (`WARFARE_SPLAT_SINK`).
 Stand on A, B or C on foot for fifteen seconds to capture a neutral site.
 Owned uncontested sites score once per second. After a death you respawn at
 your base and board your team's waiting Pelican, which leaves with everyone
@@ -241,6 +243,24 @@ Default automatic exit occurs at 54 of 60 seconds; explicit development
 durations scale the exit time without exceeding that speed cap. Descent
 has a 90-second timeout and accepts settled landings at any height inside
 the play volume. Slopes keep the canopy state until vertical movement settles.
+
+The parachute opens only when the player pulls it; nothing opens it for them.
+The descent stays protected from falling damage, and the host decides the
+landing at the first real ground contact:
+- if the descent controller's sink is above `WARFARE_SPLAT_SINK` (20 m/s), it
+  sends `WF_SPLAT`, a host-authority `(unit_kill (player_get N))`;
+- freefall reaches 55-63 m/s;
+- a canopy settles at 10.5-18.5 m/s, so an open canopy always lands.
+
+`test_warfare.c` covers the outcomes:
+- with no pull, the 550 m exit hits at about 53 m/s after 10.7 s, at every
+  tick rate;
+- a pull 0.4 s out still dies;
+- a pull 4 s out lands.
+
+Before 2026-11-24 the chute opened itself near 76 m; the user asked for the
+fall to be the player's responsibility. Bots are AI bipeds, not players, and
+never ride.
 These expansion changes require live validation independently of the smaller
 prototype's successful insertion tests recorded below.
 
@@ -308,7 +328,7 @@ decides from replicated state, so a joiner hears its own match:
 | insertion launches, 3 s in | Cortana | wheels up; the briefing (after the launch line) |
 | seated 11 s in an insertion Pelican | Cortana | "that's your stop", after the briefing (riders are put out when the flight ends) |
 | freefall below 320 m / 170 m | Cortana | "pretty close to the ground" / "Chief! Pull your chute!" |
-| the chute opens itself (was falling under 115 m) | Cortana | "Well. I tried to warn you." and two variants |
+| out of the air, still falling faster than 20 m/s, under 30 m (the splat) | Cortana | "Well. I tried to warn you." / "That's going to leave a mark." / "I'll log that as a hard landing." |
 | combat begins | announcer | "Capture the zones!" |
 | 10 s before a Covenant wave | Cortana | the first always; later ones only while no Covenant stand in a zone (a wave at the cap is skipped) |
 | Covenant step into a zone | announcer / Cortana | "Zone X contested!" if it is ours, else "Contact!" after 20 s of quiet |
@@ -320,6 +340,7 @@ decides from replicated state, so a joiner hears its own match:
 Mechanics:
 
 - **One at a time.** One line plays at a time, through `SpawnSound2D` at the dialogue slider.
+- **Turns with the announcer.** The loader's announcer queue (`MJOLNIRLevelLoader/Scripts/announcer.lua`) and this voice share `MJOLNIR.voiceUntil`. A calm line waits for the other voice; the player's own fall does not.
 - **Urgency.** A more urgent line cuts a calmer one off (priority 3 is the player's own fall).
 - **Staleness.** A line that waits past its time-to-live is dropped.
 - **Baselines.** A new instance, or the first sample after the state went stale, only sets a baseline.
