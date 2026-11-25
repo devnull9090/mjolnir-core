@@ -7106,7 +7106,11 @@ local function loadMegaloSwitch()
     -- the native half installs it where the simulation's loader reads it at
     -- the next round reset (docs/ce_map_conversion.md).
     local variant = package.loadlib(dll, "mjolnir_megalo_variant")
-    local VariantBytes = package.loadlib(dll, "mjolnir_megalo_variant_bytes")
+    -- The variant as hex: a string read through the DLL's Lua channel ends at
+    -- its first zero byte, and a variant has many (mjolnir_megalo_variant_hex).
+    local VariantHex = package.loadlib(dll, "mjolnir_megalo_variant_hex")
+    local HEX = {}
+    for i = 0, 255 do HEX[string.char(i)] = string.format("%02x", i) end
     -- A FORGE game (MJOLNIRLobby) runs the sandbox engine instead, whose
     -- default variant the load builds itself (docs/re/forge_engine.md).
     local forgeOn = package.loadlib(dll, "mjolnir_forge_on")
@@ -7272,7 +7276,7 @@ local function loadMegaloSwitch()
             end
             -- native\variant.mglo is still written: MJOLNIRHud reads the score
             -- to win and the time limit from it (modeFor). The DLL gets the
-            -- bytes as an argument (mjolnir_megalo_variant_bytes) instead of
+            -- variant as an argument (mjolnir_megalo_variant_hex) instead of
             -- reading the file straight back; one without that export reads
             -- the file.
             local staged = bytes and io.open(MOD_DIR .. "\\native\\variant.mglo", "wb")
@@ -7281,8 +7285,8 @@ local function loadMegaloSwitch()
                 staged:close()
             end
             local handed = false
-            if bytes and VariantBytes then
-                local okB, kept = pcall(VariantBytes, bytes)
+            if bytes and VariantHex then
+                local okB, kept = pcall(VariantHex, (bytes:gsub(".", HEX)))
                 handed = okB and kept ~= nil
             end
             if staged and not handed then variant() end

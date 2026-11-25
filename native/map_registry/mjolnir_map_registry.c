@@ -1543,7 +1543,7 @@ static int install_variant_bytes(const unsigned char *data, size_t length) {
 
 // Install `native\variant.mglo` (staged next to this DLL by MJOLNIRLevelLoader
 // from its `variants\` folder): the route for a LevelLoader without
-// mjolnir_megalo_variant_bytes.
+// mjolnir_megalo_variant_hex.
 __declspec(dllexport) int mjolnir_megalo_variant(void *L) {
     (void)L;
     ensure_init();
@@ -1792,19 +1792,34 @@ __declspec(dllexport) int mjolnir_map_call(void *L) {
     return 1;
 }
 
-// Lua: mjolnir_megalo_variant_bytes(bytes) -> true once installed. As
-// mjolnir_megalo_variant, with the variant as an argument instead of
-// native\variant.mglo written and read straight back. nil when this cannot
-// take it (the caller then stages the file).
-__declspec(dllexport) int mjolnir_megalo_variant_bytes(void *L) {
+static int hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+// Lua: mjolnir_megalo_variant_hex(hex) -> true once installed, false when
+// refused. As mjolnir_megalo_variant, with the variant as an argument instead
+// of native\variant.mglo read straight back. Hex, because a string read
+// through lua_channel.h ends at its first zero byte, and a variant has many:
+// raw bytes arrived cut short and every one failed validation (2026-11-25).
+// nil when this cannot take it (the caller then has the DLL read the file).
+__declspec(dllexport) int mjolnir_megalo_variant_hex(void *L) {
+    static char hex[0x10001];
     static unsigned char buf[0x8000];
     size_t length = 0;
     lc_frame f;
     if (!lc_begin(&f, L)) return 0;
-    int have = lc_take_string(&f, 1, (char *)buf, sizeof buf, &length);
-    int ok = 0;
-    if (have && length < sizeof buf) ok = install_variant_bytes(buf, length);
-    if (have && length < sizeof buf) lc_push_bool(&f, ok); else lc_push_nil(&f);
+    int have = lc_take_string(&f, 1, hex, sizeof hex, &length);
+    int decoded = have && length < sizeof hex && length % 2 == 0 && length / 2 <= sizeof buf;
+    size_t n = decoded ? length / 2 : 0;
+    for (size_t i = 0; decoded && i < n; i++) {
+        int hi = hex_digit(hex[2 * i]), lo = hex_digit(hex[2 * i + 1]);
+        if (hi < 0 || lo < 0) decoded = 0;
+        else buf[i] = (unsigned char)(hi << 4 | lo);
+    }
+    if (decoded) lc_push_bool(&f, install_variant_bytes(buf, n)); else lc_push_nil(&f);
     lc_end(&f);
     return 1;
 }
