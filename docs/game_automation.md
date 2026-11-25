@@ -99,8 +99,21 @@ bytes 17
 print("hello")
 ```
 
-`request.txt` in, `response.txt` out, and `status.txt` as a heartbeat written about once a
-second. The heartbeat is what makes failures legible: `now` is stamped by the poll thread and
+The message travels over a named pipe, `\\.\pipe\mjolnir-bridge-<pid>`, which
+`native/bridge/mjolnir_bridge.c` serves on a thread of its own (local clients only, one served
+at a time; a caller arriving meanwhile waits its turn). The client writes one message and reads
+one back. A round trip from `game.mjs` takes about 28 ms. The bridge's async loop takes the
+request from the DLL's memory every 25 ms, runs it on the game thread and hands the answer back.
+`game.mjs` and the remote agent (agent 14) use the pipe when the heartbeat names one, and the
+files only when nothing was sent. Once a request is written, a failure is reported, never
+retried, since the request may already have run.
+
+Without the DLL, or for an older client, the transport is files: `request.txt` in,
+`response.txt` out, checked every 100 ms either way, so a file call takes 100-150 ms. That route
+is one caller at a time: two callers writing `request.txt` at once overwrite each other.
+
+`status.txt` is the heartbeat, written about once a second, and its `pipe` line names the pipe
+(`none` without one). The heartbeat is what makes failures legible: `now` is stamped by the poll thread and
 `refreshed` by the game thread, so the gap between them says whether the game is hung, loading,
 or fine. A caller that times out can tell the difference between "the mod is not loaded" and
 "the game thread is busy", which are very different problems.

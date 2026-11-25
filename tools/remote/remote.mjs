@@ -123,6 +123,11 @@ const AGENT_FILES = [
   // The bridge mod beside the agent, so `install-bridge` has something to install.
   [path.join(REPO, "mods", "MJOLNIRBridge", "Scripts", "main.lua"), "MJOLNIRBridge/Scripts/main.lua"],
   [path.join(REPO, "mods", "MJOLNIRBridge", "mod.json"), "MJOLNIRBridge/mod.json"],
+  // Its named pipe (native/bridge/build.ps1), when built: without it the
+  // bridge answers through files.
+  ...[path.join(REPO, "mods", "MJOLNIRBridge", "native", "mjolnir_bridge.dll")]
+    .filter((dll) => fs.existsSync(dll))
+    .map((dll) => [dll, "MJOLNIRBridge/native/mjolnir_bridge.dll"]),
 ];
 // The MJOLNIR CLI beside the agent, for `objects` and `teleport` (agent 11).
 // Big, so deploy-agent sends it only when PC 2's copy differs in size.

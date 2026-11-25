@@ -58,6 +58,13 @@ if (-not (Test-Path $Ue4ss)) {
 }
 
 $ModsDir = Join-Path $Ue4ss "Mods"
+
+# A mod's native DLL stays loaded for the life of the game (the bridge's pins
+# itself for its named pipe): replacing the folder under it fails part-way.
+if (Get-Process HaloCampaignEvolved -ErrorAction SilentlyContinue) {
+    Write-Error "Close the game first: its mods' DLLs are loaded while it runs."
+    exit 1
+}
 $ModsTxt = Join-Path $ModsDir "mods.txt"
 
 Write-Host "Game:  $GameDir"

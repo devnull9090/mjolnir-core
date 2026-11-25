@@ -8,10 +8,18 @@
 -- compare it against what the packer wrote -- slow and easy to get wrong.
 --
 -- This mod turns those steps into something a tool outside the process can
--- drive. It watches a request file, runs what it finds on the game thread, and
--- writes the answer back. The transport is deliberately files: UE4SS's Lua has
--- no sockets, and a file both sides can open needs nothing that is not already
--- there.
+-- drive. A client sends a request over the named pipe native\mjolnir_bridge.dll
+-- serves (its name is in status.txt, "pipe <name>"); the mod runs it on the
+-- game thread and the answer goes back the same way. UE4SS's Lua has no pipes
+-- or sockets, so the DLL's thread holds the request until the bridge's async
+-- loop takes it from memory.
+--
+-- Without the DLL, or for a client that predates the pipe, the transport is
+-- files: request.txt in, response.txt out. That costs a disk round trip and a
+-- poll on each side per call, and on a PC with Windows Defender's real-time
+-- scan each read of a file just rewritten waits for the scan. With the pipe up
+-- request.txt is still watched every 100 ms, as before, for clients that have
+-- not moved to the pipe; that read is on the async thread, never the game's.
 --
 -- Wire format, both directions (LF only, body length in bytes so a body can
 -- contain anything at all, including the header delimiter):
@@ -35,8 +43,6 @@
 -- so a helper defined in one call is still there in the next.
 
 local PROTOCOL = 1
-local POLL_MS = 100          -- request latency; also the status heartbeat base
-local STATUS_EVERY = 10      -- write status every N polls, so ~1s
 
 --------------------------------------------------------------------------------
 -- Paths
@@ -62,6 +68,33 @@ local DIR = bridgeDirectory()
 local REQUEST = DIR .. "request.txt"
 local RESPONSE = DIR .. "response.txt"
 local STATUS = DIR .. "status.txt"
+
+--------------------------------------------------------------------------------
+-- The named pipe (native/bridge/mjolnir_bridge.c)
+--------------------------------------------------------------------------------
+
+--- { name, take, reply } once the DLL serves the pipe, else nil.
+local Pipe = (function()
+    local load = package and package.loadlib
+    if not load then return nil end
+    -- <ue4ss>\mjolnir-bridge\ -> <ue4ss>\Mods\MJOLNIRBridge\native\mjolnir_bridge.dll
+    local dll = DIR:gsub("mjolnir%-bridge\\$", "") .. "Mods\\MJOLNIRBridge\\native\\mjolnir_bridge.dll"
+    local listen = load(dll, "mjolnir_bridge_listen")
+    local take = load(dll, "mjolnir_bridge_take")
+    local reply = load(dll, "mjolnir_bridge_reply")
+    if not (listen and take and reply) then return nil end
+    local ok, name = pcall(listen)
+    if not ok or type(name) ~= "string" then return nil end
+    return { name = name, take = take, reply = reply }
+end)()
+
+-- Request latency is the poll. A check of the pipe is one C call that returns
+-- nil and allocates nothing while no request waits, on UE4SS's async thread,
+-- not the game's: so 25 ms. request.txt stays at 100 ms, as before, and the
+-- status heartbeat at about a second.
+local POLL_MS = Pipe and 25 or 100
+local SECOND = math.floor(1000 / POLL_MS)
+local FILE_EVERY = math.floor(100 / POLL_MS)
 
 --------------------------------------------------------------------------------
 -- Wire format
@@ -97,15 +130,21 @@ local function parseMessage(text)
     return headers, body:sub(1, want)
 end
 
-local function writeMessage(path, headers, body)
+local function encodeMessage(headers, body)
     body = body or ""
+    local parts = { "mjolnir-bridge ", tostring(PROTOCOL), "\n" }
+    for _, pair in ipairs(headers) do
+        parts[#parts + 1] = pair[1] .. " " .. tostring(pair[2]) .. "\n"
+    end
+    parts[#parts + 1] = "bytes " .. tostring(#body) .. "\n--\n"
+    parts[#parts + 1] = body
+    return table.concat(parts)
+end
+
+local function writeMessage(path, headers, body)
     local f = io.open(path, "wb")
     if not f then return false end
-    f:write("mjolnir-bridge ", tostring(PROTOCOL), "\n")
-    for _, pair in ipairs(headers) do
-        f:write(pair[1], " ", tostring(pair[2]), "\n")
-    end
-    f:write("bytes ", tostring(#body), "\n--\n", body)
+    f:write(encodeMessage(headers, body))
     f:close()
     return true
 end
@@ -317,6 +356,7 @@ local function statusText()
         "controller " .. state.controller,
         "world " .. state.world,
         "pawn " .. state.pawn,
+        "pipe " .. (Pipe and Pipe.name or "none"),
     }, "\n")
 end
 
@@ -328,7 +368,19 @@ end
 -- Request handling
 --------------------------------------------------------------------------------
 
-local function serve(id, op, payload)
+--- Where an answer goes: response.txt, or back down the pipe to the client
+--- that asked (`serial` names it to the DLL).
+local function fileResponder(headers, body) writeMessage(RESPONSE, headers, body) end
+local function pipeResponder(serial)
+    return function(headers, body)
+        local message = encodeMessage(headers, body)
+        local ok, kept, retry = pcall(Pipe.reply, serial, message)
+        -- Too big for the DLL's buffer, which has grown to fit: once more.
+        if ok and not kept and retry then pcall(Pipe.reply, serial, message) end
+    end
+end
+
+local function serve(id, op, payload, respond)
     local ok, body
     if op == "ping" then
         refreshState()
@@ -341,21 +393,36 @@ local function serve(id, op, payload)
         ok, body = false, "unknown op: " .. tostring(op)
     end
 
-    writeMessage(RESPONSE, { { "id", id }, { "ok", ok and 1 or 0 } }, body)
+    respond({ { "id", id }, { "ok", ok and 1 or 0 } }, body)
     served = id
     pending = nil
 end
 
-local function serveSafely(id, op, payload)
-    local ok, err = pcall(serve, id, op, payload)
+local function serveSafely(id, op, payload, respond)
+    local ok, err = pcall(serve, id, op, payload, respond)
     if not ok then
         -- Never leave `pending` set: one bad request would wedge the bridge for
         -- the rest of the session, and the caller would only see a timeout.
-        writeMessage(RESPONSE, { { "id", id }, { "ok", 0 } },
-            "bridge error: " .. tostring(err))
+        pcall(respond, { { "id", id }, { "ok", 0 } }, "bridge error: " .. tostring(err))
         served = id
         pending = nil
     end
+end
+
+--- A request waiting on the pipe, handed to the game thread.
+local function takeFromPipe()
+    local ok, text, serial = pcall(Pipe.take)
+    if not ok or not text then return end
+    local respond = pipeResponder(serial)
+    local headers, body = parseMessage(text)
+    local id = headers and tonumber(headers.id or "")
+    if not id then
+        respond({ { "id", 0 }, { "ok", 0 } }, "bridge error: a malformed request")
+        return
+    end
+    pending = id
+    local op = headers.op or "ping"
+    ExecuteInGameThread(function() serveSafely(id, op, body, respond) end)
 end
 
 --- Ignore whatever request file is lying around from a previous session.
@@ -375,19 +442,21 @@ local function start()
     LoopAsync(POLL_MS, function()
         polls = polls + 1
 
-        if not pending then
+        if not pending and Pipe then takeFromPipe() end
+
+        if not pending and polls % FILE_EVERY == 0 then
             local headers, body = parseMessage(readFile(REQUEST))
             if headers then
                 local id = tonumber(headers.id or "")
                 if id and id ~= served then
                     pending = id
                     local op = headers.op or "ping"
-                    ExecuteInGameThread(function() serveSafely(id, op, body) end)
+                    ExecuteInGameThread(function() serveSafely(id, op, body, fileResponder) end)
                 end
             end
         end
 
-        if polls % STATUS_EVERY == 0 then
+        if polls % SECOND == 0 then
             if not refreshInFlight then
                 refreshInFlight = true
                 ExecuteInGameThread(refreshState)
@@ -409,4 +478,4 @@ RegisterConsoleCommandHandler("mjolnir_bridge", function()
 end)
 
 start()
-realPrint("[MJOLNIR Bridge] listening in " .. DIR .. "\n")
+realPrint("[MJOLNIR Bridge] listening in " .. DIR .. (Pipe and (" and on " .. Pipe.name) or "") .. "\n")

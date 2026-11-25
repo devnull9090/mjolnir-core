@@ -76,7 +76,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "13"
+$AgentVersion = "14"
 
 # --- Where things are --------------------------------------------------------
 
@@ -146,6 +146,11 @@ function Get-Game { Get-Process HaloCampaignEvolved -ErrorAction SilentlyContinu
 # The MJOLNIR bridge's wire format (mods/MJOLNIRBridge/Scripts/main.lua).
 function Read-BridgeMessage([string]$file) {
     try { $bytes = [System.IO.File]::ReadAllBytes($file) } catch { return $null }
+    return ConvertFrom-BridgeBytes $bytes
+}
+
+# A whole message from `bytes`, or $null if it is not all there yet.
+function ConvertFrom-BridgeBytes([byte[]]$bytes) {
     $text = $Utf8.GetString($bytes)
     $separator = $text.IndexOf("`n--`n")
     if ($separator -lt 0) { return $null }
@@ -159,6 +164,47 @@ function Read-BridgeMessage([string]$file) {
     return @{ headers = $headers; body = $Utf8.GetString($bytes, $headBytes, $want) }
 }
 
+# One call over the bridge's named pipe (native/bridge/mjolnir_bridge.c), whose
+# name the heartbeat gives. $null when nothing was sent (no pipe, or it would
+# not connect), so the caller uses the files without running it twice; once
+# the request is written, a failure is an answer, never a second try.
+function Invoke-BridgePipe([string]$pipe, [byte[]]$request, [int]$id, [int]$timeoutMs) {
+    $name = $pipe -replace '^\\\\\.\\pipe\\', ''
+    $client = New-Object System.IO.Pipes.NamedPipeClientStream(".", $name,
+        [System.IO.Pipes.PipeDirection]::InOut, [System.IO.Pipes.PipeOptions]::Asynchronous)
+    try {
+        try { $client.Connect([Math]::Min(3000, $timeoutMs)) } catch { return $null }
+        try {
+            $client.Write($request, 0, $request.Length)
+            $client.Flush()
+            $buffer = New-Object byte[] 65536
+            $received = New-Object System.IO.MemoryStream
+            $deadline = (Get-Date).AddMilliseconds($timeoutMs)
+            while ($true) {
+                $remaining = [int]($deadline - (Get-Date)).TotalMilliseconds
+                $read = $client.ReadAsync($buffer, 0, $buffer.Length)
+                if ($remaining -le 0 -or -not $read.Wait($remaining)) {
+                    return @{ ok = $false; body = "the bridge did not answer on its pipe within $timeoutMs ms" }
+                }
+                $n = $read.Result
+                if ($n -le 0) { return @{ ok = $false; body = "the bridge closed its pipe without an answer (the game may have closed)" } }
+                $received.Write($buffer, 0, $n)
+                $message = ConvertFrom-BridgeBytes $received.ToArray()
+                if ($message) {
+                    if ([int]$message.headers["id"] -ne $id) {
+                        return @{ ok = $false; body = "the bridge answered request $($message.headers["id"]) on its pipe, not $id" }
+                    }
+                    return @{ ok = ($message.headers["ok"] -eq "1"); body = $message.body }
+                }
+            }
+        } catch {
+            return @{ ok = $false; body = "the bridge's pipe failed mid-call: $($_.Exception.Message)" }
+        }
+    } finally {
+        $client.Dispose()
+    }
+}
+
 $script:NextId = [int]((Get-Date).Ticks % 1000000)
 function Invoke-Bridge([string]$op, [string]$body, [int]$timeoutMs) {
     New-Item -ItemType Directory -Path $BridgeDir -Force | Out-Null
@@ -166,9 +212,15 @@ function Invoke-Bridge([string]$op, [string]$body, [int]$timeoutMs) {
     $response = Join-Path $BridgeDir "response.txt"
     $script:NextId++
     $id = $script:NextId
-    Remove-Item $response -ErrorAction SilentlyContinue
     $payload = $Utf8.GetBytes($body)
     $head = $Utf8.GetBytes("mjolnir-bridge 1`nid $id`nop $op`nbytes $($payload.Length)`n--`n")
+    # The pipe first, when the heartbeat names one.
+    $status = Get-BridgeStatus
+    if ($status -and $status["pipe"] -and $status["pipe"] -ne "none") {
+        $answer = Invoke-BridgePipe $status["pipe"] ($head + $payload) $id $timeoutMs
+        if ($answer) { return $answer }
+    }
+    Remove-Item $response -ErrorAction SilentlyContinue
     $temporary = Join-Path $BridgeDir "request.$id.tmp"
     [System.IO.File]::WriteAllBytes($temporary, $head + $payload)
     Move-Item $temporary $request -Force
@@ -195,6 +247,9 @@ function Get-BridgeStatus {
 function Install-Bridge {
     $source = Join-Path $PSScriptRoot "MJOLNIRBridge"
     if (-not (Test-Path $source)) { throw "no MJOLNIRBridge folder beside the agent" }
+    # The bridge's DLL (its named pipe) stays loaded for the life of the game:
+    # deleting the folder under it would fail part-way and leave a mix.
+    if (Get-Game) { throw "close the game first: the bridge's DLL is loaded while it runs" }
     $mods = Join-Path $Ue4ss "Mods"
     $destination = Join-Path $mods "MJOLNIRBridge"
     if (Test-Path $destination) { Remove-Item $destination -Recurse -Force }
