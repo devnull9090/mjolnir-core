@@ -787,6 +787,17 @@ function Games.join(lobby, done)
     end)
 end
 
+-- Joins into a match under way: on unless native's join_in_progress.txt says
+-- 0. A setting nothing changes in a match, read every 30 s, not each second.
+local jipSetting = { on = true, at = nil }
+local function joinsUnderWay(now)
+    if not jipSetting.at or now - jipSetting.at >= 30 then
+        jipSetting.at = now
+        jipSetting.on = not (readFile(nativeDir .. "join_in_progress.txt") or ""):match("^%s*0")
+    end
+    return jipSetting.on
+end
+
 -- Public identity is sent on the game's existing host -> client channel.
 -- Messages alone are insufficient: a guest also checks the hub's public list.
 local function presenceTick()
@@ -814,7 +825,7 @@ local function presenceTick()
         -- private host does not build one: it reads the launcher's state and
         -- every player's name and pawn, each second.
         local info = Host.public and Host.info and Host.info() or nil
-        local jip = not (readFile(nativeDir .. "join_in_progress.txt") or ""):match("^%s*0")
+        local jip = joinsUnderWay(now)
         publicPresence = Session.host(Host, info, now, online, jip)
         if now >= nextPresenceBroadcast then
             nextPresenceBroadcast = now + 5
