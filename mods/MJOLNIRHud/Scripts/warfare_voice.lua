@@ -98,6 +98,7 @@ function Voice.decide(m, s, me, now, out)
         for k in pairs(m) do m[k] = nil end
         m.instance = s.instance
         m.phase, m.owner, m.present = s.phase, { s.owner[1], s.owner[2], s.owner[3] }, { present(s, 1), present(s, 2), present(s, 3) }
+        m.held = { s.owner[1], s.owner[2], s.owner[3] }
         m.defeat, m.stage, m.clearance = defeatIn(s), stage, clearance
         m.warmupLeft, m.combat, m.covenantSeenAt = s.phase == 0 and s.globals[4] or nil, combatSeconds(s), nil
         m.briefed = s.phase ~= 0 and s.phase ~= 1
@@ -167,7 +168,10 @@ function Voice.decide(m, s, me, now, out)
             if is ~= was then
                 if is == COVENANT then add(out, "covenant_take_" .. letter)
                 elseif mine and is == mine then
-                    if was == COVENANT then add(out, "retaken") end
+                    -- Players drain a Covenant zone to neutral before they
+                    -- capture it (3 -> 0 -> ours), so "held" is who had it
+                    -- before it went neutral (PC 1, 2026-11-24).
+                    if m.held[i] == COVENANT then add(out, "retaken") end
                     add(out, "zone_secured_" .. letter)
                 elseif mine and is == 3 - mine then add(out, "zone_enemy_" .. letter)
                 elseif mine and was == mine then add(out, "zone_lost_" .. letter) end
@@ -204,7 +208,10 @@ function Voice.decide(m, s, me, now, out)
         end
     end
     m.phase, m.combat, m.defeat = s.phase, combat, defeatIn(s)
-    for i = 1, 3 do m.owner[i], m.present[i] = s.owner[i], present(s, i) end
+    for i = 1, 3 do
+        m.owner[i], m.present[i] = s.owner[i], present(s, i)
+        if s.owner[i] ~= 0 then m.held[i] = s.owner[i] end
+    end
     m.stage, m.clearance = stage, clearance
     return out
 end

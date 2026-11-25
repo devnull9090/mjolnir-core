@@ -68,6 +68,12 @@ eq(said(Voice.decide(z, snap({ owner = { 0, 0, 0 } }), 0, 102)), "zone_lost_b")
 eq(said(Voice.decide(z, snap({ owner = { 0, 2, 0 } }), 0, 103)), "zone_enemy_b")
 eq(said(Voice.decide(z, snap({ owner = { 0, 3, 0 } }), 0, 104)), "covenant_take_b")
 eq(said(Voice.decide(z, snap({ owner = { 0, 1, 0 } }), 0, 105)), "retaken,zone_secured_b", "taken back from the Covenant")
+Voice.decide(z, snap({ owner = { 0, 3, 0 } }), 0, 106)
+eq(said(Voice.decide(z, snap({ owner = { 0, 0, 0 } }), 0, 107)), "", "drained to neutral: it was the Covenant's, nothing lost")
+eq(said(Voice.decide(z, snap({ owner = { 0, 1, 0 } }), 0, 108)), "retaken,zone_secured_b",
+    "drained, then captured: still a retake (the real 3 -> 0 -> ours path)")
+Voice.decide(z, snap({ owner = { 0, 0, 0 } }), 0, 109)
+eq(said(Voice.decide(z, snap({ owner = { 0, 1, 0 } }), 0, 110)), "zone_secured_b", "ours, lost to neutral, ours again: no retake")
 local blue = {}
 Voice.decide(blue, snap({ team = 1, owner = { 0, 0, 0 } }), 0, 0)
 eq(said(Voice.decide(blue, snap({ team = 1, owner = { 2, 1, 0 } }), 0, 1)), "zone_secured_a,zone_enemy_b", "blue's view")
