@@ -117,6 +117,20 @@ end
 
 function Presence.context(fn) context = fn end
 
+--- MJOLNIRHud's snapshot: its UE4SS shared variable (Scripts/presence_snapshot.lua),
+--- or the file an older HUD writes. Opening the file each second, right after
+--- the HUD rewrote it, waited ~5 ms on Windows Defender's scan.
+local HUD_SHARED_KEY = "MJOLNIR.discord_match"
+local function getShared(modRef) return modRef:GetSharedVariable(HUD_SHARED_KEY) end
+local function hudSnapshot()
+    local modRef = rawget(_G, "ModRef")
+    if modRef then
+        local ok, shared = pcall(getShared, modRef)
+        if ok and type(shared) == "string" and shared ~= "" then return shared end
+    end
+    return read(hudFile, 2048)
+end
+
 function Presence.init(deps)
     nativeDir = deps.modDir .. "\\native\\"
     hudFile = deps.modDir .. "\\..\\MJOLNIRHud\\discord_match.txt"
@@ -130,7 +144,7 @@ function Presence.init(deps)
     local function publish()
         local info, public
         if context then info, public = context() end
-        local hud = Presence.snapshot(read(hudFile, 2048), session, os.time())
+        local hud = Presence.snapshot(hudSnapshot(), session, os.time())
         local activity = Presence.activity(info, hud, public)
         -- Optional configured image keys or external images; absent by default.
         local ok, assets = pcall(Json.decode, read(nativeDir .. "discord_assets.json", 2048) or "")

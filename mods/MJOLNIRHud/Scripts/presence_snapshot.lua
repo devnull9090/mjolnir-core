@@ -24,19 +24,29 @@ function Snapshot.encode(match, localIndex, session, at)
     return table.concat(rows, "\n") .. "\n"
 end
 
+--- The UE4SS shared variable the Lobby reads first (Scripts/presence.lua).
+--- Reading discord_match.txt right after this wrote it waited ~5 ms each
+--- second on Windows Defender's scan; a shared variable is no file at all.
+Snapshot.SHARED_KEY = "MJOLNIR.discord_match"
+
 function Snapshot.new(modDir)
     local last, hadMatch = 0, false
     local marker = modDir .. "\\..\\MJOLNIRLobby\\native\\discord_session.txt"
+    local modRef = rawget(_G, "ModRef")
     return function(match, index)
         local at = os.time()
         if at == last and hadMatch == (match ~= nil) then return end
         last, hadMatch = at, match ~= nil
+        -- Written once at the Lobby's start, so cheap to open after that.
         local f = io.open(marker, "rb")
         local session = f and f:read(160)
         if f then f:close() end
         if not session then return end
+        local text = Snapshot.encode(match, index, session, at)
+        if modRef then pcall(modRef.SetSharedVariable, modRef, Snapshot.SHARED_KEY, text) end
+        -- The file stays for an older Lobby.
         local out = io.open(modDir .. "\\discord_match.txt", "wb")
-        if out then out:write(Snapshot.encode(match, index, session, at)); out:close() end
+        if out then out:write(text); out:close() end
     end
 end
 

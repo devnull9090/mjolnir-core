@@ -85,6 +85,9 @@ jobs:
       - name: Test UI class retention across map travel
         run: lua5.4 tools/tests/test_ui_class_lifetime.lua
 
+      - name: Test the widget watch (no object walk for a hidden or absent menu)
+        run: lua5.4 tools/tests/test_ui_widget_watch.lua
+
       - name: Test the game type picker
         run: lua5.4 tools/tests/test_gametype_picker.lua
 

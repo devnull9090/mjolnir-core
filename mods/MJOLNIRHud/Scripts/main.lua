@@ -160,6 +160,7 @@ end
 
 --- What the match marks in the world: the hill, the next flag, the Juggernaut, the flags.
 local warfareDll = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native\\mjolnir_lobby.dll"
+local WarfareSnapshot = package and package.loadlib and package.loadlib(warfareDll, "mjolnir_warfare_snapshot") or nil
 -- Pelican Warfare jumps (filled in after the match helpers, below).
 local WarfareJump = {}
 -- Pelican Warfare zones: the zone bars in the top left and the capture lines in
@@ -221,12 +222,21 @@ local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     WarfareVoice = dofile(MOD_DIR .. "\\Scripts\\warfare_voice.lua"),
     voiceIO = VoiceIO,
     flightControls = package.loadlib(warfareDll, "mjolnir_warfare_controls"),
-    pumpFlight = package.loadlib(warfareDll, "mjolnir_warfare_pump"),
+    -- With the snapshot export every read is fresh: nothing to pump.
+    pumpFlight = WarfareSnapshot and function() end or package.loadlib(warfareDll, "mjolnir_warfare_pump"),
     warfareJump = function(index) if WarfareJump.request then WarfareJump.request(index) end end,
     warfareJumped = function(index, team) if WarfareJump.jumped then WarfareJump.jumped(index, team) end end,
     warfareSite = function(i, owner, previous, site) if WarfareSites.changed then WarfareSites.changed(i, owner, previous, site) end end,
     flightBlocked = function() return Chat.inputActive() or (Tactical and Tactical.open) end,
+    -- The snapshot straight from the lobby DLL (lua_channel.h); the file only
+    -- for an older DLL. Opening the file right after the DLL rewrote it waited
+    -- ~5 ms on Windows Defender's scan, ~50 ms of each second at the HUD's
+    -- read rate (GTX 1080 Ti test PC, 2026-11-25).
     readWarfare = function()
+        if WarfareSnapshot then
+            local ok, text = pcall(WarfareSnapshot)
+            if ok and type(text) == "string" then return text end
+        end
         return readFile((MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR)
             .. "\\MJOLNIRLobby\\native\\warfare_state.txt")
     end,
