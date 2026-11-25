@@ -82,6 +82,21 @@ end
 assert(#view.drops==8)
 local oldest=view.drops[1].actor
 view.hide(); assert(oldest.destroyed and #view.drops==0)
+-- A V2 mesh the garbage collector freed between drops loads again: the
+-- respawn's canopy must not fall back to the legacy one.
+available={SM_PWR_ParachuteV2=true,SM_PWR_ParachutePackV2=true}
+snapshot.players={[0]=player}
+tick(3,16.0); tick(4,16.1)
+local first=spawned[#spawned]
+assert(first.StaticMeshComponent.mesh.name=="SM_PWR_ParachuteV2")
+local before=lookups.SM_PWR_ParachuteV2
+first.StaticMeshComponent.mesh.destroyed=true
+tick(5,16.2); tick(3,16.3); tick(4,16.4)
+local again=spawned[#spawned]
+assert(again.StaticMeshComponent.mesh.name=="SM_PWR_ParachuteV2" and not again.StaticMeshComponent.override,
+    "a collected V2 mesh is loaded again, not replaced by the legacy canopy")
+assert(lookups.SM_PWR_ParachuteV2==before+1)
+view.hide()
 -- Legacy packages retain the measured transform and two material overrides.
 available={SM_PWR_Parachute=true,BasicShapeMaterial=true}
 snapshot.players={[0]=player}
