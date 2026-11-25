@@ -2469,8 +2469,13 @@ local function playEvent(name, cause, value, effect)
         Teams.voice = Teams.voice or Teams.Announcer.new({
             now = os.clock,
             schedule = function(seconds, fn)
-                ExecuteInGameThreadWithDelay(math.floor(seconds * 1000 + 0.5), function() pcall(fn) end)
+                ExecuteInGameThreadWithDelay(math.floor(seconds * 1000 + 0.5), function()
+                    local okRun, err = pcall(fn)
+                    if not okRun then Log("announcer: " .. tostring(err)) end
+                end)
             end,
+            -- One log line per line spoken (a handful a match): it is the
+            -- only sign the queue played, as incidents are logged once a level.
             play = function(p)
                 local w = resolveMesh(p)
                 local statics = findObject("/Script/Engine.Default__GameplayStatics")
@@ -2478,7 +2483,9 @@ local function playEvent(name, cause, value, effect)
                 if not (w and statics and at) or gain <= 0 then return nil end
                 pcall(function() statics:PlaySound2D(at, w, gain, 1.0, 0.0, nil, nil, true) end)
                 local okD, seconds = pcall(function() return w.Duration end)
-                return okD and type(seconds) == "number" and seconds > 0 and seconds or 1.5
+                seconds = okD and type(seconds) == "number" and seconds > 0 and seconds or 1.5
+                Log(string.format("announcer: %s (%.1f s)", p:match("([^/%.]+)%.[^/]*$") or p, seconds))
+                return seconds
             end,
             floor = function()
                 local okF, v = pcall(function() return rawget(_G, "ModRef"):GetSharedVariable(Teams.Announcer.FLOOR) end)

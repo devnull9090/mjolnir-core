@@ -140,6 +140,12 @@ on three game copies.
     above, and the line reads "WAITING FOR YOUR PELICAN / IT LEAVES IN
     m:ss / MOVE TO PLAY FROM BASE". Boarding keeps the view until the
     seat.
+  - **Seen solo on PC 1.** Respawns early in a cycle waited, about 35 s
+    once, and boarded when the Pelican came in. The overview showed the
+    zones with "WAITING FOR YOUR PELICAN / IT LEAVES IN 0:19".
+  - **The shield is unproven.** `damage_object` did not kill even an
+    unshielded seated player, so it cannot test the shield. The test that
+    counts is another player shooting a waiting body, which needs two PCs.
   - **Two deciders.** The host and each client decide waiting from their
     own samples: the host for the shield, the client for its camera. After
     a laggy respawn they can briefly disagree, so a client may spectate an
