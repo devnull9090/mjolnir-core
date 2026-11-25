@@ -259,7 +259,7 @@ function Voice.new(io)
         if volume <= 0 then return true end
         local okS, component = pcall(io.spawn, wave, volume, pc)
         playing = { component = okS and component or nil, priority = entry.priority,
-            ends = now + pick[2] + 0.35, event = entry.event }
+            ends = now + pick[2] + 0.35, event = entry.event, started = now }
         if io.setFloor then pcall(io.setFloor, playing.ends) end
         return true
     end
@@ -294,6 +294,10 @@ function Voice.new(io)
         if playing and now < playing.ends then
             if best.priority <= playing.priority then return end
             if playing.component and io.stop then pcall(io.stop, playing.component) end
+            -- A line cut in its first second has not been heard: it plays
+            -- again after the urgent one ("Capture the zones!" under the fall's
+            -- yell, PC 1, 2026-11-24).
+            if now - playing.started < 1.0 then enqueue(playing.event, now) end
         elseif best.priority < 3 and io.floor and now < (io.floor() or 0) then
             -- The announcer (MJOLNIRLevelLoader announcer.lua) is speaking:
             -- wait, unless it is the player's own fall, which cannot.

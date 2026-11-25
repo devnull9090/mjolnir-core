@@ -168,6 +168,22 @@ missing.observe(snap({ phase = 0, clock = 40 }), 0, 0)
 missing.pump(0); missing.observe(snap({ phase = 0, clock = 20 }), 0, 1); missing.pump(10)
 eq(loads - before, 1, "one failed load, then silence"); eq(missing.disabled, true)
 
+-- A line cut in its first second plays again after the urgent one; one cut
+-- later is gone.
+local heardAgain = {}
+local again = Voice.new({
+    lines = { zones_open = { { "announcer_zones_open_a", 1.6 } }, altitude_yell = { { "cortana_altitude_yell_a", 1.8 } } },
+    load = function(path) return { path = path } end,
+    spawn = function(wave) heardAgain[#heardAgain + 1] = wave.path:match("([%w_]+)%.") return {} end,
+    stop = function() end, volume = function() return 1 end, random = function() return 1 end })
+again.queue = { { event = "zones_open", priority = 2, expires = 4, at = 0 } }
+again.pump(0)
+again.queue[#again.queue + 1] = { event = "altitude_yell", priority = 3, expires = 1.3, at = 0.1 }
+again.pump(0.1)
+again.pump(2.3)
+eq(table.concat(heardAgain, ","), "announcer_zones_open_a,cortana_altitude_yell_a,announcer_zones_open_a",
+    "cut at once, heard after the yell")
+
 -- Turns with the loader's announcer (MJOLNIR.voiceUntil): a calm line waits
 -- for it, the player's own fall does not, and a line takes the floor.
 local sharedUntil, spoke = 5, {}
