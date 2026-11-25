@@ -284,7 +284,7 @@ static void warfare_ready_weapon(warfare_player *p, warfare_output *o) {
 }
 
 /* Waiting moves the body this far (metres, flat) to end: a step, not a
- * settling spawn (the origin is taken with world support). The cap ends a
+ * settling spawn (measured flat, so settling onto a floor is not a step). The cap ends a
  * wait the Pelican never ends, so no shield outlives its purpose. */
 #define WARFARE_WAIT_MOVE 2.0f
 #define WARFARE_WAIT_MAX_SECONDS 75.0f
@@ -456,8 +456,11 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
         p->saw_insertion = 1; p->stage = WF_BOARDING; p->elapsed = 0; p->retry = 0; p->sortie = sortie->id;
         p->fresh = 0; p->protected_fall = 1; o->flags |= WF_PROTECT;
     }
+    /* No world support asked: a base floor is a placed structure, not the
+     * map's surface, and a respawn there never reports it (PC 1, 2026-11-24).
+     * Movement is measured flat, so a body settling onto it does not count. */
     if (phase == 2 && p->stage == WF_GROUND && p->fresh && sortie->active && s->parent == WARFARE_NONE
-        && s->support_world && warfare_waiting_at_home(s)) {
+        && warfare_waiting_at_home(s)) {
         /* Respawned at home and the Pelican cannot be boarded now (it waits
          * out of sight until shortly before its wave, or this player is
          * barred until a later one): wait shielded and unarmed, so a body

@@ -478,10 +478,10 @@ static void test_reinforcements(void) {
     /* A client that loses the race with its host's boarding still rides. */
     warfare_player_reset(&p); s = sample(77); at_home(&s);
     warfare_reinforcement_sortie(40, 60, 30, &parked); parked.boarding = 0; /* not yet seen parked here */
-    warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_GROUND);
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_WAITING); /* cannot board yet: waits */
     s.parent = 14; s.parent_is_transport = 1;
     warfare_step(&p, &s, 2, &parked, dt, 0, &o);
-    assert(p.stage == WF_SEATED && p.sortie == 1 && (o.flags & WF_PROTECT));
+    assert(p.stage == WF_SEATED && p.sortie == 1 && (o.flags & WF_PROTECT) && (o.flags & WF_UNSHIELD));
     warfare_reinforcement_sortie(62, 60, 30, &flying);
     warfare_step(&p, &s, 2, &flying, dt, 1, &o); assert(p.stage == WF_EXITING);
     warfare_reinforcement_sortie(20, 60, 30, &parked);
@@ -489,7 +489,7 @@ static void test_reinforcements(void) {
     /* A spawn during a flight waits at home until the Pelican parks again. */
     warfare_player_reset(&p); s = sample(74); at_home(&s);
     warfare_reinforcement_sortie(70, 60, 30, &flying);
-    warfare_step(&p, &s, 2, &flying, dt, 0, &o); assert(p.stage == WF_GROUND && !(o.flags & WF_BOARD));
+    warfare_step(&p, &s, 2, &flying, dt, 0, &o); assert(p.stage == WF_WAITING && !(o.flags & WF_BOARD));
 
     /* An insertion rider still seated when combat starts leaves, even though
      * a reinforcement Pelican is parked: it is not the flight they boarded. */
@@ -642,11 +642,12 @@ static void test_waiting(void) {
     warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING);
     s.parent = 12; s.parent_is_transport = 1;
     warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_SEATED && (o.flags & WF_UNSHIELD));
-    /* No waves on the map, or not on solid ground yet: no wait. */
+    /* No waves on the map: no wait. A base floor is a placed structure that
+     * never reports world support, so a spawn there waits all the same. */
     waiting_spawn(&p, &s, 87);
     warfare_step(&p, &s, 2, &none, dt, 0, &o); assert(p.stage == WF_GROUND && !(o.flags & WF_SHIELD));
     waiting_spawn(&p, &s, 88); s.support_world = 0;
-    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_GROUND);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING && (o.flags & WF_SHIELD));
     printf("waiting: shield on a fresh home spawn, off by boarding, walking, vehicle, cap, match end, warmup, client seat\n");
 }
 

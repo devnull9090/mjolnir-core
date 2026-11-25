@@ -183,6 +183,20 @@ again.pump(0.1)
 again.pump(2.3)
 eq(table.concat(heardAgain, ","), "announcer_zones_open_a,cortana_altitude_yell_a,announcer_zones_open_a",
     "cut at once, heard after the yell")
+-- ...and before a line that queued behind it ("They've taken Zone B" cut by
+-- the yell, then "That's two zones": the take first).
+local order = {}
+local inLine = Voice.new({
+    lines = { covenant_take_b = { { "cortana_covenant_take_b", 2.5 } }, covenant_two = { { "cortana_covenant_two_a", 2.5 } },
+        altitude_yell = { { "cortana_altitude_yell_a", 1.8 } } },
+    load = function(path) return { path = path } end,
+    spawn = function(wave) order[#order + 1] = wave.path:match("cortana_([%w_]+)%.") return {} end,
+    stop = function() end, volume = function() return 1 end, random = function() return 1 end })
+inLine.queue = { { event = "covenant_take_b", priority = 2, expires = 9, at = 0 }, { event = "covenant_two", priority = 2, expires = 9, at = 0.01 } }
+inLine.pump(0)
+inLine.queue[#inLine.queue + 1] = { event = "altitude_yell", priority = 3, expires = 1.3, at = 0.2 }
+inLine.pump(0.2); inLine.pump(2.5); inLine.pump(5.5)
+eq(table.concat(order, ","), "covenant_take_b,altitude_yell_a,covenant_take_b,covenant_two_a", "the cut line keeps its place")
 
 -- Turns with the loader's announcer (MJOLNIR.voiceUntil): a calm line waits
 -- for it, the player's own fall does not, and a line takes the floor.
