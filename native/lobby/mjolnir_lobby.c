@@ -7058,6 +7058,14 @@ __declspec(dllexport) int mjolnir_request_put(void *L) {
     ReleaseSRWLockExclusive(&mailbox_lock);
     int held = copy == NULL;
     free(copy);
+    /* A kept request replaces its file for good: delete the file, so an
+       older match's copy can never be read in its place. */
+    if (held && keep) {
+        if (!dir[0]) find_dir();
+        char path[MAX_PATH];
+        snprintf(path, sizeof path, "%s%s", dir, name);
+        DeleteFileA(path);
+    }
     if (held) lc_push_bool(&f, 1); else lc_push_nil(&f);
     lc_end(&f);
     return 1;

@@ -7270,20 +7270,22 @@ local function loadMegaloSwitch()
                         .. "); the map's hidden spawn points and vehicles stay hidden")
                 end
             end
-            -- The bytes as an argument (mjolnir_megalo_variant_bytes), not
-            -- native\variant.mglo written and read straight back by the DLL;
-            -- the staged file for a DLL without that export.
+            -- native\variant.mglo is still written: MJOLNIRHud reads the score
+            -- to win and the time limit from it (modeFor). The DLL gets the
+            -- bytes as an argument (mjolnir_megalo_variant_bytes) instead of
+            -- reading the file straight back; one without that export reads
+            -- the file.
+            local staged = bytes and io.open(MOD_DIR .. "\\native\\variant.mglo", "wb")
+            if staged then
+                staged:write(bytes)
+                staged:close()
+            end
             local handed = false
             if bytes and VariantBytes then
                 local okB, kept = pcall(VariantBytes, bytes)
                 handed = okB and kept ~= nil
             end
-            local staged = bytes and not handed and io.open(MOD_DIR .. "\\native\\variant.mglo", "wb")
-            if staged then
-                staged:write(bytes)
-                staged:close()
-                variant()
-            end
+            if staged and not handed then variant() end
             if handed or staged then
                 Log("multiplayer switch: variant " .. name .. " (see native\\map_registry.log)")
                 -- CTF makes each team's flag of its own type, and the blue
