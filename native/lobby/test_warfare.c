@@ -237,7 +237,7 @@ static void test_carrier_deck_and_airborne_pause(void) {
 
 #include "warfare_inventory.h"
 
-typedef struct { float opened, landed, remaining, horizontal, max_sink, final_sink; } flight_result;
+typedef struct { float opened, landed, remaining, horizontal, max_sink, final_sink; int splat; } flight_result;
 
 static flight_result fly_course(int rate, float open_at, int brake) {
     float dt = 1.0f / rate;
@@ -261,6 +261,7 @@ static flight_result fly_course(int rate, float open_at, int brake) {
         if (p.stage == WF_LANDED) {
             result.landed = age;
             result.horizontal = s.position[0] - x0;
+            result.splat = (o.flags & WF_SPLAT) != 0;
             return result;
         }
         if (o.flags & WF_VELOCITY) memcpy(s.velocity, o.velocity, sizeof s.velocity);
@@ -279,20 +280,25 @@ static flight_result fly_course(int rate, float open_at, int brake) {
 
 static void test_flight_controls(void) {
     flight_result early = fly_course(60, 1, 0), brake = fly_course(60, 1, 1);
-    flight_result automatic = fly_course(60, -1, 0);
-    assert(early.opened == 1 && early.landed > 19 && early.landed < 35);
+    flight_result never = fly_course(60, -1, 0);
+    assert(early.opened == 1 && early.landed > 19 && early.landed < 35 && !early.splat && !brake.splat);
     assert(brake.landed > early.landed && brake.landed < 50 && brake.horizontal < early.horizontal);
     assert(fabsf(early.final_sink - 16.0f) < 0.1f && fabsf(brake.final_sink - 10.5f) < 0.1f);
-    assert(automatic.opened > 6 && automatic.remaining > 45 && automatic.remaining < 130);
-    assert(automatic.max_sink > 45 && automatic.landed < early.landed);
+    /* The chute never opens itself: no pull meets the ground at freefall
+     * speed, and the contact is fatal (WF_SPLAT), at any tick rate. */
+    assert(!never.opened && never.splat && never.max_sink > 45 && never.landed < early.landed);
     for (int rate=30; rate<=120; rate*=2) {
         flight_result r = fly_course(rate, -1, 0);
-        assert(fabsf(r.opened - automatic.opened) < 0.08f && fabsf(r.landed - automatic.landed) < 0.13f);
+        assert(!r.opened && r.splat && fabsf(r.landed - never.landed) < 0.13f);
     }
-    printf("PWR 550m route exit above red home: auto %.2fs at %.1fm, peak sink %.1fm/s, landed %.2fs; "
-           "1s pull landed %.2fs/%.0fm forward, held brake %.2fs/%.0fm forward.\n",
-           automatic.opened, automatic.remaining, automatic.max_sink, automatic.landed,
-           early.landed, early.horizontal, brake.landed, brake.horizontal);
+    /* A pull in the last moments is too late to shed freefall speed; one
+     * with room to spare lands. */
+    flight_result late = fly_course(60, never.landed - 0.4f, 0);
+    flight_result timely = fly_course(60, never.landed - 4.0f, 0);
+    assert(late.opened && late.splat && timely.opened && !timely.splat);
+    printf("PWR 550m route exit above red home: no pull hits at %.1fm/s after %.2fs (splat); "
+           "a pull 0.4s out splats, 4s out lands at %.2fs; 1s pull landed %.2fs/%.0fm forward, held brake %.2fs/%.0fm forward.\n",
+           never.max_sink, never.landed, timely.landed, early.landed, early.horizontal, brake.landed, brake.horizontal);
     warfare_player p; warfare_player_reset(&p); warfare_sample s = sample(42); warfare_output o;
     p.unit = s.unit; p.stage = WF_CANOPY; p.departure_z = 550; s.position[2] = 350;
     s.facing[0] = 1; s.right_input = 1;
@@ -339,7 +345,7 @@ static void test_owned_inventory(void) {
     assert(kit.cleared && inventory_calls==1 && inventory_clears==1 && inventory_grants==0);
     s.position[2]=100; s.velocity[2]=-5;
     for(int n=0;n<160;n++) {
-        step(&p,&s,1,21,0,&o);
+        step(&p,&s,1,21,n==0,&o); /* the player pulls: the chute never opens itself */
         warfare_inventory_apply(&kit,80,s.unit,3,o.flags,fake_inventory_submit);
     }
     assert(p.stage==WF_CANOPY && inventory_calls==1);
@@ -472,10 +478,10 @@ static void test_reinforcements(void) {
     /* A client that loses the race with its host's boarding still rides. */
     warfare_player_reset(&p); s = sample(77); at_home(&s);
     warfare_reinforcement_sortie(40, 60, 30, &parked); parked.boarding = 0; /* not yet seen parked here */
-    warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_GROUND);
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o); assert(p.stage == WF_WAITING); /* cannot board yet: waits */
     s.parent = 14; s.parent_is_transport = 1;
     warfare_step(&p, &s, 2, &parked, dt, 0, &o);
-    assert(p.stage == WF_SEATED && p.sortie == 1 && (o.flags & WF_PROTECT));
+    assert(p.stage == WF_SEATED && p.sortie == 1 && (o.flags & WF_PROTECT) && (o.flags & WF_UNSHIELD));
     warfare_reinforcement_sortie(62, 60, 30, &flying);
     warfare_step(&p, &s, 2, &flying, dt, 1, &o); assert(p.stage == WF_EXITING);
     warfare_reinforcement_sortie(20, 60, 30, &parked);
@@ -483,7 +489,7 @@ static void test_reinforcements(void) {
     /* A spawn during a flight waits at home until the Pelican parks again. */
     warfare_player_reset(&p); s = sample(74); at_home(&s);
     warfare_reinforcement_sortie(70, 60, 30, &flying);
-    warfare_step(&p, &s, 2, &flying, dt, 0, &o); assert(p.stage == WF_GROUND && !(o.flags & WF_BOARD));
+    warfare_step(&p, &s, 2, &flying, dt, 0, &o); assert(p.stage == WF_WAITING && !(o.flags & WF_BOARD));
 
     /* An insertion rider still seated when combat starts leaves, even though
      * a reinforcement Pelican is parked: it is not the flight they boarded. */
@@ -579,8 +585,97 @@ static void test_paths(void) {
     }
 }
 
+/* A respawn at home while the Pelican cannot be boarded waits, shielded and
+ * unarmed; every way out takes the shield off, and only boarding keeps the
+ * weapon lowered (for the ride). */
+static void waiting_spawn(warfare_player *p, warfare_sample *s, uint32_t unit) {
+    warfare_player_reset(p); *s = sample(unit); s->team = 0; at_home(s); s->support_world = 1;
+}
+static void test_waiting(void) {
+    const float dt = 1.0f / 60;
+    warfare_player p; warfare_sample s; warfare_output o;
+    warfare_sortie away; memset(&away, 0, sizeof away); away.active = 1; away.id = 1; away.duration = 30; /* out of sight */
+    warfare_sortie none; memset(&none, 0, sizeof none);
+    waiting_spawn(&p, &s, 80);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o);
+    assert(p.stage == WF_WAITING && (o.flags & WF_SHIELD) && (o.flags & WF_LOWER_WEAPON));
+    for (int n = 0; n < 600; n++) {
+        warfare_step(&p, &s, 2, &away, dt, 0, &o);
+        assert(p.stage == WF_WAITING && !(o.flags & (WF_SHIELD | WF_UNSHIELD | WF_BOARD)));
+    }
+    /* The Pelican parks: boarded straight from waiting. */
+    warfare_sortie parked; warfare_reinforcement_sortie(50, 60, 30, &parked);
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o);
+    assert(p.stage == WF_BOARDING && (o.flags & WF_UNSHIELD) && (o.flags & WF_BOARD)
+        && !(o.flags & WF_RAISE_WEAPON) && p.weapon_lowered && !p.fresh);
+    /* A shuffle is not a walk; a walk ends it, and this life never waits again. */
+    waiting_spawn(&p, &s, 81);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING);
+    s.position[0] += 1.5f; warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING);
+    s.position[0] += 1.0f; warfare_step(&p, &s, 2, &away, dt, 0, &o);
+    assert(p.stage == WF_GROUND && (o.flags & WF_UNSHIELD) && (o.flags & WF_RAISE_WEAPON));
+    s.position[0] -= 2.5f; warfare_step(&p, &s, 2, &away, dt, 0, &o);
+    assert(p.stage == WF_GROUND && !(o.flags & WF_SHIELD));
+    /* A vehicle ends it. */
+    waiting_spawn(&p, &s, 82);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING);
+    s.parent = 99; warfare_step(&p, &s, 2, &away, dt, 0, &o);
+    assert(p.stage == WF_GROUND && (o.flags & WF_UNSHIELD));
+    /* So does the cap, if the Pelican never comes. */
+    waiting_spawn(&p, &s, 83);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o);
+    int ended = 0;
+    for (int n = 0; n < (int)(WARFARE_WAIT_MAX_SECONDS * 60) + 2; n++) {
+        warfare_step(&p, &s, 2, &away, dt, 0, &o);
+        if (o.flags & WF_UNSHIELD) ended = 1;
+    }
+    assert(ended && p.stage == WF_GROUND);
+    /* The match ending, or a new warmup. */
+    waiting_spawn(&p, &s, 84);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING);
+    warfare_step(&p, &s, 3, &away, dt, 0, &o); assert(o.flags & WF_UNSHIELD);
+    waiting_spawn(&p, &s, 85);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING);
+    warfare_step(&p, &s, 0, &none, dt, 0, &o); assert((o.flags & WF_UNSHIELD) && p.stage == WF_GROUND);
+    /* A client that finds itself seated (its host boarded it first). */
+    waiting_spawn(&p, &s, 86);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING);
+    s.parent = 12; s.parent_is_transport = 1;
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_SEATED && (o.flags & WF_UNSHIELD));
+    /* No waves on the map: no wait. A base floor is a placed structure that
+     * never reports world support, so a spawn there waits all the same. */
+    waiting_spawn(&p, &s, 87);
+    warfare_step(&p, &s, 2, &none, dt, 0, &o); assert(p.stage == WF_GROUND && !(o.flags & WF_SHIELD));
+    waiting_spawn(&p, &s, 88); s.support_world = 0;
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING && (o.flags & WF_SHIELD));
+    printf("waiting: shield on a fresh home spawn, off by boarding, walking, vehicle, cap, match end, warmup, client seat\n");
+}
+
+/* The host never sees a joiner's parachute pull (only the cabin jump is
+ * relayed), so its copy of the descent stays in freefall: a splat must be
+ * judged from the body's own sampled sink, or every joiner dies on landing. */
+static void test_remote_landing(void) {
+    warfare_player p; warfare_sample s; warfare_output o;
+    for (int pulled = 0; pulled <= 1; pulled++) {
+        warfare_player_reset(&p); s = sample(90); s.remote = 1; s.local_user = -1;
+        p.unit = s.unit; p.stage = WF_FALLING; p.protected_fall = 1; p.saw_insertion = 1; p.departure_z = 550;
+        s.position[2] = 400;
+        for (int n = 0; n < 180; n++) {
+            s.velocity[2] = pulled ? -16.0f : -54.0f;
+            step(&p, &s, 1, 10, 0, &o);
+            assert(p.stage == WF_FALLING); /* the host's copy never opens */
+        }
+        s.support_world = 1; memset(s.velocity, 0, sizeof s.velocity);
+        step(&p, &s, 1, 13, 0, &o);
+        assert(pulled ? !(o.flags & WF_SPLAT) : (o.flags & WF_SPLAT) != 0);
+    }
+    printf("remote landing: a joiner under canopy lands on the host; one in freefall splats\n");
+}
+
 int main(void) {
     test_paths();
+    test_waiting();
+    test_remote_landing();
     test_waves();
     test_remote_rider();
     test_reinforcements();
@@ -615,7 +710,7 @@ int main(void) {
     assert(p.weapon_lowered && (o.flags & WF_LOWER_WEAPON));
     s.position[2] = 140; s.velocity[0] = 20; s.velocity[2] = -25;
     for (int n = 0; n < 125; n++) {
-        step(&p, &s, 1, 6.2f, 0, &o);
+        step(&p, &s, 1, 6.2f, n == 0, &o); /* pulled: the chute never opens itself */
         assert(!(o.flags & (WF_LOWER_WEAPON | WF_RAISE_WEAPON)));
     }
     assert(p.stage == WF_CANOPY && o.velocity[2] < -15 && o.velocity[2] > -17 && o.velocity[0] > 15);

@@ -43,7 +43,7 @@ does; reinforcements use one shared 60-second clock for both teams.
 ## Protocol
 
 The map's metadata keeps `protocol 20569` and layout 3, so the published map
-does not change. The Megalo rules get their own magic in slot 2, **20570**.
+does not change. The Megalo rules get their own magic in slot 2, **20570** (20571 from the Covenant defeat clock, docs/pelican_warfare.md).
 The native DLL, HUD and variant ship together; each refuses the other's old
 revision.
 
@@ -118,6 +118,47 @@ on three game copies.
   watched body is un-hidden while watched and given back its own state after.
   There is no key to change teammates yet; with nobody to watch the cabin view
   stays.
+- **Waiting for the Pelican** (native `WF_WAITING`, stage 8; 2026-11-24).
+  - **When.** Between waves the Pelican waits out of sight and can be
+    boarded only about 15 s before it leaves, so a death early in a cycle
+    left the player standing at base for most of a minute. Now a body
+    spawned in combat, on foot and supported within 40 m of home, waits
+    while its Pelican cannot be boarded. The host makes it
+    damage-proof (`object_cannot_take_damage (player_get N)`, `WF_SHIELD`),
+    and its weapon is lowered (the unarmed profile, `WF_LOWER_WEAPON`). A
+    body left while its player watches is neither a target nor an
+    invulnerable turret.
+  - **How it ends.** The Pelican parking boards the player straight from
+    waiting: the shield comes off, and the weapon stays lowered for the
+    ride. Moving more than 2 m, a vehicle, 75 s, the match ending or a new
+    warmup also end it: the shield comes off, the weapon comes back, and
+    the life plays from home without waiting again.
+  - **One exit path.** Every exit goes through `warfare_end_wait` or the
+    boarding paths, which unshield (`test_waiting`).
+  - **The HUD.** It follows the stage. While waiting it spectates a
+    teammate, or with nobody to watch it shows the three zones from
+    above, and the line reads "WAITING FOR YOUR PELICAN / IT LEAVES IN
+    m:ss / MOVE TO PLAY FROM BASE". Boarding keeps the view until the
+    seat.
+  - **Seen solo on PC 1.** Respawns early in a cycle waited, about 35 s
+    once, and boarded when the Pelican came in. The overview showed the
+    zones with "WAITING FOR YOUR PELICAN / IT LEAVES IN 0:19".
+  - **Two PCs, 2026-11-24 (PC 1 host, PC 3 joiner).** The host shielded a
+    waiting joiner and unshielded it on boarding (one wait lasted 33 s).
+    The joiner's own screen showed the zones' overview with "WAITING FOR
+    YOUR PELICAN / IT LEAVES IN 0:42".
+  - **The shield works.** The same hit, `(damage_object (player_get 1)
+    "head" 1000)` from the host, left the waiting joiner alive (same unit).
+    Once walking had ended the wait, the hit killed it, and it respawned
+    into a new wait. A "body" hit does nothing, even unshielded; the region
+    name matters.
+  - **Two deciders.** The host and each client decide waiting from their
+    own samples: the host for the shield, the client for its camera. After
+    a laggy respawn they can briefly disagree, so a client may spectate an
+    unshielded body. The host pairs every shield with its own unshield, so
+    nobody stays invulnerable.
+  - **Not yet shown.** Spectating a real teammate (the run's two players were on opposite
+    teams). There is still no key to cycle teammates.
 
 Verified 2026-11-22: solo (board on respawn, parked countdown, departure on the
 minute, forced exit mid-map, re-park, parked jump with an immediate fall) and on

@@ -246,7 +246,10 @@ LC_API int lc_take_bool(lc_frame *f, int index) {
 
 /* Copies the string at `index` into buf (NUL-terminated, cut to cap - 1
    bytes) and removes it. 1 for a string, with its whole length in *length
-   when asked; 0 for anything else, which is removed too and leaves buf "". */
+   when asked; 0 for anything else, which is removed too and leaves buf "".
+   Text only: a string with a zero byte arrives cut short at it (a Megalo
+   variant passed raw failed validation every time, 2026-11-25), so pass
+   binary data as hex. */
 LC_API int lc_take_string(lc_frame *f, int index, char *buf, size_t cap, size_t *length) {
     if (cap) buf[0] = 0;
     if (length) *length = 0;

@@ -666,3 +666,65 @@ fn without_covenant_every_published_value_is_the_old_packing() {
         }
     }
 }
+
+fn hold_variant(hold: u16) -> Variant {
+    Variant::warfare(Warfare { tick_rate: 10, covenant_capture_seconds: 1, covenant_hold_seconds: hold, ..Warfare::default() })
+        .unwrap()
+}
+
+/// Into combat the way a match gets there: through the insertion.
+fn in_combat(v: &Variant) -> World {
+    let mut w = World::new();
+    w.globals[PHASE as usize] = 1;
+    w.globals[PHASE_TICKS as usize] = 32000;
+    w.ticks(1, v);
+    assert_eq!(w.globals[PHASE as usize], 2);
+    w
+}
+
+#[test]
+fn covenant_holding_all_three_sites_count_down_and_win() {
+    let v = hold_variant(5);
+    let mut w = in_combat(&v);
+    assert_eq!(w.globals[DEFEAT as usize], 5, "combat starts with the full hold");
+    // Covenant take A and B: the clock does not move.
+    w.points[0][COVENANT as usize] = 1;
+    w.points[1][COVENANT as usize] = 1;
+    w.ticks(30, &v);
+    assert_eq!((site(&w, 0).owner, site(&w, 1).owner), (OWNER_COVENANT, OWNER_COVENANT));
+    assert_eq!(w.globals[DEFEAT as usize], 5);
+    // And C: it runs down a second at a time.
+    w.points[2][COVENANT as usize] = 1;
+    w.ticks(20, &v);
+    assert_eq!(site(&w, 2).owner, OWNER_COVENANT);
+    let left = w.globals[DEFEAT as usize];
+    assert!((1..5).contains(&left), "counting: {left}");
+    // Red clears C: back to full, and it stays there.
+    w.points[2][COVENANT as usize] = 0;
+    w.at[0] = Some(2);
+    w.ticks(10, &v);
+    assert_ne!(site(&w, 2).owner, OWNER_COVENANT);
+    w.ticks(10, &v);
+    assert_eq!(w.globals[DEFEAT as usize], 5, "a site not theirs resets the hold");
+    assert!(!w.ended);
+    // Red leaves; the Covenant take C again and hold it all five seconds.
+    w.at[0] = None;
+    w.points[2][COVENANT as usize] = 1;
+    w.ticks(200, &v);
+    assert!(w.ended, "the Covenant win");
+    assert_eq!((w.globals[PHASE as usize], w.globals[DEFEAT as usize]), (3, 0));
+}
+
+#[test]
+fn without_the_hold_rule_the_covenant_never_end_a_match() {
+    let v = hold_variant(0);
+    let mut w = in_combat(&v);
+    assert_eq!(w.globals[DEFEAT as usize], DEFEAT_OFF as i32);
+    for site in 0..3 {
+        w.points[site][COVENANT as usize] = 1;
+    }
+    w.ticks(300, &v);
+    assert_eq!(site(&w, 2).owner, OWNER_COVENANT);
+    assert!(!w.ended);
+    assert_eq!(w.globals[DEFEAT as usize], DEFEAT_OFF as i32);
+}

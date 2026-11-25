@@ -13,8 +13,8 @@ sampled_ms 50000
 layout 3
 phase 2
 rate 30
-connected 1
-globals 2 100 20570 3 1 0 0 0 0 0 0 0
+connected 60
+globals 2 100 20571 3 60 0 0 0 0 0 0 0
 player 7 0 5 0 -760 0 36 ${unit}
 ordinal 7 0
 `;
@@ -44,7 +44,8 @@ test('stale, changed, remote, precombat or old-layout snapshots cannot authorize
   guardSnapshot({ ...snapshot, tick: 101, sampled_ms: 50033 }, snapshot);
   for (const patch of [{ instance: '5' }, { tick: 99 }, { sampled_ms: 49999 }])
     assert.throws(() => guardSnapshot({ ...snapshot, ...patch }, snapshot), /stale/);
-  for (const patch of [{ phase: 1 }, { host: 0 }, { connected: 2 }, { layout: 2 }])
+  for (const patch of [{ phase: 1 }, { host: 0 }, { layout: 2 }, { globals: [2, 100, 20570, 3, 1, 0, 0, 0, 0, 0, 0, 0] },
+                     { players: [snapshot.players[0], snapshot.players[0]] }])
     assert.throws(() => guardSnapshot({ ...snapshot, ...patch }));
   assert.throws(() => guardSnapshot({ ...snapshot, players: [{ ...snapshot.players[0], localUser: -1 }] }), /local/);
   assert.throws(() => guardSnapshot({ ...snapshot, ordinals: { 7: 7 } }), /ordinal/);

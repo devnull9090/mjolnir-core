@@ -18,7 +18,7 @@ Warfare.COVENANT_PRESENT = 8192
 local COVENANT_STEP_BASE = 2 * Warfare.PROGRESS_STEPS + 2
 -- Megalo rules revision in slot 2 (warfare.rs MAGIC). The map's own layout
 -- protocol (20569) is checked by the loader, not here.
-Warfare.RULES = 20570
+Warfare.RULES = 20571
 
 --- Whole seconds of warmup left, -1 while waiting for the minimum players,
 --- or nil outside warmup (slot 3, warfare.rs CLOCK).
@@ -29,6 +29,34 @@ end
 
 local function clock(seconds)
     return string.format("%d:%02d", math.floor(seconds / 60), seconds % 60)
+end
+
+--- Whole seconds of combat so far (slot 3 from combat on), or nil before it.
+function Warfare.matchClock(s)
+    if s and (s.phase == 2 or s.phase == 3) and s.globals then return math.max(0, s.globals[4]) end
+    return nil
+end
+
+local function covenantHoldAll(s)
+    if not (s and s.sites and #s.sites == 3) then return false end
+    for i = 1, 3 do
+        if s.sites[i].owner ~= Warfare.OWNER_COVENANT then return false end
+    end
+    return true
+end
+
+--- Whole seconds before the Covenant win while they hold all three zones,
+--- or nil (slot 4 from combat on, warfare.rs DEFEAT; -1 when the match has
+--- no such rule).
+function Warfare.defeatIn(s)
+    if not (s and s.phase == 2 and s.globals and s.globals[5] > 0) then return nil end
+    if not covenantHoldAll(s) then return nil end
+    return s.globals[5]
+end
+
+--- The match ended because the Covenant held every zone.
+function Warfare.covenantWon(s)
+    return s ~= nil and s.phase == 3 and s.globals ~= nil and s.globals[5] == 0 and covenantHoldAll(s)
 end
 
 --- Whole seconds until the zones open (insertion ends and combat begins), or
@@ -108,7 +136,7 @@ function Warfare.parse(text)
     local limits = {
         ready = {0, 1}, status = {-16, 16}, host = {0, 1}, tick = {0, 2147483647},
         sampled_ms = {0, 9007199254740991}, phase = {0, 3}, elapsed_ticks = {0, 32767},
-        rate = {0, 240}, connected = {0, 16}, layout = {0, 32767}, insertion_seconds = {0, 32767},
+        rate = {0, 240}, connected = {-1, 3600}, layout = {0, 32767}, insertion_seconds = {0, 32767},
     }
     for line in text:sub(17):gmatch("([^\n]+)\n") do
         local words = {}
@@ -162,7 +190,7 @@ function Warfare.parse(text)
         elseif key == "player" then
             if #words ~= 8 then return nil end
             local p = { index = integer(words[1], 0, 15), team = integer(words[2], -1, 7),
-                stage = integer(words[3], 0, 7), localUser = integer(words[4], -1, 3),
+                stage = integer(words[3], 0, 8), localUser = integer(words[4], -1, 3),
                 unit = integer(words[8], 0, 4294967295) }
             if not p.index or not p.team or not p.stage or not p.localUser or not p.unit or s.players[p.index] then return nil end
             for i = 5, 7 do
@@ -225,6 +253,11 @@ function Warfare.describe(s, me, jump)
         local player = s.players[me]
         local stage = player and player.stage
         if stage == 1 then return "REINFORCEMENTS  /  BOARDING YOUR TEAM'S PELICAN" end
+        -- Native WF_WAITING: respawned at home while the Pelican cannot be
+        -- boarded; shielded and unarmed, watching a teammate (warfare_spectate).
+        if stage == 8 then
+            return "WAITING FOR YOUR PELICAN  /  IT LEAVES IN " .. clock(wave.departs) .. "  /  MOVE TO PLAY FROM BASE"
+        end
         if stage == 2 and not wave.flying then
             return "REINFORCEMENTS DEPART IN " .. clock(wave.departs) .. "  /  " .. jump .. ": JUMP NOW"
         end
@@ -236,6 +269,7 @@ function Warfare.describe(s, me, jump)
         if not left or left < 0 then return "WARMUP  /  WAITING FOR PLAYERS  /  " .. players end
         return "WARMUP  /  DEPLOYMENT IN " .. clock(left) .. "  /  " .. players
     end
+    if s.phase == 3 and Warfare.covenantWon(s) then return "OPERATION FAILED  /  THE COVENANT HOLD EVERY ZONE" end
     if s.phase == 3 then return "OPERATION COMPLETE  /  RED " .. s.score[1] .. "  :  " .. s.score[2] .. " BLUE" end
     local player = s.players[me]
     local stage = player and player.stage
@@ -249,7 +283,13 @@ function Warfare.describe(s, me, jump)
     if stage == 4 then return "PARACHUTE DEPLOYED  /  STEER TOWARD A CAPTURE SITE" .. opens end
     if stage == 6 then return "DEPLOYMENT UNAVAILABLE  /  RESPAWN AT YOUR HOME BASE" end
     if s.phase == 1 then return "ZONES OPEN IN " .. clock(left or 0) .. "  /  PREPARE TO CAPTURE A, B AND C" end
-    -- In combat the zone bars in the top left say it (warfare_zones.lua): no line.
+    -- In combat the zone bars in the top left say who holds what
+    -- (warfare_zones.lua); the line keeps the match clock, and warns while
+    -- the Covenant hold every zone.
+    local defeat = Warfare.defeatIn(s)
+    if defeat then return "THE COVENANT HOLD EVERY ZONE  /  RETAKE ONE IN " .. clock(defeat) .. " OR LOSE THE ISLAND" end
+    local played = Warfare.matchClock(s)
+    if played then return "MATCH TIME " .. clock(played) end
     return nil
 end
 
@@ -282,7 +322,22 @@ function Warfare.new(deps)
     local seated, jumped = {}, {}
     if deps.Instruments then self.instruments = deps.Instruments.new() end
     if deps.Countdown then self.countdown = deps.Countdown.new() end
-    if deps.Spectate and deps.bipedAt then self.spectate = deps.Spectate.new({ bipedAt = deps.bipedAt }) end
+    -- With no teammate to watch while waiting, the view looks over the three
+    -- zones from behind and above them (their centre, Unreal cm).
+    local function overview()
+        local x, y, z, n = 0, 0, 0, 0
+        for i = 1, 3 do
+            local spot = self.spot(i)
+            if spot then x, y, z, n = x + spot.x, y + spot.y, z + spot.z, n + 1 end
+        end
+        if n == 0 then return nil end
+        x, y, z = x / n, y / n, z / n
+        return { at = { X = x - 9000, Y = y, Z = z + 7500 }, rot = { Pitch = -38, Yaw = 0, Roll = 0 } }
+    end
+    if deps.Spectate and deps.bipedAt then self.spectate = deps.Spectate.new({ bipedAt = deps.bipedAt, overview = overview }) end
+    -- Cortana and the announcer (warfare_voice.lua): fed each accepted
+    -- snapshot below, silent when its waves are not installed.
+    if deps.Voice and deps.voiceIO then self.voice = deps.Voice.new(deps.voiceIO) end
     local pending, refreshedAt, line
 
     --- Where site `i` is this match: its chosen candidate (candidate 0 is the
@@ -357,6 +412,7 @@ function Warfare.new(deps)
     function self.tick(match, now, pc, hidden, me, currentCode)
         if match.variant ~= "warfare" or match.code ~= "PWR" or currentCode ~= "PWR" then
             self.snapshot, pending, refreshedAt = nil, nil, nil
+            if self.voice then self.voice.reset() end
             self.hide()
             return false
         end
@@ -375,6 +431,9 @@ function Warfare.new(deps)
             local lifetime = activeFlight and deps.pumpFlight and .8 or STALE
             if refreshedAt and now - refreshedAt > lifetime and self.snapshot and self.snapshot.phase ~= 3 then
                 self.snapshot, pending = nil, nil
+                -- After a gap the next sample is a fresh baseline: no burst of
+                -- lines for what changed while the state was not read.
+                if self.voice then self.voice.reset() end
             end
             if accepted then
                 local snap = self.snapshot
@@ -400,12 +459,19 @@ function Warfare.new(deps)
                     end
                     self.seenOwners = snap.phase == 2 and { instance = snap.instance, snap.owner[1], snap.owner[2], snap.owner[3] } or nil
                 end
+                if self.voice then
+                    local ok, err = pcall(self.voice.observe, snap, me, now)
+                    if not ok and deps.log then deps.log("warfare voice: " .. tostring(err)) end
+                end
                 local score = self.snapshot.score
                 changed = match.teams[0] ~= score[1] or match.teams[1] ~= score[2]
                 match.teams[0], match.teams[1] = score[1], score[2]
                 match.warfareInstance = self.snapshot.instance
             end
         end
+        -- Every tick, after the match too: the result lines are queued by the
+        -- last accepted sample and play out over the postgame.
+        if self.voice then pcall(self.voice.pump, now, pc) end
         local s = self.snapshot
         if self.input then
             self.input.tick(not match.over and s or nil, pc, hidden)
@@ -455,12 +521,19 @@ function Warfare.new(deps)
                 if text and watched then text = text .. "  /  WATCHING " .. string.upper(who or "A TEAMMATE") end
                 if text then line.say(text .. "   /   M: MAP") else line.hideLine() end
             end
+            -- A zone's first draw spawns its wall and traces the ground under
+            -- each panel; all three at once held the launch tick ~25 ms (GTX
+            -- 1080 Ti test PC, 2026-11-25). One new zone a tick spreads it.
+            local placed = false
             for i, field in ipairs(self.fields) do
                 local spot = self.spot(i)
                 -- From insertion on: the zones may have moved, so riders see where to steer.
                 if s and (s.phase == 1 or s.phase == 2) and spot and not match.over then
                     local owner = s.owner[i]
-                    field.draw(world, now, i, spot)
+                    if field.drawn == i or not placed then
+                        if field.drawn ~= i then placed = true end
+                        field.draw(world, now, i, spot)
+                    end
                     field.paint(COLOUR[owner], now)
                     field.mark(pc, deps.Hill.markerSpot(spot), COLOUR[owner], "Koth",
                         string.char(64 + i) .. "  /  " .. OWNER[owner], now)

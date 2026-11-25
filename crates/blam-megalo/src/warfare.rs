@@ -15,8 +15,9 @@ use crate::variant::{
 use crate::Error;
 
 /// The rules revision published in slot 2. 20570 moved the warmup countdown
-/// into slot 3 (see `CLOCK`). The map's own layout protocol stays 20569.
-pub const MAGIC: i16 = 20570;
+/// into slot 3 (see `CLOCK`); 20571 made slot 4 the Covenant's defeat clock in
+/// combat (see `DEFEAT`). The map's own layout protocol stays 20569.
+pub const MAGIC: i16 = 20571;
 pub const PHASE: u8 = 0;
 pub const PHASE_TICKS: u8 = 1;
 pub const MAGIC_SLOT: u8 = 2;
@@ -29,7 +30,14 @@ pub const DEPLOYMENT_SECONDS: u8 = ACTIVE_SECONDS;
 pub const WARMUP_LEFT: u8 = ACTIVE_SECONDS;
 /// Slot 3 in warmup while fewer than the minimum players are connected.
 pub const WAITING: i16 = -1;
+/// Slot 4 before combat: connected players, against the minimum.
 pub const PLAYER_COUNT: u8 = 4;
+/// Slot 4 from combat on: whole seconds left before the Covenant win, counting
+/// down while they hold all three sites and back to the full hold whenever a
+/// team holds or clears one; `DEFEAT_OFF` when the match has no such rule. In
+/// phase 3, 0 means the Covenant won.
+pub const DEFEAT: u8 = PLAYER_COUNT;
+pub const DEFEAT_OFF: i16 = -1;
 pub const HEALTH: u8 = 5;
 pub const SUBSECOND: u8 = 6;
 pub const RED_SCORE: u8 = 7;
@@ -125,6 +133,9 @@ pub struct Warfare {
     pub covenant_capture_seconds: u16,
     pub allow_mounted_capture: bool,
     pub match_minutes: u8,
+    /// Seconds the Covenant must hold all three sites to win the match for
+    /// themselves; 0 turns the rule off.
+    pub covenant_hold_seconds: u16,
 }
 
 impl Default for Warfare {
@@ -139,6 +150,7 @@ impl Default for Warfare {
             covenant_capture_seconds: 30,
             allow_mounted_capture: false,
             match_minutes: 20,
+            covenant_hold_seconds: 60,
         }
     }
 }
@@ -185,6 +197,7 @@ impl Variant {
             || c.score_to_win == 0
             || c.score_to_win > 30000
             || c.match_minutes == 0
+            || c.covenant_hold_seconds > 3600
         {
             return Err(Error::Unsupported(
                 "invalid warfare timing/player/score limits".into(),
@@ -199,6 +212,7 @@ impl Variant {
         let insertion = ticks(c.insertion_seconds)?;
         let capture = ticks(c.capture_seconds)?;
         let covenant_capture = ticks(c.covenant_capture_seconds)?;
+        let defeat_full = if c.covenant_hold_seconds == 0 { DEFEAT_OFF } else { c.covenant_hold_seconds as i16 };
         let mut b = Builder::new(Variant {
             teams: true,
             rounds: 31,
@@ -211,7 +225,7 @@ impl Variant {
             },
             vars: Variables {
                 global_numbers: 12,
-                global_number_priorities: [2, 2, 2, 2, 1, 0, 0, 2, 2, 2, 2, 2],
+                global_number_priorities: [2, 2, 2, 2, 2, 0, 0, 2, 2, 2, 2, 2],
                 global_objects: 5,
                 object_numbers: 8,
                 player_numbers: 1,
@@ -241,15 +255,16 @@ impl Variant {
                 set(number(CLOCK), constant(WAITING)),
             ],
         );
+        // Counted only before combat: from combat on slot 4 is `DEFEAT`.
         b.trigger(
             TriggerKind::Do,
             ATTR_NORMAL,
-            vec![set(number(PLAYER_COUNT), constant(0))],
+            vec![compare(number(PHASE), constant(2), Compare::Less), set(number(PLAYER_COUNT), constant(0))],
         );
         b.trigger(
             TriggerKind::EachPlayer,
             ATTR_NORMAL,
-            vec![modify(number(PLAYER_COUNT), 1, Op::Add)],
+            vec![compare(number(PHASE), constant(2), Compare::Less), modify(number(PLAYER_COUNT), 1, Op::Add)],
         );
         b.trigger(
             TriggerKind::EachPlayer,
@@ -393,6 +408,7 @@ impl Variant {
                 set(number(PHASE_TICKS), constant(0)),
                 set(number(SUBSECOND), constant(0)),
                 set(number(ACTIVE_SECONDS), constant(0)),
+                set(number(DEFEAT), constant(defeat_full)),
             ],
         );
 
@@ -656,6 +672,27 @@ impl Variant {
             );
             prune.push(call(drop));
         }
+        // Each combat second: one off the defeat clock while the Covenant own
+        // every chosen site, back to full while any one is not theirs. Off (-1)
+        // and at 0 (the round is over) it never moves.
+        let owner = |site: i16| Var::Number(Number::ObjectNumber { object: object::global(CHOSEN + site as u8), index: 0 });
+        let running = || compare(number(DEFEAT), constant(0), Compare::Greater);
+        let mut tick = vec![running()];
+        tick.extend((0..SITES).map(|site| eq(owner(site), constant(OWNER_COVENANT as i16))));
+        tick.push(modify(number(DEFEAT), 1, Op::Subtract));
+        let mut defeat = vec![call(b.sub(TriggerKind::Do, tick))];
+        for site in 0..SITES {
+            let reset = b.sub(
+                TriggerKind::Do,
+                vec![
+                    running(),
+                    compare(owner(site), constant(OWNER_COVENANT as i16), Compare::NotEqual),
+                    set(number(DEFEAT), constant(defeat_full)),
+                ],
+            );
+            defeat.push(call(reset));
+        }
+        let defeat_second = b.sub(TriggerKind::Do, defeat);
         b.trigger(
             TriggerKind::Do,
             ATTR_NORMAL,
@@ -679,8 +716,20 @@ impl Variant {
                 ),
                 set(number(SUBSECOND), constant(0)),
                 modify(number(ACTIVE_SECONDS), 1, Op::Add),
+                call(defeat_second),
             ],
         );
+        // The Covenant hold every site long enough: the round ends theirs.
+        // The owners are checked again so a 0 left by anything else (a slot
+        // never set by the move into combat) cannot end a match.
+        let mut lost = vec![eq(number(PHASE), constant(2)), eq(number(DEFEAT), constant(0))];
+        lost.extend((0..SITES).map(|site| eq(owner(site), constant(OWNER_COVENANT as i16))));
+        lost.extend([
+            set(number(PHASE), constant(3)),
+            set(number(PHASE_TICKS), constant(0)),
+            Item::Do(Action::EndRound),
+        ]);
+        b.trigger(TriggerKind::Do, ATTR_NORMAL, lost);
         b.trigger(
             TriggerKind::Do,
             ATTR_NORMAL,
@@ -760,7 +809,8 @@ mod tests {
             "independent CU4 grammar agrees with team scoring and vehicle query encoding");
         crate::variant::tests::check_ranges(&v);
         assert!(v.teams);
-        assert_eq!(v.vars.global_number_priorities, [2, 2, 2, 2, 1, 0, 0, 2, 2, 2, 2, 2]);
+        assert_eq!(v.vars.global_number_priorities, [2, 2, 2, 2, 2, 0, 0, 2, 2, 2, 2, 2],
+            "slot 4 (the defeat clock) replicates with phase and owners, so a client sees it reach 0");
         assert_eq!(v.base.team_scoring, 3);
         assert_eq!((v.base.lives, v.base.team_lives), (0, 0));
         assert!(

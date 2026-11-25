@@ -26,6 +26,10 @@ local LOBBY_LOST_SECONDS = 15 -- this long without a lobby in the menu, it is go
 local MAX_PLAYERS = 16        -- the hub's ceiling, and the fireteam's
 
 local nativeDir, listingFile, noticeFile, Json, Net, log, Session, guest
+-- Until Games.init: from this script's own path (<mod>\Scripts\games.lua), for
+-- a Games.put made before it (main.lua opens the fireteam first).
+nativeDir = (((debug.getinfo(1, "S").source or ""):gsub("^@", ""):gsub("/", "\\")
+    :match("^(.*\\)Scripts\\[^\\]*$")) or "") .. "native\\"
 local reportSlow = function() end
 local publicPresence, presenceCheckedAt, lastWorld, nextPresenceBroadcast = nil, nil, nil, 0
 local connectionChecked, online = 0, false
@@ -69,12 +73,86 @@ local function readDevMark()
 end
 Games.dev = readDevMark()
 
+-- Each export once: package.loadlib makes a new closure on every call.
+local exports = {}
+local function export(name)
+    local fn = exports[name]
+    if fn == nil then
+        fn = package and package.loadlib and package.loadlib(nativeDir .. "mjolnir_lobby.dll", name) or false
+        exports[name] = fn
+    end
+    return fn
+end
 local function native(name)
-    local fn = package and package.loadlib and package.loadlib(nativeDir .. "mjolnir_lobby.dll", name)
+    local fn = export(name)
     if not fn then return false end
     local ok = pcall(fn)
     return ok
 end
+
+--- Whether a world joined under way is held: mjolnir_jip_held, or
+--- native\jip_held.txt from an older DLL (opening it each second waited on
+--- Windows Defender's scan).
+function Games.worldHeld()
+    local fn = export("mjolnir_jip_held")
+    if fn then
+        local ok, held = pcall(fn)
+        if ok and type(held) == "boolean" then return held end
+    end
+    local f = io.open(nativeDir .. "jip_held.txt", "rb")
+    if f then f:close() end
+    return f ~= nil
+end
+
+--- Hands the request file `name` to the lobby DLL in memory
+--- (mjolnir_request_put): "memory", or "file" when it had to be written, nil
+--- when neither worked. On a PC with Windows Defender's real-time scan, the
+--- DLL opening a file a moment after Lua wrote it waited ~5 ms. `reply`
+--- claims that reply for Games.reply; `keep` serves every read until the
+--- next put (a setting the DLL reads more than once).
+function Games.put(name, text, reply, keep)
+    local put = export("mjolnir_request_put")
+    if put then
+        local ok, held = pcall(put, name, text, reply, keep and true or false)
+        if ok and held == true then return "memory" end
+    end
+    local f = io.open(nativeDir .. name, "wb")
+    if not f then return nil end
+    f:write(text)
+    f:close()
+    return "file"
+end
+
+--- Claims the next reply `name` for Games.reply, for an export that answers
+--- without a request (mjolnir_map_install_status): "memory", or "file".
+function Games.claim(name)
+    local claim = export("mjolnir_reply_claim")
+    if claim then
+        local ok, held = pcall(claim, name)
+        if ok and held == true then return "memory" end
+    end
+    return "file"
+end
+
+--- The reply `name` to a request Games.put sent by `route`: taken from the
+--- DLL's mailbox, or read from its file. nil while there is none.
+function Games.reply(name, route)
+    if route == "memory" then
+        local take = export("mjolnir_reply_take")
+        local ok, known, text = pcall(take, name)
+        return ok and known and text or nil
+    end
+    return readFile(nativeDir .. name)
+end
+
+--- A UE4SS shared variable for the other mods; false without one (a test,
+--- an old UE4SS), when the caller falls back to a file.
+local function share(key, value)
+    local modRef = rawget(_G, "ModRef")
+    return modRef ~= nil and pcall(modRef.SetSharedVariable, modRef, key, value)
+end
+--- The level loader's key for a joined match's URL (MJOLNIRLevelLoader main.lua).
+Games.JOIN_SWITCH_KEY = "MJOLNIR.join_switch"
 
 --- A flat object as JSON: strings, numbers and booleans.
 local function encode(t)
@@ -104,26 +182,49 @@ end
 --- Call the hub API: done(status, decoded body or nil). Status 0 means the
 --- hub could not be reached, or did not answer in time. `body` is a flat
 --- table, or JSON text sent as it is.
+---
+--- The request goes to the DLL as an argument (mjolnir_hub_send) and the
+--- reply comes back from its mailbox (mjolnir_reply_take); a DLL without
+--- them gets hub_request.txt and answers in hub_reply_<id>.txt. On a PC with
+--- Windows Defender's real-time scan each of those files waited ~5 ms when
+--- opened a moment after it was written.
 local function hub(method, path, body, done)
     sequence = sequence + 1
     local id = string.format("g%d%d", os.time() % 100000, sequence)
-    local f = io.open(nativeDir .. "hub_request.txt", "wb")
-    if not f then
-        done(0, nil)
-        return
+    local request = id .. " " .. method .. " " .. path .. "\n"
+        .. (type(body) == "string" and body or (body and encode(body)) or "")
+    local send, take = export("mjolnir_hub_send"), export("mjolnir_reply_take")
+    local inMemory = false
+    if send and take then
+        local ok, sent = pcall(send, request)
+        inMemory = ok and sent == true
     end
-    f:write(id, " ", method, " ", path, "\n", type(body) == "string" and body or (body and encode(body)) or "")
-    f:close()
-    if not native("mjolnir_hub_call") then
-        done(0, nil)
-        return
+    if not inMemory then
+        local f = io.open(nativeDir .. "hub_request.txt", "wb")
+        if not f then
+            done(0, nil)
+            return
+        end
+        f:write(request)
+        f:close()
+        if not native("mjolnir_hub_call") then
+            done(0, nil)
+            return
+        end
     end
-    local reply = nativeDir .. "hub_reply_" .. id .. ".txt"
+    local name = "hub_reply_" .. id .. ".txt"
+    local reply = nativeDir .. name
     local deadline = os.time() + REPLY_TIMEOUT
     local function poll()
-        local text = readFile(reply)
+        local text
+        if inMemory then
+            local ok, known, got = pcall(take, name)
+            text = ok and known and got or nil
+        else
+            text = readFile(reply)
+            if text then os.remove(reply) end
+        end
         if text then
-            os.remove(reply)
             local status, rest = text:match("^(%d+)\n(.*)$")
             local ok, data = pcall(Json.decode, rest or "")
             done(tonumber(status) or 0, ok and denull(data) or nil)
@@ -160,11 +261,9 @@ local keeping = nil
 local function keepLobby(on)
     on = on and true or false
     if keeping == on then return end
-    local f = io.open(nativeDir .. "keep_lobby.txt", "wb")
-    if not f then return end
     -- Then 1 in a match: going private there closes the lobby again.
-    f:write(on and "1" or "0", (Host.inMatch and Host.inMatch()) and " 1" or " 0")
-    f:close()
+    local text = (on and "1" or "0") .. ((Host.inMatch and Host.inMatch()) and " 1" or " 0")
+    if not Games.put("keep_lobby.txt", text) then return end
     if native("mjolnir_keep_lobby") then keeping = on end
 end
 
@@ -175,10 +274,7 @@ end
 --- arms the joiner's world hold: a match world that begins before its Blam
 --- game waits for it (see jipTick).
 local function stayOnline(on)
-    local f = io.open(nativeDir .. "stay_online.txt", "wb")
-    if not f then return end
-    f:write(on and "1" or "0")
-    f:close()
+    if not Games.put("stay_online.txt", on and "1" or "0") then return end
     native("mjolnir_stay_online")
 end
 
@@ -192,10 +288,7 @@ local hostingOnline = nil
 function Games.hosting(on)
     on = on and true or false
     if hostingOnline == on then return end
-    local f = io.open(nativeDir .. "host_online.txt", "wb")
-    if not f then return end
-    f:write(on and "1" or "0")
-    f:close()
+    if not Games.put("host_online.txt", on and "1" or "0") then return end
     if native("mjolnir_host_online") then hostingOnline = on end
 end
 
@@ -212,8 +305,9 @@ local jipJoinedUrl
 
 --- Hand the level loader a joined match's URL (Megalo engine, game type,
 --- running.txt for MJOLNIRHud), as the host's travel would, before the
---- native half builds this side's game: MJOLNIRLevelLoader\join_switch.txt,
---- which the loader reads within half a second. Written again every ten
+--- native half builds this side's game: the shared variable
+--- Games.JOIN_SWITCH_KEY (MJOLNIRLevelLoader\join_switch.txt without shared
+--- variables), which the loader reads within half a second. Written again every ten
 --- seconds until the loader's running.txt names the map. The URL's slot names
 --- only the engine, so the listing's exact variant goes in match_variant.txt
 --- first (modes.lua).
@@ -233,10 +327,12 @@ local function levelSwitchTick()
     end
     if pendingSwitch.tries % 10 == 0 then
         Host.modes.follow(loaderDir:sub(1, -2), pendingSwitch.code, joiningGameType, log)
-        local f = io.open(loaderDir .. "join_switch.txt", "wb")
-        if f then
-            f:write(pendingSwitch.url, "\n")
-            f:close()
+        if not share(Games.JOIN_SWITCH_KEY, pendingSwitch.url) then
+            local f = io.open(loaderDir .. "join_switch.txt", "wb")
+            if f then
+                f:write(pendingSwitch.url, "\n")
+                f:close()
+            end
         end
     end
     pendingSwitch.tries = pendingSwitch.tries + 1
@@ -258,6 +354,45 @@ end
 -- began, 2026-10-25) registers the game's world listener twice. Only a
 -- player who joined in progress is still unbound by then.
 local AUDIO_BIND_WAIT = 10
+
+-- Subsystems from UE's own SubsystemBlueprintLibrary, by their native class:
+-- under 0.01 ms, where FindFirstOf walked every object (~20 ms a call while
+-- a joined world loads; a join's games loop held the game thread 89-99 ms
+-- on PC 3, 2026-11-25). Each class and the library are looked up once.
+local Sub = { lib = nil, classes = {} }
+local function subsystemClass(path)
+    local cls = Sub.classes[path]
+    if cls == nil then
+        local ok, found = pcall(StaticFindObject, path)
+        cls = ok and found or false
+        Sub.classes[path] = cls
+    end
+    return cls or nil
+end
+local function subsystemLibrary()
+    if Sub.lib == nil then
+        local ok, found = pcall(StaticFindObject, "/Script/Engine.Default__SubsystemBlueprintLibrary")
+        Sub.lib = ok and found or false
+    end
+    return Sub.lib or nil
+end
+--- The engine subsystem of native class `path`, or nil.
+local function engineSubsystem(path)
+    local lib, cls = subsystemLibrary(), subsystemClass(path)
+    if not (lib and cls) then return nil end
+    local ok, sub = pcall(function() return lib:GetEngineSubsystem(cls) end)
+    if ok and sub and sub:IsValid() then return sub end
+    return nil
+end
+--- The game instance subsystem of native class `path` for `context` (an
+--- object in a world), or nil.
+local function gameInstanceSubsystem(context, path)
+    local lib, cls = subsystemLibrary(), subsystemClass(path)
+    if not (lib and cls and context) then return nil end
+    local ok, sub = pcall(function() return lib:GetGameInstanceSubsystem(context, cls) end)
+    if ok and sub and sub:IsValid() then return sub end
+    return nil
+end
 local audioBoundWorld
 local audioSeen = { key = nil, at = 0 }
 local function audioBindTick()
@@ -279,17 +414,27 @@ local function audioBindTick()
     if audioBoundWorld == name then return end
     if audioSeen.key ~= name then audioSeen.key, audioSeen.at = name, os.clock() end
     if os.clock() - audioSeen.at < AUDIO_BIND_WAIT then return end
-    local okS, subsystem = pcall(FindFirstOf, "HaloAudioInterfaceSubSystem")
-    if not okS or not subsystem or not subsystem:IsValid() then return end
-    local f = io.open(nativeDir .. "audio_bind.txt", "wb")
-    if not f then return end
-    f:write(string.format("world %x\nsubsystem %x\n", world:GetAddress(), subsystem:GetAddress()))
-    f:close()
-    if not native("mjolnir_audio_bind") then return end
-    local r = io.open(nativeDir .. "audio_bind_reply.txt", "rb")
-    if not r then return end
-    local reply = r:read("a") or ""
-    r:close()
+    local subsystem = gameInstanceSubsystem(world, "/Script/HaloAudioUnreal.HaloAudioInterfaceSubSystem")
+    if not subsystem then return end
+    -- The addresses as arguments and the reply returned (mjolnir_audio_bind_to);
+    -- audio_bind.txt and its reply file from a DLL without that export.
+    local reply
+    local bindTo = export("mjolnir_audio_bind_to")
+    if bindTo then
+        local ok, text = pcall(bindTo, world:GetAddress(), subsystem:GetAddress())
+        if ok and type(text) == "string" then reply = text end
+    end
+    if not reply then
+        local f = io.open(nativeDir .. "audio_bind.txt", "wb")
+        if not f then return end
+        f:write(string.format("world %x\nsubsystem %x\n", world:GetAddress(), subsystem:GetAddress()))
+        f:close()
+        if not native("mjolnir_audio_bind") then return end
+        local r = io.open(nativeDir .. "audio_bind_reply.txt", "rb")
+        if not r then return end
+        reply = r:read("a") or ""
+        r:close()
+    end
     if reply:find("already bound", 1, true) or reply:find("\nrefused", 1, true) then
         audioBoundWorld = name
     elseif reply:find("\nok ", 1, true) then
@@ -298,16 +443,34 @@ local function audioBindTick()
     end
 end
 
+-- The held world, found once a hold (one FindFirstOf, where the hold ran
+-- three each second) and checked before every use: a stored object crashes
+-- the game once freed. The jip_map text last handed over: again only when it
+-- changes.
+local Hold = { world = nil, text = nil }
+local function heldWorld()
+    local w = Hold.world
+    if w then
+        local ok, valid = pcall(function() return w:IsValid() end)
+        if ok and valid then return w end
+        Hold.world = nil
+    end
+    local ok, found = pcall(function() return FindFirstOf("PlayerController"):GetWorld() end)
+    if ok and found and found:IsValid() then
+        Hold.world = found
+        return found
+    end
+    return nil
+end
+
 local function jipTick()
     audioBindTick()
     levelSwitchTick()
-    local held = io.open(nativeDir .. "jip_held.txt", "rb")
-    if not held then jipJoinedUrl = nil end
+    local held = Games.worldHeld()
+    if not held then jipJoinedUrl, Hold.world, Hold.text = nil, nil, nil end
     if held then
-        held:close()
-        local ok, full = pcall(function()
-            return FindFirstOf("PlayerController"):GetWorld():GetFullName()
-        end)
+        local world = heldWorld()
+        local ok, full = pcall(function() return world:GetFullName() end)
         -- "World /Game/Levels/Halo1/Solo/BCK/BCK.BCK" -> "/Game/Levels/Halo1/Solo/BCK/BCK"
         local path = ok and full and full:match("^%S+%s+([^%.]+)")
         if path then
@@ -325,34 +488,43 @@ local function jipTick()
                 -- "where"/"mapindex").
                 pcall(Net.toHost, "where", string.upper(code))
             end
-            local f = io.open(nativeDir .. "jip_map.txt", "wb")
-            if f then
-                f:write(url, "\n")
-                -- The engine subsystem whose map-loaded step lifts the
-                -- loading screen once the Blam game has started.
-                local okManager, manager = pcall(function()
-                    return FindFirstOf("BlamEngineLoadingManagerEngineSubsystem"):GetAddress()
-                end)
-                f:write(string.format("%X\n", okManager and manager or 0))
-                -- The world's GameState experience component, whose
-                -- bWaiting... bits the loading step waits on (logged).
-                local okExperience, experience = pcall(function()
-                    local gs = FindFirstOf("PlayerController"):GetWorld().GameState
-                    local cls = StaticFindObject("/Script/BlamExperience.BlamExperienceManagerComponent")
-                    return gs:GetComponentByClass(cls):GetAddress()
-                end)
-                f:write(string.format("%X\n", okExperience and experience or 0))
-                f:close()
-            end
+            -- The engine subsystem whose map-loaded step lifts the loading
+            -- screen once the Blam game has started.
+            local okManager, manager = pcall(function()
+                return engineSubsystem("/Script/BlamEngine.BlamEngineLoadingManagerEngineSubsystem"):GetAddress()
+            end)
+            -- The world's GameState experience component, whose bWaiting...
+            -- bits the loading step waits on (logged).
+            local okExperience, experience = pcall(function()
+                local cls = subsystemClass("/Script/BlamExperience.BlamExperienceManagerComponent")
+                return world.GameState:GetComponentByClass(cls):GetAddress()
+            end)
+            -- Kept: the DLL may read it on more than one tick of the hold.
+            local text = url .. "\n" .. string.format("%X\n%X\n", okManager and manager or 0,
+                okExperience and experience or 0)
+            if text ~= Hold.text and Games.put("jip_map.txt", text, nil, true) then Hold.text = text end
         end
     end
     native("mjolnir_jip_tick")
 end
 
+--- What mjolnir_lobby_connection reports: "ok <string>\nlock <0|1>\nmax <n>\n"
+--- or "none <why>\n"; nil without the native half. Returned by
+--- mjolnir_lobby_connection_get, or through lobby_connection.txt.
+function Games.connectionText()
+    local get = export("mjolnir_lobby_connection_get")
+    if get then
+        local ok, text = pcall(get)
+        if ok and type(text) == "string" then return text end
+    end
+    if not native("mjolnir_lobby_connection") then return nil end
+    return readFile(nativeDir .. "lobby_connection.txt") or ""
+end
+
 --- The current PlayFab lobby's connection string, or nil and why.
 local function connectionString()
-    if not native("mjolnir_lobby_connection") then return nil, "the native half is not loaded" end
-    local text = readFile(nativeDir .. "lobby_connection.txt") or ""
+    local text = Games.connectionText()
+    if not text then return nil, "the native half is not loaded" end
     local conn = text:match("^ok (%S+)")
     if conn then return conn end
     return nil, text:match("^none (.-)%s*$") or "no lobby"
@@ -675,20 +847,18 @@ function Games.join(lobby, done)
             settings:close()
         end
         joiningGameType = data.game_type or lobby.game_type
-        local f = io.open(nativeDir .. "join_request.txt", "wb")
-        if not f then
+        local route = Games.put("join_request.txt", data.connection_string .. "\n", "join_reply.txt")
+        if not route then
             done(false, "cannot write the join request")
             return
         end
-        f:write(data.connection_string, "\n")
-        f:close()
         if not native("mjolnir_join") then
             done(false, "the native half is not loaded")
             return
         end
         local deadline = os.time() + 5
         local function poll()
-            local reply = readFile(nativeDir .. "join_reply.txt")
+            local reply = Games.reply("join_reply.txt", route)
             if reply then
                 if reply:match("^delivered") then
                     log("games: joining " .. tostring(lobby.host) .. "'s game")
@@ -704,6 +874,17 @@ function Games.join(lobby, done)
         end
         ExecuteInGameThreadWithDelay(100, poll)
     end)
+end
+
+-- Joins into a match under way: on unless native's join_in_progress.txt says
+-- 0. A setting nothing changes in a match, read every 30 s, not each second.
+local jipSetting = { on = true, at = nil }
+local function joinsUnderWay(now)
+    if not jipSetting.at or now - jipSetting.at >= 30 then
+        jipSetting.at = now
+        jipSetting.on = not (readFile(nativeDir .. "join_in_progress.txt") or ""):match("^%s*0")
+    end
+    return jipSetting.on
 end
 
 -- Public identity is sent on the game's existing host -> client channel.
@@ -733,7 +914,7 @@ local function presenceTick()
         -- private host does not build one: it reads the launcher's state and
         -- every player's name and pawn, each second.
         local info = Host.public and Host.info and Host.info() or nil
-        local jip = not (readFile(nativeDir .. "join_in_progress.txt") or ""):match("^%s*0")
+        local jip = joinsUnderWay(now)
         publicPresence = Session.host(Host, info, now, online, jip)
         if now >= nextPresenceBroadcast then
             nextPresenceBroadcast = now + 5

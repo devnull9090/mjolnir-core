@@ -31,6 +31,8 @@
 #include <wchar.h>
 #include <intrin.h>
 #include <tlhelp32.h>
+#include <io.h>
+#include <fcntl.h>
 
 typedef void *(__fastcall *fname_ctor_t)(void *self, const wchar_t *name, int find_type, void *unused);
 typedef void *(__fastcall *fweak_ctor_t)(void *self, const void *object);
@@ -1161,7 +1163,124 @@ static void *playfab(const char *name) {
 
 /* Writes `text` to native\<name>, whole: a temporary file renamed over it, so
    a poll never reads half a reply. */
+/* A reply built in memory: what an export writes to its reply file, or
+   returns to Lua. Cut short at the cap, never overrun. */
+struct text_out {
+    char text[2048];
+    size_t n;
+};
+static void out_printf(struct text_out *o, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    int k = vsnprintf(o->text + o->n, sizeof o->text - o->n, format, args);
+    va_end(args);
+    if (k > 0) o->n = o->n + (size_t)k < sizeof o->text ? o->n + (size_t)k : sizeof o->text - 1;
+}
+
+/* Replies a worker thread leaves for Lua to take (mjolnir_reply_take), by
+   name, in place of a reply file: on a PC with Windows Defender's real-time
+   scan, Lua opening a reply file a moment after it was written waited ~5 ms.
+   Bounded: a reply nobody takes (Lua gave up on it) is dropped after
+   MAILBOX_MS, or when the slots are full, the oldest first. */
+#define MAILBOX_SLOTS 32
+#define MAILBOX_MS 60000
+static SRWLOCK mailbox_lock = SRWLOCK_INIT;
+static struct mail {
+    char name[64];
+    char *text;
+    size_t length;
+    ULONGLONG at;
+} mailbox[MAILBOX_SLOTS];
+
+static void mailbox_put(const char *name, const char *text, size_t length) {
+    char *copy = (char *)malloc(length + 1);
+    if (!copy) return;
+    memcpy(copy, text, length);
+    copy[length] = 0;
+    ULONGLONG now = GetTickCount64();
+    AcquireSRWLockExclusive(&mailbox_lock);
+    struct mail *slot = NULL;
+    for (int i = 0; i < MAILBOX_SLOTS; i++) {
+        struct mail *m = &mailbox[i];
+        if (m->text && now - m->at > MAILBOX_MS) {
+            free(m->text);
+            m->text = NULL;
+        }
+        if (m->text && strcmp(m->name, name) == 0) {
+            free(m->text);
+            m->text = NULL;
+        }
+        if (!m->text && !slot) slot = m;
+    }
+    if (!slot) {
+        slot = &mailbox[0];
+        for (int i = 1; i < MAILBOX_SLOTS; i++)
+            if (mailbox[i].at < slot->at) slot = &mailbox[i];
+        free(slot->text);
+    }
+    snprintf(slot->name, sizeof slot->name, "%s", name);
+    slot->text = copy;
+    slot->length = length;
+    slot->at = now;
+    ReleaseSRWLockExclusive(&mailbox_lock);
+}
+
+/* The reply named `name`, now the caller's to free, or NULL. */
+static char *mailbox_take(const char *name, size_t *length) {
+    char *text = NULL;
+    AcquireSRWLockExclusive(&mailbox_lock);
+    for (int i = 0; i < MAILBOX_SLOTS; i++) {
+        struct mail *m = &mailbox[i];
+        if (m->text && strcmp(m->name, name) == 0) {
+            text = m->text;
+            *length = m->length;
+            m->text = NULL;
+            break;
+        }
+    }
+    ReleaseSRWLockExclusive(&mailbox_lock);
+    return text;
+}
+
+/* Requests Lua hands over in memory (mjolnir_request_put) instead of writing
+   a file beside this DLL, and the replies it has claimed instead of reading
+   a reply file. On a PC with Windows Defender's real-time scan, opening a
+   file a moment after it was written waits ~5 ms for the scan, and every
+   request below was read straight after Lua wrote it.
+
+   A one-shot request is gone once read, as a file read once would be; a
+   kept one (team_game.txt, bot_teams.txt) is served to every read until it
+   is replaced. A claim sends the next reply of that name to the mailbox
+   (mjolnir_reply_take) instead of a file. A tool that writes the request
+   file itself and claims nothing (tools/remote/instances.mjs) gets files, as
+   before. */
+#define REQUEST_SLOTS 32
+#define REQUEST_CAP 65536
+static struct memory_request {
+    char name[64];
+    char *text;
+    size_t length;
+    int keep;
+} requests[REQUEST_SLOTS];
+static char reply_claims[16][64];
+
+static int claimed_reply(const char *name) {
+    int found = 0;
+    AcquireSRWLockExclusive(&mailbox_lock);
+    for (int i = 0; i < 16 && !found; i++)
+        if (reply_claims[i][0] && strcmp(reply_claims[i], name) == 0) {
+            reply_claims[i][0] = 0;
+            found = 1;
+        }
+    ReleaseSRWLockExclusive(&mailbox_lock);
+    return found;
+}
+
 static void write_reply(const char *name, const char *text, size_t length) {
+    if (claimed_reply(name)) {
+        mailbox_put(name, text, length);
+        return;
+    }
     if (!dir[0]) find_dir();
     char path[MAX_PATH], tmp[MAX_PATH];
     snprintf(path, sizeof path, "%s%s", dir, name);
@@ -1171,6 +1290,72 @@ static void write_reply(const char *name, const char *text, size_t length) {
     fwrite(text, 1, length, f);
     fclose(f);
     MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING);
+}
+
+/* A read-only stream over `length` bytes of memory: an anonymous pipe holding
+   the text, so a parser written for a file reads it unchanged. The text
+   fits the pipe's buffer (REQUEST_CAP), so the write never waits. */
+static FILE *memory_stream(const char *text, size_t length) {
+    HANDLE read_end, write_end;
+    if (!CreatePipe(&read_end, &write_end, NULL, (DWORD)length + 1)) return NULL;
+    DWORD wrote = 0;
+    BOOL ok = length == 0 || WriteFile(write_end, text, (DWORD)length, &wrote, NULL);
+    CloseHandle(write_end);
+    if (!ok || wrote != length) {
+        CloseHandle(read_end);
+        return NULL;
+    }
+    int fd = _open_osfhandle((intptr_t)read_end, _O_RDONLY | _O_BINARY);
+    if (fd < 0) {
+        CloseHandle(read_end);
+        return NULL;
+    }
+    FILE *f = _fdopen(fd, "rb");
+    if (!f) _close(fd);
+    return f;
+}
+
+/* Forgets the request `name` held in memory, as deleting its file would. */
+static void drop_request(const char *name) {
+    AcquireSRWLockExclusive(&mailbox_lock);
+    for (int i = 0; i < REQUEST_SLOTS; i++)
+        if (requests[i].text && strcmp(requests[i].name, name) == 0) {
+            free(requests[i].text);
+            requests[i].text = NULL;
+        }
+    ReleaseSRWLockExclusive(&mailbox_lock);
+}
+
+/* The request `name`: what Lua handed over in memory, or the file of that
+   name beside this DLL. NULL when there is neither. */
+static FILE *open_request(const char *name) {
+    char *text = NULL;
+    size_t length = 0;
+    int found = 0;
+    AcquireSRWLockExclusive(&mailbox_lock);
+    for (int i = 0; i < REQUEST_SLOTS && !found; i++) {
+        struct memory_request *r = &requests[i];
+        if (!r->text || strcmp(r->name, name) != 0) continue;
+        found = 1;
+        length = r->length;
+        if (r->keep) {
+            text = (char *)malloc(length ? length : 1);
+            if (text) memcpy(text, r->text, length);
+        } else {
+            text = r->text;
+            r->text = NULL;
+        }
+    }
+    ReleaseSRWLockExclusive(&mailbox_lock);
+    if (found) {
+        FILE *f = text ? memory_stream(text, length) : NULL;
+        free(text);
+        return f;
+    }
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%s%s", dir, name);
+    return fopen(path, "r");
 }
 
 /* native\lobby_max.txt: the host's MAX PLAYERS (2 to the fireteam size). Kept
@@ -1184,9 +1369,8 @@ typedef long(__stdcall *get_owner_t)(void *, const void **);
 __declspec(dllexport) int mjolnir_lobby_max(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH], out[128];
-    snprintf(path, sizeof path, "%slobby_max.txt", dir);
-    FILE *f = fopen(path, "r");
+    char out[128];
+    FILE *f = open_request("lobby_max.txt");
     unsigned size = 0;
     if (f) {
         if (fscanf(f, "%u", &size) != 1) size = 0;
@@ -1230,9 +1414,7 @@ __declspec(dllexport) int mjolnir_lobby_max(void *L) {
 
 /* The current lobby's connection string, membership lock and size, for a host
    to list its game: "ok <string>\nlock <0|1>\nmax <n>\n", or "none <why>\n". */
-__declspec(dllexport) int mjolnir_lobby_connection(void *L) {
-    (void)L;
-    char out[4600];
+static void lobby_connection_text(char *out, size_t size) {
     void *lobby = current_lobby;
     get_connection_string_t get_connection = (get_connection_string_t)playfab("PFLobbyGetConnectionString");
     get_membership_lock_t get_lock = (get_membership_lock_t)playfab("PFLobbyGetMembershipLock");
@@ -1240,18 +1422,26 @@ __declspec(dllexport) int mjolnir_lobby_connection(void *L) {
     const char *connection = NULL;
     long hr = 0;
     if (!lobby) {
-        snprintf(out, sizeof out, "none no lobby yet\n");
+        snprintf(out, size, "none no lobby yet\n");
     } else if (!get_connection) {
-        snprintf(out, sizeof out, "none PFLobbyGetConnectionString not found\n");
+        snprintf(out, size, "none PFLobbyGetConnectionString not found\n");
     } else if ((hr = get_connection(lobby, &connection)) < 0 || !connection || !connection[0]) {
-        snprintf(out, sizeof out, "none 0x%08lx\n", (unsigned long)hr);
+        snprintf(out, size, "none 0x%08lx\n", (unsigned long)hr);
     } else {
         int lock = -1;
         unsigned max = 0;
         if (get_lock) get_lock(lobby, &lock);
         if (get_max) get_max(lobby, &max);
-        snprintf(out, sizeof out, "ok %s\nlock %d\nmax %u\n", connection, lock, max);
+        snprintf(out, size, "ok %s\nlock %d\nmax %u\n", connection, lock, max);
     }
+}
+
+/* The old route: native\lobby_connection.txt (tools/remote/instances.mjs reads
+   it after calling this). mjolnir_lobby_connection_get returns the text. */
+__declspec(dllexport) int mjolnir_lobby_connection(void *L) {
+    (void)L;
+    char out[4600];
+    lobby_connection_text(out, sizeof out);
     write_reply("lobby_connection.txt", out, strlen(out));
     return 0;
 }
@@ -2289,9 +2479,13 @@ static void log_blam_game(const char *what, const struct blam_game *g) {
     fireteam_log("%s (engine %p, +40 %p, +50 %p, +60 %p)", what, g->engine, g->at40, g->at50, g->at60);
 }
 
-/* native\jip_held.txt exists while a world is held; games.lua then writes
-   native\jip_map.txt, the held world's package path. */
+/* While a world is held games.lua writes native\jip_map.txt, the held
+   world's package path. It asks mjolnir_jip_held each second; jip_held.txt,
+   which exists while a world is held, stays for an older Lobby (opening it
+   each second cost a scan on a PC with Windows Defender's real-time scan). */
+static volatile LONG jip_held_on;
 static void held_flag(int on) {
+    InterlockedExchange(&jip_held_on, on ? 1 : 0);
     if (!dir[0]) find_dir();
     char path[MAX_PATH];
     snprintf(path, sizeof path, "%sjip_held.txt", dir);
@@ -2302,6 +2496,7 @@ static void held_flag(int on) {
         remove(path);
         snprintf(path, sizeof path, "%sjip_map.txt", dir);
         remove(path);
+        drop_request("jip_map.txt");
     }
 }
 
@@ -3163,9 +3358,7 @@ __declspec(dllexport) int mjolnir_sim_life_cycle(void *L) {
         fireteam_log("life: unreadable");
         return 0;
     }
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%slife_cycle.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("life_cycle.txt");
     int wanted = -1;
     if (f) {
         if (fscanf(f, "%d", &wanted) != 1) wanted = -1;
@@ -3753,9 +3946,7 @@ static int inject_needed(void) {
    loads. */
 static int lobby_team_game(unsigned char *session) {
     if (!dir[0]) find_dir();
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%steam_game.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("team_game.txt");
     if (f) {
         int c = fgetc(f);
         fclose(f);
@@ -4446,9 +4637,7 @@ __declspec(dllexport) int mjolnir_sim_script(void *L) {
     if (!dir[0]) find_dir();
     unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim || !install_main_tick(sim)) return 0;
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%sscript.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("script.txt");
     if (!f) return 0;
     char line[SCRIPT_LINE];
     long long id = -1;
@@ -4679,9 +4868,7 @@ __declspec(dllexport) int mjolnir_bots_teams(void *L) {
     memset(table, 0xFF, sizeof table);
     memset(players, 0xFF, sizeof players);
     int count = 0;
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%sbot_teams.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("bot_teams.txt");
     if (f) {
         int campaign, multiplayer;
         while (fscanf(f, "%d %d", &campaign, &multiplayer) == 2) {
@@ -5209,9 +5396,7 @@ __declspec(dllexport) int mjolnir_jip_tick(void *L) {
     static void *replayed;
     if (!blam_game_running(&g) && waited > JIP_NUDGE_MS && replayed != ws) {
         char map[260] = "", manager_line[64] = "", experience_line[64] = "";
-        char path[MAX_PATH];
-        snprintf(path, sizeof path, "%sjip_map.txt", dir);
-        FILE *f = fopen(path, "r");
+        FILE *f = open_request("jip_map.txt");
         if (f) {
             if (!fgets(map, sizeof map, f)) map[0] = 0;
             if (!fgets(manager_line, sizeof manager_line, f)) manager_line[0] = 0;
@@ -5364,9 +5549,7 @@ static const char *hook_shell_commands(void) {
 __declspec(dllexport) int mjolnir_sim_command(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%ssim_command.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("sim_command.txt");
     int type = -1, subtype = -1;
     if (f) {
         if (fscanf(f, "%d %d", &type, &subtype) != 2) type = -1;
@@ -5401,9 +5584,7 @@ static const char *online_alone(void) {
 __declspec(dllexport) int mjolnir_stay_online(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%sstay_online.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("stay_online.txt");
     int value = 0;
     if (f) {
         if (fscanf(f, "%d", &value) != 1) value = 0;
@@ -5427,9 +5608,7 @@ __declspec(dllexport) int mjolnir_stay_online(void *L) {
 __declspec(dllexport) int mjolnir_host_online(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%shost_online.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("host_online.txt");
     int value = 0;
     if (f) {
         if (fscanf(f, "%d", &value) != 1) value = 0;
@@ -5495,17 +5674,14 @@ static void post_join_state(int open) {
 __declspec(dllexport) int mjolnir_keep_lobby(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%skeep_lobby.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("keep_lobby.txt");
     int value = 0, in_match = 0;
     if (f) {
         if (fscanf(f, "%d %d", &value, &in_match) < 1) value = 0;
         fclose(f);
     }
     LONG was = InterlockedExchange(&keep_lobby, value ? 1 : 0);
-    snprintf(path, sizeof path, "%sjoin_in_progress.txt", dir);
-    f = fopen(path, "r");
+    f = open_request("join_in_progress.txt");
     /* Joins into a public match under way are on unless the file says 0. */
     int jip = 1;
     if (f) {
@@ -5535,10 +5711,9 @@ __declspec(dllexport) int mjolnir_join(void *L) {
     char path[MAX_PATH];
     snprintf(path, sizeof path, "%sjoin_reply.txt", dir);
     remove(path);
-    snprintf(path, sizeof path, "%sjoin_request.txt", dir);
     const char *problem = NULL;
     struct join_request *req = (struct join_request *)calloc(1, sizeof *req);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("join_request.txt");
     if (!req) {
         problem = "out of memory";
     } else if (!real_online_tick && !real_gdk_tick) {
@@ -5583,6 +5758,8 @@ struct hub_call {
     char *body;
     /* FILE calls: the body is saved as this file in the map covers folder. */
     char save[64];
+    /* From mjolnir_hub_send: the reply goes to the mailbox, not a file. */
+    int memory;
 };
 
 /* <ue4ss>\MJOLNIRMaps\_covers\, where hub screenshots are kept for the
@@ -5627,7 +5804,10 @@ static void hub_reply(const struct hub_call *call, unsigned status, const char *
     if (!text) return;
     memcpy(text, head, (size_t)h);
     memcpy(text + h, body, length);
-    write_reply(name, text, (size_t)h + length);
+    if (call->memory)
+        mailbox_put(name, text, (size_t)h + length);
+    else
+        write_reply(name, text, (size_t)h + length);
     free(text);
 }
 
@@ -5744,24 +5924,24 @@ done:
     return 0;
 }
 
-/* native\hub_request.txt: "<id> <METHOD> <path below /api/v1>", then the JSON
-   body, if any, on the lines after. The call runs on its own thread; the
-   reply lands in native\hub_reply_<id>.txt as "<status>\n<body>", status 0
-   when the hub could not be reached. */
-__declspec(dllexport) int mjolnir_hub_call(void *L) {
-    (void)L;
-    if (!dir[0]) find_dir();
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%shub_request.txt", dir);
-    FILE *f = fopen(path, "rb");
-    if (!f) return 0;
+/* A hub request, "<id> <METHOD> <path below /api/v1>", then the JSON body,
+   if any, on the lines after (`length` bytes of `text`). The call runs on its
+   own thread; the reply, "<status>\n<body>" with status 0 when the hub could
+   not be reached, goes to native\hub_reply_<id>.txt, or to the mailbox under
+   that name for a request from mjolnir_hub_send. */
+static void hub_start(const char *text, size_t length, int memory) {
     struct hub_call *call = (struct hub_call *)calloc(1, sizeof *call);
+    if (!call) return;
+    call->memory = memory;
+    size_t first = 0;
+    while (first < length && text[first] != '\n') first++;
     char line[1200];
-    if (!call || !fgets(line, sizeof line, f) ||
-        sscanf(line, "%39s %7s %1023s %63s", call->id, call->method, call->path, call->save) < 3) {
-        fclose(f);
+    size_t n = first < sizeof line - 1 ? first : sizeof line - 1;
+    memcpy(line, text, n);
+    line[n] = 0;
+    if (sscanf(line, "%39s %7s %1023s %63s", call->id, call->method, call->path, call->save) < 3) {
         free(call);
-        return 0;
+        return;
     }
     /* "<id> FILE <path> <name>": a GET whose body is saved as <name> in the
        covers folder; the name is letters, digits, '_', '-' and '.' only. */
@@ -5772,10 +5952,9 @@ __declspec(dllexport) int mjolnir_hub_call(void *L) {
             ok = (*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || *c == '_' ||
                  *c == '-' || *c == '.';
         if (!ok || strstr(call->save, "..")) {
-            fclose(f);
             hub_error(call, "a file name must be a plain name");
             free(call);
-            return 0;
+            return;
         }
     } else {
         call->save[0] = 0;
@@ -5783,27 +5962,20 @@ __declspec(dllexport) int mjolnir_hub_call(void *L) {
     /* The id names a file beside this DLL. */
     for (const char *c = call->id; *c; c++) {
         if (!((*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z'))) {
-            fclose(f);
             free(call);
-            return 0;
+            return;
         }
     }
     /* The path names an API route, never another host. */
     if (call->path[0] != '/' || call->path[1] == '/' || strstr(call->path, "://")) {
-        fclose(f);
         hub_error(call, "the path must be below the hub API");
         free(call);
-        return 0;
+        return;
     }
-    long start = ftell(f);
-    fseek(f, 0, SEEK_END);
-    long end = ftell(f);
-    if (end > start) {
-        call->body = (char *)calloc(1, (size_t)(end - start) + 1);
-        fseek(f, start, SEEK_SET);
-        if (call->body) fread(call->body, 1, (size_t)(end - start), f);
+    if (first + 1 < length) {
+        call->body = (char *)calloc(1, length - first);
+        if (call->body) memcpy(call->body, text + first + 1, length - first - 1);
     }
-    fclose(f);
     HANDLE thread = CreateThread(NULL, 0, hub_worker, call, 0, NULL);
     if (thread) {
         CloseHandle(thread);
@@ -5812,6 +5984,24 @@ __declspec(dllexport) int mjolnir_hub_call(void *L) {
         free(call->body);
         free(call);
     }
+}
+
+/* The old route: the request in native\hub_request.txt. */
+__declspec(dllexport) int mjolnir_hub_call(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%shub_request.txt", dir);
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    fseek(f, 0, SEEK_END);
+    long end = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *text = end > 0 ? (char *)malloc((size_t)end) : NULL;
+    size_t length = text ? fread(text, 1, (size_t)end, f) : 0;
+    fclose(f);
+    if (text) hub_start(text, length, 0);
+    free(text);
     return 0;
 }
 
@@ -5834,9 +6024,8 @@ static HANDLE install_process;
 __declspec(dllexport) int mjolnir_map_install(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH], code[8] = "", release[72] = "";
-    snprintf(path, sizeof path, "%smap_install_request.txt", dir);
-    FILE *f = fopen(path, "rb");
+    char code[8] = "", release[72] = "";
+    FILE *f = open_request("map_install_request.txt");
     if (f) {
         /* "<CODE> [<release id>]": the release a host runs, when it differs. */
         if (fscanf(f, "%7s %71s", code, release) < 1) code[0] = 0;
@@ -5960,9 +6149,8 @@ static int launcher_has(const char *feature) {
 __declspec(dllexport) int mjolnir_launcher(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH], verb[16] = "";
-    snprintf(path, sizeof path, "%slauncher_request.txt", dir);
-    FILE *f = fopen(path, "rb");
+    char verb[16] = "";
+    FILE *f = open_request("launcher_request.txt");
     if (f) {
         if (fscanf(f, "%15s", verb) < 1) verb[0] = 0;
         fclose(f);
@@ -6037,9 +6225,7 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     (void)L;
     LONGLONG started = qpc_now();
     if (!dir[0]) find_dir();
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%sfireteam_request.txt", dir);
-    FILE *req = fopen(path, "r");
+    FILE *req = open_request("fireteam_request.txt");
     if (req) {
         unsigned size = 0;
         if (fscanf(req, "%u", &size) == 1 && size >= 4 && size <= FIRETEAM_MAX) fireteam_size = size;
@@ -6540,48 +6726,28 @@ static const char *audio_registered(long long impl, long long entry) {
 }
 static const unsigned char AUDIO_WORLD[] = {0x48, 0x83, 0xEC, 0x28, 0x0F, 0xB6, 0x82, 0x3A, 0x01, 0x00, 0x00, 0x04};
 
-__declspec(dllexport) int mjolnir_audio_bind(void *L) {
-    (void)L;
-    if (!dir[0]) find_dir();
-    char path[MAX_PATH], reply_path[MAX_PATH];
-    snprintf(path, sizeof path, "%saudio_bind.txt", dir);
-    snprintf(reply_path, sizeof reply_path, "%saudio_bind_reply.txt", dir);
-    FILE *reply = fopen(reply_path, "w");
-    if (!reply) return 0;
-    unsigned long long world = 0, subsystem = 0;
-    FILE *f = fopen(path, "r");
-    if (f) {
-        char line[200];
-        while (fgets(line, sizeof line, f)) {
-            unsigned long long v;
-            if (sscanf(line, "world %llx", &v) == 1) world = v;
-            if (sscanf(line, "subsystem %llx", &v) == 1) subsystem = v;
-        }
-        fclose(f);
-    }
+/* Binds a joiner's audio world (see games.lua audioBindTick); the reply says
+   how it went. */
+static void audio_bind_run(unsigned long long world, unsigned long long subsystem, struct text_out *reply) {
     unsigned char *exe = (unsigned char *)GetModuleHandleA(NULL);
     if (!world || !subsystem) {
-        fprintf(reply, "error no world/subsystem in audio_bind.txt\n");
-        fclose(reply);
-        return 0;
+        out_printf(reply, "error no world/subsystem\n");
+        return;
     }
     if (!exe_object_play_tramp) {
-        fprintf(reply, "error the object play hook is not installed\n");
-        fclose(reply);
-        return 0;
+        out_printf(reply, "error the object play hook is not installed\n");
+        return;
     }
     /* The bind's own bytes may already be this DLL's trace hook (a jmp). */
     if ((memcmp(exe + 0x754c410, AUDIO_BIND, sizeof AUDIO_BIND) != 0 && !audio_bind_tramp) ||
         memcmp(exe + 0x751be20, AUDIO_WORLD, sizeof AUDIO_WORLD) != 0) {
-        fprintf(reply, "error this is not the CU4 exe the offsets were read from\n");
-        fclose(reply);
-        return 0;
+        out_printf(reply, "error this is not the CU4 exe the offsets were read from\n");
+        return;
     }
     unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim) {
-        fprintf(reply, "error no simulation DLL\n");
-        fclose(reply);
-        return 0;
+        out_printf(reply, "error no simulation DLL\n");
+        return;
     }
     __try {
         /* The sim's own route to the exe's audio interface (sim 0xcdc0, then
@@ -6591,12 +6757,11 @@ __declspec(dllexport) int mjolnir_audio_bind(void *L) {
         long long registry = *(long long *)(exe + 0xd577308);
         long long impl = ((audio_world_t)(exe + 0x751be20))(registry, (long long)world);
         long long block = audio_play_block;
-        fprintf(reply, "registry impl %llx (subsystem+0x30 = %llx) play block %llx\n", impl,
+        out_printf(reply, "registry impl %llx (subsystem+0x30 = %llx) play block %llx\n", impl,
                 (long long)subsystem + 0x30, block);
         if (!block) {
-            fprintf(reply, "error the sim has not asked for an object sound yet (no block captured)\n");
-            fclose(reply);
-            return 0;
+            out_printf(reply, "error the sim has not asked for an object sound yet (no block captured)\n");
+            return;
         }
         /* The listener holding the block keeps the UWorld it listens to at
            +0x78 (0x7b20690 stores it). The block captured last may be an
@@ -6607,24 +6772,21 @@ __declspec(dllexport) int mjolnir_audio_bind(void *L) {
            match's UWorld once bound). */
         long long before = *(long long *)(block + 0x30);
         long long listening = *(long long *)(block - 0x20 + 0x78);
-        fprintf(reply, "block+0x30 before %llx; listener+0x78 %llx (this world %llx)\n", before, listening,
+        out_printf(reply, "block+0x30 before %llx; listener+0x78 %llx (this world %llx)\n", before, listening,
                 (long long)world);
         if (listening && listening != (long long)world) {
-            fprintf(reply, "error the captured block is another world's; waiting for this world's first object sound\n");
-            fclose(reply);
-            return 0;
+            out_printf(reply, "error the captured block is another world's; waiting for this world's first object sound\n");
+            return;
         }
-        fprintf(reply, "block+8 registered with the audio interface: %s\n", audio_registered(impl, block + 8));
+        out_printf(reply, "block+8 registered with the audio interface: %s\n", audio_registered(impl, block + 8));
         if (before) {
-            fprintf(reply, "already bound\n");
-            fclose(reply);
-            return 0;
+            out_printf(reply, "already bound\n");
+            return;
         }
         if (block == audio_bound_block && (long long)world == audio_bound_world) {
-            fprintf(reply, "refused: the game bound this block for this world and has unbound it (the match is "
+            out_printf(reply, "refused: the game bound this block for this world and has unbound it (the match is "
                            "ending); binding it again would leave it registered once it is freed\n");
-            fclose(reply);
-            return 0;
+            return;
         }
         /* What the game's world listener (exe 0x7b249f0) does on a host at
            match start, on its own object, which holds the block at +0x20:
@@ -6637,25 +6799,46 @@ __declspec(dllexport) int mjolnir_audio_bind(void *L) {
            each registering the game's world listener again. */
         static long long forced_block, forced_world;
         if (block == forced_block && (long long)world == forced_world) {
-            fprintf(reply, "already bound (forced on this block before)\n");
-            fclose(reply);
-            return 0;
+            out_printf(reply, "already bound (forced on this block before)\n");
+            return;
         }
         forced_block = block;
         forced_world = (long long)world;
         long long listener = block - 0x20;
-        fprintf(reply, "listener %llx: +0x78 world before %llx\n", listener, *(long long *)(listener + 0x78));
+        out_printf(reply, "listener %llx: +0x78 world before %llx\n", listener, *(long long *)(listener + 0x78));
         ((audio_bind_t)(exe + 0x7b20690))(listener, (long long)world);
         ((audio_bind_t)(exe + 0x7544b80))(block, (long long)world);
-        fprintf(reply, "ok block+0x30 after %llx\n", *(long long *)(block + 0x30));
-        fprintf(reply, "block+8 registered with the audio interface: %s\n", audio_registered(impl, block + 8));
+        out_printf(reply, "ok block+0x30 after %llx\n", *(long long *)(block + 0x30));
+        out_printf(reply, "block+8 registered with the audio interface: %s\n", audio_registered(impl, block + 8));
         sound_trace("audio bind forced on block %llx: +0x30 %llx -> %llx", block, before, *(long long *)(block + 0x30));
         fireteam_log("audio: a joiner's audio world bound (block %llx -> %llx); object sounds reach Wwise now", block,
                      *(long long *)(block + 0x30));
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        fprintf(reply, "error exception while binding\n");
+        out_printf(reply, "error exception while binding\n");
     }
-    fclose(reply);
+}
+
+/* The old route: native\audio_bind.txt in, native\audio_bind_reply.txt out.
+   mjolnir_audio_bind_to takes the two addresses and returns the reply. */
+__declspec(dllexport) int mjolnir_audio_bind(void *L) {
+    (void)L;
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%saudio_bind.txt", dir);
+    unsigned long long world = 0, subsystem = 0;
+    FILE *f = fopen(path, "r");
+    if (f) {
+        char line[200];
+        while (fgets(line, sizeof line, f)) {
+            unsigned long long v;
+            if (sscanf(line, "world %llx", &v) == 1) world = v;
+            if (sscanf(line, "subsystem %llx", &v) == 1) subsystem = v;
+        }
+        fclose(f);
+    }
+    struct text_out reply = {0};
+    audio_bind_run(world, subsystem, &reply);
+    write_reply("audio_bind_reply.txt", reply.text, reply.n);
     return 0;
 }
 
@@ -6774,6 +6957,170 @@ static void sound_trace_arm(void) {
 #include "lifts_runtime.h"
 #include "roster_runtime.h"
 #include "medals_runtime.h"
+
+/* Lua: mjolnir_lobby_connection_get() -> the text mjolnir_lobby_connection
+   writes to lobby_connection.txt. */
+__declspec(dllexport) int mjolnir_lobby_connection_get(void *L) {
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    char out[4600];
+    lobby_connection_text(out, sizeof out);
+    lc_push_text(&f, out);
+    lc_end(&f);
+    return 1;
+}
+
+/* Lua: mjolnir_audio_bind_to(world, subsystem) -> the reply text. */
+__declspec(dllexport) int mjolnir_audio_bind_to(void *L) {
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    unsigned long long world = (unsigned long long)lc_take_integer(&f, 1, 0);
+    unsigned long long subsystem = (unsigned long long)lc_take_integer(&f, 1, 0);
+    struct text_out reply = {0};
+    audio_bind_run(world, subsystem, &reply);
+    lc_push_string(&f, reply.text, reply.n);
+    lc_end(&f);
+    return 1;
+}
+
+/* Lua: mjolnir_hub_send(request) -> true once the call is under way, its
+   reply to be taken with mjolnir_reply_take("hub_reply_<id>.txt"); nil for a
+   request too long to take (the caller then uses hub_request.txt). */
+#define HUB_SEND_CAP 65536
+__declspec(dllexport) int mjolnir_hub_send(void *L) {
+    static char text[HUB_SEND_CAP];
+    size_t length = 0;
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    if (!dir[0]) find_dir();
+    if (lc_take_string(&f, 1, text, sizeof text, &length) && length < sizeof text) {
+        hub_start(text, length, 1);
+        lc_push_bool(&f, 1);
+    } else {
+        lc_push_nil(&f);
+    }
+    lc_end(&f);
+    return 1;
+}
+
+/* Lua: mjolnir_request_put(name, text [, reply [, keep]]) -> true once the
+   request is held for open_request, in place of writing the file `name`.
+   `reply` claims the next reply of that name for the mailbox; `keep` serves
+   every read until replaced. nil for a name that is not a plain file name or
+   text over REQUEST_CAP (the caller then writes the file). */
+__declspec(dllexport) int mjolnir_request_put(void *L) {
+    static char text[REQUEST_CAP];
+    char name[64], reply[64];
+    size_t length = 0;
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    int named = lc_take_string(&f, 1, name, sizeof name, NULL);
+    int have_text = lc_take_string(&f, 1, text, sizeof text, &length) && length < sizeof text;
+    int claim = lc_take_string(&f, 1, reply, sizeof reply, NULL);
+    int keep = lc_take_bool(&f, 1);
+    for (const char *c = name; *c && named; c++)
+        named = (*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || *c == '_' ||
+                *c == '.';
+    char *copy = named && have_text && name[0] ? (char *)malloc(length ? length : 1) : NULL;
+    if (!copy) {
+        lc_push_nil(&f);
+        lc_end(&f);
+        return 1;
+    }
+    memcpy(copy, text, length);
+    AcquireSRWLockExclusive(&mailbox_lock);
+    struct memory_request *slot = NULL;
+    for (int i = 0; i < REQUEST_SLOTS; i++) {
+        struct memory_request *r = &requests[i];
+        if (r->text && strcmp(r->name, name) == 0) {
+            free(r->text);
+            r->text = NULL;
+        }
+        if (!r->text && !slot) slot = r;
+    }
+    if (slot) {
+        snprintf(slot->name, sizeof slot->name, "%s", name);
+        slot->text = copy;
+        slot->length = length;
+        slot->keep = keep;
+        copy = NULL;
+        if (claim && reply[0]) {
+            int placed = 0;
+            for (int i = 0; i < 16 && !placed; i++)
+                if (strcmp(reply_claims[i], reply) == 0) placed = 1;
+            for (int i = 0; i < 16 && !placed; i++)
+                if (!reply_claims[i][0]) {
+                    snprintf(reply_claims[i], sizeof reply_claims[i], "%s", reply);
+                    placed = 1;
+                }
+        }
+    }
+    ReleaseSRWLockExclusive(&mailbox_lock);
+    int held = copy == NULL;
+    free(copy);
+    /* A kept request replaces its file for good: delete the file, so an
+       older match's copy can never be read in its place. */
+    if (held && keep) {
+        if (!dir[0]) find_dir();
+        char path[MAX_PATH];
+        snprintf(path, sizeof path, "%s%s", dir, name);
+        DeleteFileA(path);
+    }
+    if (held) lc_push_bool(&f, 1); else lc_push_nil(&f);
+    lc_end(&f);
+    return 1;
+}
+
+/* Lua: mjolnir_reply_claim(name) -> true: the next reply of that name goes to
+   the mailbox (for an export that answers without a request, such as
+   mjolnir_map_install_status). */
+__declspec(dllexport) int mjolnir_reply_claim(void *L) {
+    char name[64];
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    int ok = lc_take_string(&f, 1, name, sizeof name, NULL) && name[0];
+    if (ok) {
+        AcquireSRWLockExclusive(&mailbox_lock);
+        int placed = 0;
+        for (int i = 0; i < 16 && !placed; i++)
+            if (strcmp(reply_claims[i], name) == 0) placed = 1;
+        for (int i = 0; i < 16 && !placed; i++)
+            if (!reply_claims[i][0]) {
+                snprintf(reply_claims[i], sizeof reply_claims[i], "%s", name);
+                placed = 1;
+            }
+        ok = placed;
+        ReleaseSRWLockExclusive(&mailbox_lock);
+    }
+    if (ok) lc_push_bool(&f, 1); else lc_push_nil(&f);
+    lc_end(&f);
+    return 1;
+}
+
+/* Lua: mjolnir_reply_take(name) -> true and the reply (nil while there is
+   none yet). The copy is made and the lock released before anything is
+   pushed: a Lua error inside a push never returns here. */
+__declspec(dllexport) int mjolnir_reply_take(void *L) {
+    char name[64];
+    size_t length = 0;
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    char *text = lc_take_string(&f, 1, name, sizeof name, NULL) ? mailbox_take(name, &length) : NULL;
+    lc_push_bool(&f, 1);
+    if (text) lc_push_string(&f, text, length); else lc_push_nil(&f);
+    free(text);
+    lc_end(&f);
+    return 2;
+}
+
+/* Lua: mjolnir_jip_held() -> whether a joined world is held (held_flag). */
+__declspec(dllexport) int mjolnir_jip_held(void *L) {
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    lc_push_bool(&f, InterlockedCompareExchange(&jip_held_on, 0, 0) != 0);
+    lc_end(&f);
+    return 1;
+}
 
 /* --- The one-time code searches' worker -------------------------------------
 

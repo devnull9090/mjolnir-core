@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {guardDestructionTarget,damageCommand,bodyDepleted,main,SCORPION_BODY_MATERIAL} from './smoke-warfare-vehicle-destruction.mjs';
 const unit=0xe2000001,target=0xe2000002;
-const snapshot={ready:1,status:2,host:1,layout:3,phase:2,globals:[2,0,20569,0,1,0,0,0,0,0,0,0],
+const snapshot={ready:1,status:2,host:1,layout:3,phase:2,globals:[2,0,20571,0,60,0,0,0,0,0,0,0],
   connected:1,instance:'77',rate:30,tick:100,sampled_ms:5000,
   players:[{index:7,unit,team:0,stage:5,localUser:0,position:[0,0,0]}],ordinals:{7:0}};
 const players=[{index:7,unit,team:0}];

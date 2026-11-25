@@ -4,7 +4,7 @@ local Board = dofile("mods/MJOLNIRHud/Scripts/scoreboard.lua")
 Board.registerModes(dofile("mods/MJOLNIRLevelLoader/Scripts/mode_descriptors.lua"))
 local function eq(a, b, what) assert(a == b, (what or "value") .. ": " .. tostring(a) .. " ~= " .. tostring(b)) end
 local function sample(tick, phase, red, blue, instance, stage)
-    return string.format("warfare-state 3\nreinforcement 60 30\nready 1\nstatus 2\nhost 1\ninstance %s\ntick %d\nsampled_ms %d\nlayout 3\ninsertion_seconds 60\nphase %d\nelapsed_ticks 60\nrate 60\nconnected 2\nscore %d %d\nowner 1 0 2\nglobals %d 60 20570 %d 2 100 0 %d %d 1 0 2\nplayer 0 0 %d 0 -10.500 20.250 100.000 305397761\n",
+    return string.format("warfare-state 3\nreinforcement 60 30\nready 1\nstatus 2\nhost 1\ninstance %s\ntick %d\nsampled_ms %d\nlayout 3\ninsertion_seconds 60\nphase %d\nelapsed_ticks 60\nrate 60\nconnected 2\nscore %d %d\nowner 1 0 2\nglobals %d 60 20571 %d 2 100 0 %d %d 1 0 2\nplayer 0 0 %d 0 -10.500 20.250 100.000 305397761\n",
         instance or "18446744073709551614", tick, 10000 + tick * 16, phase or 2, red or 17, blue or 9,
         phase or 2, (phase or 2) == 1 and 60 or 10, red or 17, blue or 9, stage or 0)
 end
@@ -40,7 +40,27 @@ eq(parsed.score[1], 17); eq(parsed.players[0].x, -10.5)
 eq(assert(Warfare.parse(sample(100) .. "ordinal 0 0\n")).ordinals[0], 0, "optional HS ordinal metadata")
 eq(Warfare.parse(sample(100):sub(1, -2)), nil, "partial last line")
 eq(Warfare.parse(sample(100):gsub("owner 1 0 2", "owner 2 0 2")), nil, "torn score/owner mirrors")
-eq(Warfare.parse(sample(100):gsub("20570", "20569")), nil, "old variant")
+eq(Warfare.parse(sample(100):gsub("20571", "20570")), nil, "old variant")
+-- Match clock and the Covenant's defeat clock (slot 4 from combat on).
+eq(Warfare.matchClock(parsed), 10, "combat seconds so far")
+eq(Warfare.describe(parsed, 0), "MATCH TIME 0:10")
+eq(Warfare.defeatIn(parsed), nil, "teams hold zones: no defeat clock")
+local function held(phase, left)
+    local text = sample(100, phase):gsub("connected 2", "connected " .. left):gsub("owner 1 0 2", "owner 3 3 3")
+    text = text:gsub("(globals %d+ 60 20571 %d+) 2 100 0 (%d+ %d+) 1 0 2", "%1 " .. left .. " 100 0 %2 3 3 3")
+    return assert(Warfare.parse(text))
+end
+local losing = held(2, 42)
+eq(Warfare.defeatIn(losing), 42, "seconds left while the Covenant hold all three")
+eq(Warfare.describe(losing, 0), "THE COVENANT HOLD EVERY ZONE  /  RETAKE ONE IN 0:42 OR LOSE THE ISLAND")
+eq(Warfare.covenantWon(losing), false)
+eq(Warfare.defeatIn(held(2, -1)), nil, "rule off")
+local lost = held(3, 0)
+eq(Warfare.covenantWon(lost), true, "phase 3 at 0 with every zone theirs")
+eq(Warfare.describe(lost, 0), "OPERATION FAILED  /  THE COVENANT HOLD EVERY ZONE")
+eq(Warfare.covenantWon(held(3, 5)), false, "ended some other way")
+local wonMatch = { winnerTitle = "THE COVENANT WIN", mode = { teams = true } }
+eq(Board.winner(wonMatch), "THE COVENANT WIN", "a title the scores cannot show")
 eq(Warfare.parse(sample(100):gsub("layout 3", "layout 2")), nil, "old map layout")
 eq(Warfare.parse(sample(100):gsub("warfare%-state 3", "warfare-state 2")), nil, "old snapshot format")
 eq(Warfare.parse(sample(100):gsub("phase 2", "phase 4")), nil, "invalid phase")
@@ -58,7 +78,7 @@ fakeHill.field = function(name)
     field.ensureLine = function() end
     field.say = function(text) field.line = text end
     field.hideLine = function() field.line = nil; field.lineHidden = true end
-    field.draw = function(_, _, _, spot) field.draws = field.draws + 1; field.spot = spot; field.hidden = false end
+    field.draw = function(_, _, key, spot) field.draws = field.draws + 1; field.drawn = key; field.spot = spot; field.hidden = false end
     field.paint = function(colour) field.colour = colour end
     field.mark = function(_, _, _, _, text) field.label = text end
     field.frame = function() end
@@ -90,9 +110,10 @@ eq(Board.summary(match, 0).left, 17)
 eq(Board.winner(match), "RED TEAM WINS")
 eq(fields[1].colour, "Red"); eq(fields[2].colour, "empty"); eq(fields[3].colour, "Blue")
 eq(fields[1].spot.x, -9000, "authored coordinates used unchanged")
+eq(fields[1].draws + fields[2].draws + fields[3].draws, 1, "one new zone wall a tick (each spawns and traces its panels)")
+eq(fields[2].spot, nil, "the second zone waits a tick")
 eq(fields[3].label, "C  /  BLUE")
-eq(fields[4].line, nil, "combat zone status is the zone tiles, not a text line")
-eq(fields[4].lineHidden, true)
+eq(fields[4].line, "MATCH TIME 0:10   /   M: MAP", "in combat the zone tiles say who holds what; the line keeps the clock")
 eq(#sites, 0, "the first accepted combat sample is a baseline, never a capture")
 tick(3.5); eq(hud.snapshot, nil, "stopped live tick expires")
 eq(fields[1].hidden, true, "expired objective fields hidden")
@@ -176,6 +197,11 @@ do
     eq(Warfare.parse(withSites(550, packed(1, false, false, 16), 16 * 60, 2, "1 0 2")), nil, "Covenant progress beyond the steps")
     hud.snapshot, hud.next, hud.seenOwners = nil, 0, nil   -- the poll test below starts its own clock
 end
+-- Native WF_WAITING (8): respawned at home while the Pelican cannot be boarded.
+local waiting = assert(Warfare.parse(sample(100, 2, 0, 0, "9", 8)), "stage 8 parses")
+eq(waiting.players[0].stage, 8)
+eq(Warfare.describe(waiting, 0), "WAITING FOR YOUR PELICAN  /  IT LEAVES IN 0:50  /  MOVE TO PLAY FROM BASE")
+eq(Warfare.parse(sample(100, 2, 0, 0, "9", 9)), nil, "no stage past 8")
 print("Warfare HUD: strict parser, freshness/instance/map guards, authoritative totals, capture fields and insertion hints passed")
 
 -- Build and tick the actual runtime-composed panel with a small UMG double.
@@ -247,7 +273,7 @@ do
         hookIncidents=noop, ensureWidgets=noop, ensureFrameHook=noop,
         refreshLocalPlayer=noop, isHostWorld=function() return false end,
         findBipeds=noop, Markers=dispatch, now=function() return stamp end,
-        HudHidden=true, LOCAL_PLAYER=0, boardDirty=false, Bots={tick=noop},
+        HudHidden=true, LOCAL_PLAYER=0, boardDirty=false, Bots={tick=noop}, WidgetBudget={ tick = 0, spent = -1 },
         -- The first roster refresh immediately after objective dispatch marks
         -- the end of this test's portion of the full game-thread poll.
         syncBotNames=function() error(stop) end,

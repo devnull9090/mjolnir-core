@@ -9,7 +9,10 @@ return {
         authoritativeTeams = true, teamOnlyScore = true,
         icon = "Koth", maps = { PWR = true },
         postgameSameMode = true,
-        vehicleMode = "koth", startEvent = "koth_game_start",
+        -- No events.json row: the loader stays silent at the first spawn,
+        -- and MJOLNIRHud's warfare_voice.lua announces "Pelican Warfare!"
+        -- (it said "King of the Hill" before).
+        vehicleMode = "koth", startEvent = "warfare_game_start",
         lockScore = true, -- the generated native script and variant share its threshold
         fixedOptions = {
             score = { value = 500, text = "500", label = "CONTROL TO WIN",

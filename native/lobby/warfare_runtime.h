@@ -5,14 +5,17 @@
  * number 6, the Covenant in its zone (warfare_contest).
  * Only owning peers apply biped movement. The host drives named transports.
  * No filesystem, allocation or UObject reflection occurs on a steady tick. */
+#include <stdarg.h>
 #include "warfare_core.h"
 #include "lua_channel.h"
 
 /* Megalo rules revision in global slot 2 (blam-megalo warfare.rs MAGIC).
  * WARFARE_MAGIC (generated from layout.json) is the map's layout protocol,
  * carried by the published map; the two moved apart at 20570, when slot 3
- * began counting the warmup down. */
-#define WARFARE_RULES_MAGIC 20570
+ * began counting the warmup down. 20571: slot 4 is the connected players
+ * before combat and the Covenant's defeat clock from combat on (warfare.rs
+ * DEFEAT); `connected` in warfare_state.txt is that slot as it stands. */
+#define WARFARE_RULES_MAGIC 20571
 
 typedef struct {
     int ready, status, host, rate, tick, layout, insertion_seconds, globals[12];
@@ -722,7 +725,8 @@ static warfare_inventory warfare_kits[WARFARE_PLAYERS];
 /* Cabin clearance is both: right after the host detaches a rider it still
  * places the biped, and a client's clearance alone snapped back five times in
  * two seconds until the host's state timed out (two copies, 2026-11-19). */
-#define WF_HOST_AUTHORITY (WF_BOARD | WF_EXIT | WF_CLEAR_CABIN | WF_PROTECT | WF_UNPROTECT | WF_LOWER_WEAPON | WF_RAISE_WEAPON | WF_WAKE)
+#define WF_HOST_AUTHORITY (WF_BOARD | WF_EXIT | WF_CLEAR_CABIN | WF_PROTECT | WF_UNPROTECT | WF_LOWER_WEAPON | WF_RAISE_WEAPON \
+                           | WF_WAKE | WF_SPLAT | WF_SHIELD | WF_UNSHIELD)
 #define WF_OWNER_AUTHORITY (WF_VELOCITY | WF_HOME | WF_WARMUP | WF_CLEAR_CABIN | WF_WAKE)
 
 /* A reinforcement rider's seat: their own (roster) seat unless a teammate
@@ -792,6 +796,19 @@ static void warfare_apply(unsigned char *tls, const warfare_sample all[WARFARE_P
     }
     if (out->flags & WF_UNPROTECT) {
         snprintf(line, sizeof line, "(unit_falling_damage_disable (player_get %d) false)", hs_player); warfare_hs(line);
+    }
+    if (out->flags & WF_SHIELD) {
+        snprintf(line, sizeof line, "(object_cannot_take_damage (player_get %d))", hs_player); warfare_hs(line);
+        fireteam_log("warfare: player %d waits at home for the Pelican (shielded)", i);
+    }
+    if (out->flags & WF_UNSHIELD) {
+        snprintf(line, sizeof line, "(object_can_take_damage (player_get %d))", hs_player); warfare_hs(line);
+        fireteam_log("warfare: player %d stops waiting (unshielded)", i);
+    }
+    if (out->flags & WF_SPLAT) {
+        /* No chute, or too late: the ground wins (warfare_core.h WARFARE_SPLAT_SINK). */
+        snprintf(line, sizeof line, "(unit_kill (player_get %d))", hs_player); warfare_hs(line);
+        fireteam_log("warfare: player %d hit the ground without a parachute", i);
     }
     if (out->flags & (WF_HOME | WF_WARMUP)) {
         const char *flag = out->flags & WF_WARMUP ? "pwr_warmup"
@@ -1279,9 +1296,8 @@ static int warfare_keep_playing(void) {
 __declspec(dllexport) int mjolnir_warfare_open(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH], header[64], map[64], revision[64], protocol[64], expected_revision[64], expected_protocol[64];
-    snprintf(path, sizeof path, "%swarfare_config.txt", dir);
-    FILE *file = fopen(path, "r");
+    char header[64], map[64], revision[64], protocol[64], expected_revision[64], expected_protocol[64];
+    FILE *file = open_request("warfare_config.txt");
     int valid = file && fgets(header, sizeof header, file) && fgets(map, sizeof map, file)
         && fgets(revision, sizeof revision, file) && fgets(protocol, sizeof protocol, file);
     if (file) fclose(file);
@@ -1386,36 +1402,71 @@ __declspec(dllexport) int mjolnir_warfare_map_pump(void *L) {
     (void)L; if (!dir[0]) find_dir();
     warfare_tactical_pump(dir); return 0;
 }
-__declspec(dllexport) int mjolnir_warfare_pump(void *L) {
-    (void)L; if (!dir[0]) find_dir();
+/* The HUD's snapshot, as text (Scripts/warfare.lua Warfare.parse). */
+typedef struct { char *at; size_t cap, len; } wf_text;
+static void wf_put(wf_text *o, const char *format, ...) {
+    if (o->len >= o->cap) return;
+    va_list args; va_start(args, format);
+    int n = vsnprintf(o->at + o->len, o->cap - o->len, format, args);
+    va_end(args);
+    if (n < 0) { o->len = o->cap; return; }
+    o->len += (size_t)n;
+}
+static size_t warfare_state_text(char *buffer, size_t cap) {
     warfare_snapshot s;
     AcquireSRWLockShared(&warfare_snapshot_lock); s = warfare_published;
     ReleaseSRWLockShared(&warfare_snapshot_lock);
-    char path[MAX_PATH]; snprintf(path, sizeof path, "%swarfare_state.txt", dir);
-    FILE *file = fopen(path, "w"); if (!file) return 0;
-    fprintf(file, "warfare-state 3\nreinforcement %d %d\n", WARFARE_REINFORCEMENT_INTERVAL,
+    wf_text o = { buffer, cap, 0 };
+    wf_put(&o, "warfare-state 3\nreinforcement %d %d\n", WARFARE_REINFORCEMENT_INTERVAL,
             (int)WARFARE_REINFORCEMENT_FLIGHT_SECONDS);
-    fprintf(file, "ready %d\nstatus %d\nhost %d\ninstance %llu\ntick %d\nsampled_ms %llu\nlayout %d\ninsertion_seconds %d\nphase %d\nelapsed_ticks %d\nrate %d\nconnected %d\nscore %d %d\nowner %d %d %d\nglobals",
+    wf_put(&o, "ready %d\nstatus %d\nhost %d\ninstance %llu\ntick %d\nsampled_ms %llu\nlayout %d\ninsertion_seconds %d\nphase %d\nelapsed_ticks %d\nrate %d\nconnected %d\nscore %d %d\nowner %d %d %d\nglobals",
             s.ready, s.status, s.host, (unsigned long long)s.instance, s.tick, (unsigned long long)s.sampled_ms, s.layout,
             s.insertion_seconds, s.globals[0], s.globals[1], s.rate,
             s.globals[4], s.globals[7], s.globals[8], s.globals[9] & 3, s.globals[10] & 3, s.globals[11] & 3);
     /* Slots 9-11 pack each site's owner (low two bits), who is present and its
        stepped capture progress (blam-megalo warfare.rs SiteState); `owner` above is
        just the owner, the raw packed values stay in `globals` for the HUD. */
-    for (int n = 0; n < 12; n++) fprintf(file, " %d", s.globals[n]);
-    fputc('\n', file);
+    for (int n = 0; n < 12; n++) wf_put(&o, " %d", s.globals[n]);
+    wf_put(&o, "\n");
     for (int i = 0; i < WARFARE_PLAYERS; i++) {
         const warfare_sample *p = &s.sample[i]; if (!p->valid) continue;
-        fprintf(file, "player %d %d %d %d %.3f %.3f %.3f %u\n", i, p->team, s.stage[i], p->local_user,
+        wf_put(&o, "player %d %d %d %d %.3f %.3f %.3f %u\n", i, p->team, s.stage[i], p->local_user,
                 p->position[0], p->position[1], p->position[2], p->unit);
-        fprintf(file, "ordinal %d %d\n", i, warfare_hs_rank(s.sample, i));
+        wf_put(&o, "ordinal %d %d\n", i, warfare_hs_rank(s.sample, i));
         if (p->local_user >= 0 && p->velocity_valid && warfare_finite_sample(p)
             && (s.stage[i] == WF_FALLING || s.stage[i] == WF_CANOPY)) {
-            fprintf(file, "flight %d %.3f %.3f %.3f %d %.3f\n", i,
+            wf_put(&o, "flight %d %.3f %.3f %.3f %d %.3f\n", i,
                     p->velocity[0], p->velocity[1], p->velocity[2], s.braking[i], s.steering[i]);
             float clearance = p->position[2] - warfare_terrain(p->position[0], p->position[1], 0);
-            fprintf(file, "clearance %d %.2f\n", i, fmaxf(0, clearance));
+            wf_put(&o, "clearance %d %.2f\n", i, fmaxf(0, clearance));
         }
     }
+    if (o.len >= cap) return 0; /* cut short: no half snapshot */
+    return o.len;
+}
+#define WARFARE_STATE_CAP 16384
+/* warfare_state.txt beside this DLL: the 2 Hz pump (MJOLNIRLevelLoader
+ * Scripts/warfare.lua), for tools and older HUDs. */
+__declspec(dllexport) int mjolnir_warfare_pump(void *L) {
+    (void)L; if (!dir[0]) find_dir();
+    static char text[WARFARE_STATE_CAP];
+    size_t len = warfare_state_text(text, sizeof text);
+    if (!len) return 0;
+    char path[MAX_PATH]; snprintf(path, sizeof path, "%swarfare_state.txt", dir);
+    FILE *file = fopen(path, "w"); if (!file) return 0;
+    fwrite(text, 1, len, file);
     fclose(file); return 0;
+}
+/* The same text returned to Lua (lua_channel.h), for the HUD. Reading the file
+ * cost ~5 ms a read on a PC with Windows Defender's real-time scan, which
+ * scans a file opened right after it changed: 50 ms of every second of game
+ * thread at the HUD's 8-9 reads a second (GTX 1080 Ti test PC, 2026-11-25). */
+__declspec(dllexport) int mjolnir_warfare_snapshot(void *L) {
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    static char text[WARFARE_STATE_CAP];
+    size_t len = warfare_state_text(text, sizeof text);
+    if (len) lc_push_string(&f, text, len); else lc_push_nil(&f);
+    lc_end(&f);
+    return 1;
 }

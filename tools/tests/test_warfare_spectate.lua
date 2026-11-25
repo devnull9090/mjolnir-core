@@ -88,4 +88,33 @@ spectate.update(pc, s, 0, players, parked, false); eq(pc.view, camera)
 spectate.update(pc, s, 0, players, parked, true); eq(pc.view, pawn, "hidden restores")
 spectate.update(pc, s, 0, players, parked, false); eq(pc.view, camera)
 spectate.restore(); eq(pc.view, pawn, "restore without a controller uses the last one")
+
+-- Waiting at home (native stage 8) for a Pelican that cannot be boarded:
+-- watch a teammate whatever the wave is doing; boarding keeps the view.
+local waiting = snap({ [0] = { 0, 8, 0 }, [1] = { 0, 0 } })
+eq(Spectate.wanted(waiting, 0, { flying = true, departs = 40 }), true, "waiting: spectate even while the wave flies")
+eq(Spectate.wanted(waiting, 0, nil), true, "the native code decided it")
+eq(Spectate.wanted(snap({ [0] = { 0, 1, 0 } }), 0, parked), true, "boarding a parked wave keeps the view")
+eq(Spectate.wanted(snap({ [0] = { 0, 8, 0 } }), 0, parked) and Spectate.waiting(waiting, 0), true)
+eq(Spectate.candidates(snap({ [0] = { 0, 8, 0 }, [1] = { 0, 8 } }), 0)[1], nil, "another waiting player is not worth watching")
+bodies[1].alive, bodies[4].alive = true, false
+spectate.update(pc, waiting, 0, players, { flying = true, departs = 40 }, false)
+eq(spectate.watching(), 1); eq(pc.view, camera)
+
+-- Nobody to watch while waiting: the zones from above, never "watching" anyone.
+local placed
+function camera:K2_SetActorLocationAndRotation(at, rot) placed = { at = at, rot = rot } end
+local alone = Spectate.new({ camera = function() return camera end, FName = function(n) return n end,
+    bipedAt = function() return nil end,
+    overview = function() return { at = { X = 1, Y = 2, Z = 3 }, rot = { Pitch = -38, Yaw = 0, Roll = 0 } } end })
+pc.view = pawn
+alone.update(pc, snap({ [0] = { 0, 8, 0 } }), 0, {}, { flying = true, departs = 40 }, false)
+eq(pc.view, camera, "the overview"); eq(placed.at.Z, 3); eq(alone.watching(), nil, "no name on the line")
+eq(alone.overlooking(), true)
+alone.update(pc, snap({ [0] = { 0, 0, 0 } }), 0, {}, { flying = true, departs = 40 }, false)
+eq(pc.view, pawn, "stopped waiting: own view back"); eq(alone.overlooking(), false)
+-- Seated with nobody to watch keeps the cabin (no overview).
+log = {}
+alone.update(pc, snap({ [0] = { 0, 2, 0 } }), 0, {}, parked, false)
+eq(pc.view, pawn); eq(#log, 0)
 print("warfare spectate: ok")

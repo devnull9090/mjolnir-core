@@ -12,14 +12,24 @@
 #define WARFARE_PLAYERS 16
 #define WARFARE_NONE UINT32_MAX
 enum warfare_stage { WF_GROUND, WF_BOARDING, WF_SEATED, WF_FALLING, WF_CANOPY,
-                     WF_LANDED, WF_FAILED, WF_EXITING };
+                     WF_LANDED, WF_FAILED, WF_EXITING,
+                     /* Respawned at home while the team's Pelican cannot be
+                      * boarded: shielded and unarmed, the HUD showing a
+                      * teammate, until it parks or the player moves. */
+                     WF_WAITING };
 enum warfare_command {
     WF_WARMUP = 1, WF_HOME = 2, WF_BOARD = 4, WF_EXIT = 8,
     WF_PROTECT = 16, WF_UNPROTECT = 32, WF_VELOCITY = 64, WF_CLEAR_CABIN = 128,
     WF_LOWER_WEAPON = 256, WF_RAISE_WEAPON = 512,
     /* Wake the biped's physics at the start of a fall: a body detached from
      * a stationary (parked) Pelican sleeps and hung at 550 m for seconds. */
-    WF_WAKE = 1024
+    WF_WAKE = 1024,
+    /* Kill the unit: it met the ground falling too fast (no parachute, or
+     * one pulled too late). The descent is protected from falling damage, so
+     * the death is this explicit one, decided on the host at first contact. */
+    WF_SPLAT = 2048,
+    /* A waiting body cannot take damage, and can again once it stops waiting. */
+    WF_SHIELD = 4096, WF_UNSHIELD = 8192
 };
 typedef struct {
     uint32_t unit, parent;
@@ -46,6 +56,15 @@ typedef struct {
     float grounded;
     float carrier_velocity[2], air_velocity[3], steering;
     int air_initialized, braking, deploy_requested;
+    /* fresh: this body spawned in combat and has not boarded or left home;
+     * a waiting body measures movement from wait_origin, for at most
+     * WARFARE_WAIT_MAX_SECONDS (waited). */
+    int fresh;
+    float wait_origin[2], waited;
+    /* fall_sink: the body's own sink (m/s) at the last airborne sample with a
+     * velocity, which is what decides a splat: the host never sees a
+     * joiner's parachute pull, only the body slowing. */
+    float fall_sink;
 } warfare_player;
 typedef struct { unsigned flags; float velocity[3]; } warfare_output;
 /* One Pelican flight a player can ride: the insertion (phase 1) or a team's
@@ -268,9 +287,25 @@ static void warfare_ready_weapon(warfare_player *p, warfare_output *o) {
     }
 }
 
+/* Waiting moves the body this far (metres, flat) to end: a step, not a
+ * settling spawn (measured flat, so settling onto a floor is not a step). The cap ends a
+ * wait the Pelican never ends, so no shield outlives its purpose. */
+#define WARFARE_WAIT_MOVE 2.0f
+#define WARFARE_WAIT_MAX_SECONDS 75.0f
+
+/* Every way out of waiting but boarding: shield off, weapons back, an
+ * ordinary base spawn from here (it never waits again this life). */
+static void warfare_end_wait(warfare_player *p, warfare_output *o) {
+    if (p->stage != WF_WAITING) return;
+    o->flags |= WF_UNSHIELD;
+    warfare_ready_weapon(p, o);
+    p->stage = WF_GROUND; p->fresh = 0;
+}
+
 static void warfare_stop(warfare_player *p, const warfare_sample *s, warfare_output *o) {
     memset(o, 0, sizeof *o);
     if (s && s->valid && s->unit == p->unit && (s->local_user >= 0 || s->remote)) {
+        if (p->stage == WF_WAITING) o->flags |= WF_UNSHIELD;
         warfare_ready_weapon(p, o);
         if (p->protected_fall) o->flags |= WF_UNPROTECT;
         if (p->stage == WF_BOARDING || p->stage == WF_SEATED || p->stage == WF_EXITING)
@@ -310,13 +345,12 @@ static float warfare_terrain(float x, float y, int ceiling) {
 /* Unbroken world contact that lands a descent whatever its velocity samples. */
 #define WARFARE_GROUNDED_SECONDS 1.0f
 
-static int warfare_need_canopy(const warfare_player *p, const warfare_sample *s) {
-    float roof = warfare_terrain(s->position[0], s->position[1], 1);
-    float ahead = warfare_terrain(s->position[0] + p->air_velocity[0],
-                                  s->position[1] + p->air_velocity[1], 1);
-    float sink = fmaxf(0, -p->air_velocity[2]);
-    return s->position[2] - fmaxf(roof, ahead) <= fmaxf(38, 18 + sink * 1.05f);
-}
+/* The parachute opens only when the player pulls it. Meeting the ground
+ * faster than this (the descent controller's own sink, m/s) is fatal: freefall
+ * runs to 55-63 m/s, a canopy settles at 10.5-18.5, so an open canopy always
+ * lands and a pull in the last few metres does not. MJOLNIRHud's
+ * warfare_voice.lua uses the same figure for "I tried to warn you". */
+#define WARFARE_SPLAT_SINK 20.0f
 
 static void warfare_air_motion(warfare_player *p, const warfare_sample *s, float dt, warfare_output *o) {
     int canopy = p->stage == WF_CANOPY;
@@ -393,12 +427,15 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
     if (p->unit != s->unit) {
         warfare_player_reset(p); p->unit = s->unit;
         if (phase == 0) o->flags |= WF_WARMUP;
+        if (phase == 2) p->fresh = 1; /* a respawn, or a join, in combat */
     }
     /* Only the flight a rider boarded keeps them aboard. */
-    int mine = sortie->active && (p->stage == WF_GROUND || p->sortie == sortie->id);
+    int on_foot = p->stage == WF_GROUND || p->stage == WF_WAITING;
+    int mine = sortie->active && (on_foot || p->sortie == sortie->id);
     if (phase == 3) { warfare_stop(p, s, o); return; }
     if (phase == 0) {
         if (p->last_phase > 0) {
+            if (p->stage == WF_WAITING) o->flags |= WF_UNSHIELD;
             warfare_ready_weapon(p, o);
             if (p->protected_fall) o->flags |= WF_UNPROTECT;
             o->flags |= WF_EXIT | WF_WARMUP;
@@ -410,14 +447,43 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
     if (action && (p->stage == WF_EXITING || p->stage == WF_FALLING)) p->deploy_requested = 1;
     /* A client can lose the race with its host's boarding: a player already
      * seen aboard their team's transport for this sortie rides it. */
-    if (p->stage == WF_GROUND && phase == 2 && sortie->active && s->parent_is_transport && !p->saw_insertion) {
-        p->saw_insertion = 1; p->stage = WF_SEATED; p->sortie = sortie->id;
+    if (on_foot && phase == 2 && sortie->active && s->parent_is_transport && !p->saw_insertion) {
+        if (p->stage == WF_WAITING) o->flags |= WF_UNSHIELD;
+        p->saw_insertion = 1; p->stage = WF_SEATED; p->sortie = sortie->id; p->fresh = 0;
         p->carrier = s->parent; p->elapsed = 0; p->protected_fall = 1; o->flags |= WF_PROTECT;
     }
-    if (sortie->boarding && !p->saw_insertion && p->stage == WF_GROUND && sortie->id >= p->next_sortie
+    if (sortie->boarding && !p->saw_insertion && on_foot && sortie->id >= p->next_sortie
         && (sortie->id == 0 || warfare_waiting_at_home(s))) {
+        /* A waiting body keeps its weapon lowered for the ride: it comes
+         * back on landing, as for every rider. */
+        if (p->stage == WF_WAITING) o->flags |= WF_UNSHIELD;
         p->saw_insertion = 1; p->stage = WF_BOARDING; p->elapsed = 0; p->retry = 0; p->sortie = sortie->id;
-        p->protected_fall = 1; o->flags |= WF_PROTECT;
+        p->fresh = 0; p->protected_fall = 1; o->flags |= WF_PROTECT;
+    }
+    /* No world support asked: a base floor is a placed structure, not the
+     * map's surface, and a respawn there never reports it (PC 1, 2026-11-24).
+     * Movement is measured flat, so a body settling onto it does not count. */
+    if (phase == 2 && p->stage == WF_GROUND && p->fresh && sortie->active && s->parent == WARFARE_NONE
+        && warfare_waiting_at_home(s)) {
+        /* Respawned at home and the Pelican cannot be boarded now (it waits
+         * out of sight until shortly before its wave, or this player is
+         * barred until a later one): wait shielded and unarmed, so a body
+         * left while its player watches a teammate is neither a target nor
+         * an invulnerable turret. */
+        p->stage = WF_WAITING; p->waited = 0;
+        p->wait_origin[0] = s->position[0]; p->wait_origin[1] = s->position[1];
+        p->weapon_lowered = 1; o->flags |= WF_SHIELD | WF_LOWER_WEAPON;
+    }
+    /* Walked off or drove away first: this life plays from home, and a later
+     * walk back to base is not a wait. */
+    if (p->stage == WF_GROUND && p->fresh && (s->parent != WARFARE_NONE || !warfare_waiting_at_home(s))) p->fresh = 0;
+    if (p->stage == WF_WAITING) {
+        p->last_phase = phase;
+        p->waited += dt;
+        if (s->parent != WARFARE_NONE || p->waited > WARFARE_WAIT_MAX_SECONDS
+            || hypotf(s->position[0] - p->wait_origin[0], s->position[1] - p->wait_origin[1]) > WARFARE_WAIT_MOVE)
+            warfare_end_wait(p, o); /* in a vehicle, timed out, or walking: play from home */
+        return;
     }
     p->last_phase = phase;
     p->elapsed += dt;
@@ -457,7 +523,7 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
     }
     if (p->stage == WF_EXITING) {
         if (s->parent == WARFARE_NONE && s->carrier_clear) {
-            p->stage = WF_FALLING; p->elapsed = 0; p->departure_z = s->position[2];
+            p->stage = WF_FALLING; p->elapsed = 0; p->departure_z = s->position[2]; p->fall_sink = 0;
             o->flags |= WF_WAKE;
             /* Clear of a Pelican still out of sight beyond the play area (a
              * jump while it waits there): home, by the biped's own machine. */
@@ -492,8 +558,7 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
     if (p->elapsed > WARFARE_DESCENT_TIMEOUT_SECONDS || !warfare_inside(s->position, warfare_play_min, warfare_play_max)) {
         warfare_fail(p, o); return;
     }
-    if (p->stage == WF_FALLING && p->elapsed >= 0.25f
-        && (p->deploy_requested || warfare_need_canopy(p, s))) {
+    if (p->stage == WF_FALLING && p->elapsed >= 0.25f && p->deploy_requested) {
         p->stage = WF_CANOPY;
         p->deploy_requested = 0;
     }
@@ -504,6 +569,16 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
      * contact lands anyone: a joiner stayed under canopy on the ground two
      * minutes until the descent timeout sent them home (2026-11-23). */
     int grounded = s->support_world && s->carrier_clear && p->departure_z - s->position[2] > 3.0f;
+    /* The first real contact decides it, from the speed the body itself was
+     * last seen falling at. Not the controller's sink: on the host a joiner's
+     * descent is never told of their pull (only the cabin jump is relayed),
+     * so its controller stays in freefall while the body hangs under canopy;
+     * deciding from it killed every joiner on landing (review, 2026-11-24). */
+    if (!s->support_world && s->velocity_valid && isfinite(s->velocity[2])) p->fall_sink = fmaxf(0, -s->velocity[2]);
+    if (grounded && p->fall_sink > WARFARE_SPLAT_SINK) {
+        warfare_ready_weapon(p, o);
+        o->flags |= WF_SPLAT | WF_UNPROTECT; p->protected_fall = 0; p->stage = WF_LANDED; return;
+    }
     if (grounded) {
         p->grounded += dt;
         if (s->velocity_valid) {
