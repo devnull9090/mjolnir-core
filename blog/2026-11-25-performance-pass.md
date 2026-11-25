@@ -92,7 +92,7 @@ Being honest about what we didn't fix:
 
 - **The end of every match.** There's about a second of slow frames (70–90 ms), then one long one (~285 ms) as the round ends and the world unloads. Our scripts are idle then, on both PCs; it's the game's own round end.
 - **Lua garbage collection.** Our scripts' memory cleanup takes a 20–25 ms frame about three times a match.
-- **Joining.** A few one-off costs of 60–100 ms land while the join's loading screen is up: switching to the map and the HUD's first widgets. They're next on the list.
+- **Joining.** Two one-off costs of about 100 ms each remain while the join's loading screen is up: reading the map's level file once, and the game starting your side of the match. We cut the rest: re-reading the level file (92 ms to 1 ms) and the HUD's first tick (60–66 ms to 39–43 ms).
 
 ## Why it matters
 
