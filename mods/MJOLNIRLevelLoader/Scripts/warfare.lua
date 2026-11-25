@@ -28,9 +28,19 @@ function M.init(dir, log, every)
         if M.active then pcall(M.actionNative) end
         return true
     end)
-    every(500, "warfare presentation", function()
-        if M.active then M.pumpNative() end
-    end)
+    -- warfare_state.txt is for the smoke tools (native/lobby/smoke-warfare*.mjs)
+    -- on a development PC, marked by %LOCALAPPDATA%\Meteorite\Saved\
+    -- mjolnir_dev.txt. A player's HUD takes the same snapshot from memory
+    -- (mjolnir_warfare_snapshot), so a player's game runs no pump at all: it
+    -- rewrote the file twice a second for nobody (~0.8 ms/s).
+    local base = os.getenv and os.getenv("LOCALAPPDATA")
+    local mark = base and io.open(base .. "\\Meteorite\\Saved\\mjolnir_dev.txt", "rb")
+    if mark then
+        mark:close()
+        every(500, "warfare presentation", function()
+            if M.active then M.pumpNative() end
+        end)
+    end
 end
 
 function M.select(code, variant, layout)
