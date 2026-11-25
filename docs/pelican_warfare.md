@@ -258,6 +258,11 @@ landing at the first real ground contact:
 - a pull 0.4 s out still dies;
 - a pull 4 s out lands.
 - a joiner under canopy lands on the host (`test_remote_landing`).
+- On two PCs (2026-11-24), a joiner pulled at 3 s and landed under canopy on
+  its own screen. The host's copy stayed in freefall throughout and logged
+  the landing (stage 3 to 5) with no splat, and the joiner lived. A joiner
+  with no pull died on impact, from the engine, with its own HUD saying the
+  warning, the yell and the splat line.
 
 The splat is judged from the body's own last airborne sink, not the host's
 simulation of the descent. The host is told only of a joiner's cabin jump,

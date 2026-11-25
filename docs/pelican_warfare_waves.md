@@ -143,16 +143,22 @@ on three game copies.
   - **Seen solo on PC 1.** Respawns early in a cycle waited, about 35 s
     once, and boarded when the Pelican came in. The overview showed the
     zones with "WAITING FOR YOUR PELICAN / IT LEAVES IN 0:19".
-  - **The shield is unproven.** `damage_object` did not kill even an
-    unshielded seated player, so it cannot test the shield. The test that
-    counts is another player shooting a waiting body, which needs two PCs.
+  - **Two PCs, 2026-11-24 (PC 1 host, PC 3 joiner).** The host shielded a
+    waiting joiner and unshielded it on boarding (one wait lasted 33 s).
+    The joiner's own screen showed the zones' overview with "WAITING FOR
+    YOUR PELICAN / IT LEAVES IN 0:42".
+  - **The shield works.** The same hit, `(damage_object (player_get 1)
+    "head" 1000)` from the host, left the waiting joiner alive (same unit).
+    Once walking had ended the wait, the hit killed it, and it respawned
+    into a new wait. A "body" hit does nothing, even unshielded; the region
+    name matters.
   - **Two deciders.** The host and each client decide waiting from their
     own samples: the host for the shield, the client for its camera. After
     a laggy respawn they can briefly disagree, so a client may spectate an
     unshielded body. The host pairs every shield with its own unshield, so
     nobody stays invulnerable.
-  - **Not yet shown.** A joiner waiting (the host shields the joiner's
-    body) needs two PCs. There is still no key to cycle teammates.
+  - **Not yet shown.** Spectating a real teammate (the run's two players were on opposite
+    teams). There is still no key to cycle teammates.
 
 Verified 2026-11-22: solo (board on respawn, parked countdown, departure on the
 minute, forced exit mid-map, re-park, parked jump with an immediate fall) and on
