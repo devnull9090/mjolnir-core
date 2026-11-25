@@ -7078,7 +7078,10 @@ local function multiplayerLevel(code)
     local path = code and levelPathFor(code)
     local raw = path and readFile(path)
     if not raw then return nil end
-    -- Kept for the load that follows (LevelFiles), which reads it again.
+    -- The load's own table when it came first (a join under way), which the
+    -- switch only reads; else decoded and kept for the load that follows.
+    local shared = LevelFiles.shared(path, raw)
+    if shared then return shared.multiplayer == true and shared or nil end
     local ok, level = LevelFiles.decode(path, raw, false)
     if ok and type(level) == "table" and level.multiplayer == true then return level end
     return nil

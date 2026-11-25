@@ -208,13 +208,14 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
             if path:find("KismetSystemLibrary") then
                 return { MakeSoftClassPath = function(_, p) return p end,
                     Conv_SoftClassPathToSoftClassRef = function(_, p) return p end,
-                    LoadClassAsset_Blocking = function() return { IsValid = function() return true end } end,
+                    LoadClassAsset_Blocking = function(_, p) return { IsValid = function() return true end, path = p } end,
                     ExecuteConsoleCommand = function(_, _, command) commands[#commands + 1] = command end }
             end
             return { SetInputMode_UIOnlyEx = function(_, _, focus) modes[#modes + 1] = focus and "ui" or "ui-nofocus" end,
                 SetInputMode_GameOnly = function() modes[#modes + 1] = "game" end,
-                Create = function()
+                Create = function(_, _, cls)
                 local w = block()
+                rawset(w, "classPath", type(cls) == "table" and rawget(cls, "path") or nil)
                 -- A UI container from before the feed's rows has none.
                 if legacy and #widgets == 0 then rawset(w, "FeedEdge0", { IsValid = function() return false end }) end
                 widgets[#widgets + 1] = w
@@ -247,8 +248,18 @@ local function runHUD(variant, client, variantFile, listing, identities, legacy)
         for _, i in ipairs(list) do raise(i[1], i[2], i[3], i[4], i[5]) end
         poll()
     end
+    -- One widget a tick (WidgetBudget): the feed, then the board on a
+    -- second tick at the same moment.
     poll()
-    return { board = widgets[2], feed = widgets[1], teams = teams, incident = incident, poll = poll, burst = burst,
+    scheduled()
+    -- The feed and the board by their class: other parts of the HUD make
+    -- widgets too, in an order that depends on the tick.
+    local function made(name)
+        for _, w in ipairs(widgets) do
+            if tostring(rawget(w, "classPath") or ""):find(name, 1, true) then return w end
+        end
+    end
+    return { board = made("WBP_MJOLNIRScoreboard"), feed = made("WBP_MJOLNIRKillFeed"), teams = teams, incident = incident, poll = poll, burst = burst,
         -- Time passes without a poll (the per-frame animation's view).
         wait = function(seconds) time = time + seconds end,
         hold = function(v) held = v; poll() end,
