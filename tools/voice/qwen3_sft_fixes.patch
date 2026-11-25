@@ -1,0 +1,56 @@
+--- upstream/finetuning/sft_12hz.py
++++ fixed/sft_12hz.py
+@@ -48,7 +48,7 @@
+     qwen3tts = Qwen3TTSModel.from_pretrained(
+         MODEL_PATH,
+         torch_dtype=torch.bfloat16,
+-        attn_implementation="flash_attention_2",
++        attn_implementation="sdpa",
+     )
+     config = AutoConfig.from_pretrained(MODEL_PATH)
+ 
+@@ -86,7 +86,9 @@
+                 input_text_ids = input_ids[:, :, 0]
+                 input_codec_ids = input_ids[:, :, 1]
+ 
+-                input_text_embedding = model.talker.model.text_embedding(input_text_ids) * text_embedding_mask
++                # Inference passes every text embedding through text_projection;
++                # without it the base model reads the text track as noise.
++                input_text_embedding = model.talker.text_projection(model.talker.model.text_embedding(input_text_ids)) * text_embedding_mask
+                 input_codec_embedding = model.talker.model.codec_embedding(input_codec_ids) * codec_embedding_mask
+                 input_codec_embedding[:, 6, :] = speaker_embedding
+ 
+@@ -100,17 +102,29 @@
+                 outputs = model.talker(
+                     inputs_embeds=input_embeddings[:, :-1, :],
+                     attention_mask=attention_mask[:, :-1],
+-                    labels=codec_0_labels[:, 1:],
+                     output_hidden_states=True
+                 )
++                # The talker's own loss (HF ForCausalLMLoss) shifts labels
++                # again; the inputs are already cut to [:-1], so compute the
++                # aligned loss here instead of training two frames ahead.
++                logits = outputs.logits.float()
++                codec_0_loss = torch.nn.functional.cross_entropy(
++                    logits.reshape(-1, logits.shape[-1]), codec_0_labels[:, 1:].reshape(-1), ignore_index=-100)
+ 
+                 hidden_states = outputs.hidden_states[0][-1]
+-                talker_hidden_states = hidden_states[codec_mask[:, :-1]]
++                # Inference conditions a frame's code predictor on past_hidden,
++                # the talker state one position earlier (the one whose logits
++                # chose that frame's codebook 0), so pair frame t with t-1.
++                talker_hidden_states = hidden_states[codec_mask[:, 1:]]
+                 talker_codec_ids = codec_ids[codec_mask]
+ 
+-                sub_talker_logits, sub_talker_loss = model.talker.forward_sub_talker_finetune(talker_codec_ids, talker_hidden_states)
++                sub_talker_logits, _ = model.talker.forward_sub_talker_finetune(talker_codec_ids, talker_hidden_states)
++                # Its logits already line up with codebooks 1..15; the built-in
++                # loss would shift them a second time.
++                sub_talker_loss = torch.nn.functional.cross_entropy(
++                    sub_talker_logits.float().reshape(-1, sub_talker_logits.shape[-1]), talker_codec_ids[:, 1:].reshape(-1))
+ 
+-                loss = outputs.loss + 0.3 * sub_talker_loss
++                loss = codec_0_loss + 0.3 * sub_talker_loss
+ 
+                 accelerator.backward(loss)
+ 
