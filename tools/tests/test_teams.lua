@@ -149,6 +149,58 @@ for _, case in ipairs({ { 0.4, 3.2, 9.0, 0 }, { 5.9, 3.2, 4.65, 1234.567 }, { 1.
 end
 eq(Teams.clothRebase(1.5, 3.2, 3.2, 999), 1.5, "cloth: the same rate keeps the offset")
 
+-- Team armour hooks: armed one a tick, each against its Blueprint class
+-- taken from a live actor (the biped watch's Spartans, the local pawn), never
+-- looked up by path (~18 ms on PC 3 even when found); the Spartans already
+-- there come from the watch, not an object walk.
+do
+    -- The classes' real paths: a hook stays in while its class is still that
+    -- class by full name.
+    local PATHS = {
+        BP_SpartansBipedActor_C = "/Game/_Prototypes/SynchronizationTestContent/TestActor/BP_SpartansBipedActor.BP_SpartansBipedActor_C",
+        BP_MeteoritePawn_C = "/Game/Blueprints/BP_MeteoritePawn.BP_MeteoritePawn_C",
+    }
+    local function class(name)
+        return { IsValid = function() return true end,
+            GetFName = function() return { ToString = function() return name end } end,
+            GetFullName = function() return "BlueprintGeneratedClass " .. PATHS[name] end }
+    end
+    local function actor(name, cls)
+        return { IsValid = function() return true end, GetClass = function() return cls end,
+            GetFullName = function() return name end, GetAddress = function() return #name end,
+            GetWorld = function() return { GetAddress = function() return 7 end } end }
+    end
+    local spartanClass = class("BP_SpartansBipedActor_C")
+    local spartan = actor("BP_SpartansBipedActor_C_1", spartanClass)
+    local pawn = actor("BP_MeteoritePawn_C_1", class("BP_MeteoritePawn_C"))
+    local registered, lookups, walks = {}, 0, 0
+    local saved = { RegisterHook = RegisterHook, FindAllOf = FindAllOf, Log = Log }
+    RegisterHook = function(path) registered[#registered + 1] = path end
+    FindAllOf = function() walks = walks + 1; return {} end
+    Log = function() end
+    Teams.Bipeds = { of = function(name) return name == "BP_SpartansBipedActor_C" and { [1] = spartan } or {} end }
+    Teams.init({
+        Current = { furnished = true, level = { multiplayer = true } },
+        variant = function() return "team_slayer" end,
+        getPawn = function() return pawn end,
+        getWorld = function() return { GetAddress = function() return 7 end } end,
+        mayArm = function() return true end,
+        findObject = function() lookups = lookups + 1 end,
+        Log = function() end,
+    })
+    Teams.reset()
+    for tick = 1, 4 do
+        Teams.armorTick()
+        eq(#registered, tick, "armour: one hook a tick (" .. tick .. ")")
+    end
+    Teams.armorTick()
+    eq(#registered, 4, "armour: every hook in, none twice")
+    eq(lookups, 0, "armour: no function looked up by path")
+    eq(walks, 0, "armour: no object walk for the Spartans already there")
+    Teams.Bipeds = nil
+    RegisterHook, FindAllOf, Log = saved.RegisterHook, saved.FindAllOf, saved.Log
+end
+
 print("Teams: flag teams from model variants, player teams, the first-person flag's enemy, the pin "
     .. "rule, the Paks folder, the blue flag's container in the hub state, the flag cloth's pace and "
     .. "its GPU ripple's phase")

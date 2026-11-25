@@ -47,4 +47,13 @@ files.decode("ZAN/level.json", "{zan}", false)
 files.decode("ZAN/level.json", "{zan}", true)
 assert(decodes == base + 1, "one decode for the map")
 
+-- A join under way: the load takes the table first, and the switch after
+-- shares it while the text is unchanged, with no second decode.
+local before = decodes
+local _, loaded = files.decode("PWR/level.json", "{pwr}", true)
+assert(files.shared("PWR/level.json", "{pwr}") == loaded, "the switch shares the load's table")
+assert(decodes == before + 1, "one decode for the join")
+assert(files.shared("PWR/level.json", "{changed}") == nil, "not for other text")
+assert(files.shared("BGL/level.json", "{pwr}") == nil, "not for another map")
+
 print("test_level_files: ok")

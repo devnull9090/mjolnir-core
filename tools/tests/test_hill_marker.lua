@@ -267,6 +267,29 @@ eq(Hill.holder(hill, { { at = at(0) }, { at = at(100), me = true } }), "you", "C
 eq(Hill.holder(hill, { { at = at(0) }, { at = at(100) } }), "other", "CE: without you")
 Hill.CONTESTED_HILL_SCORES = false
 
+-- A wall's first draw spreads over ticks (Hill.DRAW_BUDGET_S): with no time
+-- to spare, each tick traces or places one panel, and the wall still
+-- finishes, and counts as drawn only then.
+do
+    local budget = Hill.DRAW_BUDGET_S
+    Hill.DRAW_BUDGET_S = 0
+    local fresh = scene({ [FIELD] = true, [BEACON] = true, [PLANE] = true, [CYLINDER] = true })
+    local mk = fresh.marker
+    local ticks, most, last = 0, 0, 0
+    repeat
+        ticks = ticks + 1
+        mk.tick(ticks * 0.1, fresh.pc, false, contested)
+        local spawned = #fresh.actors - last
+        if spawned > most then most = spawned end
+        last = #fresh.actors
+    until mk.drawn ~= nil or ticks > 500
+    assert(mk.drawn ~= nil, "the wall finishes")
+    assert(ticks > #mk.parts, "drawn over several ticks (" .. ticks .. " for " .. #mk.parts .. " panels)")
+    assert(most <= 3, "at most one panel a tick, with the beacon and anchor at the end (" .. most .. ")")
+    eq(#fresh.actors, #mk.parts + 2, "every panel, the beacon and the anchor")
+    Hill.DRAW_BUDGET_S = budget
+end
+
 -- Race: the flag lines.
 local Race = dofile("mods/MJOLNIRHud/Scripts/race.lua")
 eq(Race.flagLine(2, 9, false, false, 42, "AHEAD", "", true), "FLAG 3 OF 9", "a marker takes the way out of the line")

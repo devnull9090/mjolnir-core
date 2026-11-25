@@ -6,7 +6,11 @@ local MODES = { slayer = "Slayer", team_slayer = "Team Slayer", ctf = "Capture t
     oddball = "Oddball", team_oddball = "Team Oddball", juggernaut = "Juggernaut",
     stalker = "Stalker", reverse_tag = "Reverse Tag",
     race = "Race", team_race = "Team Race", rally = "Rally", team_rally = "Team Rally", forge = "Forge" }
-local context, nativeDir, hudFile, session, Json, log, nativeUpdate
+local context, nativeDir, hudFile, session, Json, log, nativeUpdate, nativeSet
+-- Optional image keys (native\discord_assets.json, absent by default), read
+-- again every ASSETS_SECONDS instead of each second.
+local ASSETS_SECONDS = 30
+local assets, assetsAt = nil, nil
 
 function Presence.registerModes(descriptors)
     for id, descriptor in pairs(descriptors or {}) do MODES[id] = descriptor.title or descriptor.name end
@@ -121,14 +125,39 @@ function Presence.context(fn) context = fn end
 --- or the file an older HUD writes. Opening the file each second, right after
 --- the HUD rewrote it, waited ~5 ms on Windows Defender's scan.
 local HUD_SHARED_KEY = "MJOLNIR.discord_match"
-local function getShared(modRef) return modRef:GetSharedVariable(HUD_SHARED_KEY) end
+--- This launch's session marker, for MJOLNIRHud (Scripts/presence_snapshot.lua).
+Presence.SESSION_KEY = "MJOLNIR.discord_session"
+local function getShared(modRef, key) return modRef:GetSharedVariable(key) end
 local function hudSnapshot()
     local modRef = rawget(_G, "ModRef")
     if modRef then
-        local ok, shared = pcall(getShared, modRef)
+        local ok, shared = pcall(getShared, modRef, HUD_SHARED_KEY)
         if ok and type(shared) == "string" and shared ~= "" then return shared end
     end
     return read(hudFile, 2048)
+end
+
+--- Hands the activity to the lobby DLL: as an argument (mjolnir_discord_set),
+--- or through discord_activity.json for a DLL without that export. Opening
+--- the file in the DLL a moment after writing it waited ~5 ms each second on
+--- Windows Defender's scan.
+local function hand(raw)
+    local dll = nativeDir .. "mjolnir_lobby.dll"
+    if nativeSet == nil then
+        nativeSet = package and package.loadlib and package.loadlib(dll, "mjolnir_discord_set") or false
+    end
+    if nativeSet then
+        local ok, kept = pcall(nativeSet, raw)
+        if ok and kept then return end
+    end
+    local out = io.open(nativeDir .. "discord_activity.json", "wb")
+    if not out then return end
+    local written, closed = out:write(raw), out:close()
+    if not written or not closed then return end
+    if not nativeUpdate then
+        nativeUpdate = package and package.loadlib and package.loadlib(dll, "mjolnir_discord_update")
+    end
+    if nativeUpdate then nativeUpdate() end
 end
 
 function Presence.init(deps)
@@ -141,14 +170,21 @@ function Presence.init(deps)
     session = tostring(os.time()) .. "-" .. tostring({}):gsub("[^%w]", "")
     local f = io.open(nativeDir .. "discord_session.txt", "wb")
     if f then f:write(session); f:close() end
+    local modRef = rawget(_G, "ModRef")
+    if modRef then pcall(modRef.SetSharedVariable, modRef, Presence.SESSION_KEY, session) end
     local function publish()
         local info, public
         if context then info, public = context() end
         local hud = Presence.snapshot(hudSnapshot(), session, os.time())
         local activity = Presence.activity(info, hud, public)
         -- Optional configured image keys or external images; absent by default.
-        local ok, assets = pcall(Json.decode, read(nativeDir .. "discord_assets.json", 2048) or "")
-        if ok and type(assets) == "table" then
+        local at = os.clock()
+        if not assetsAt or at - assetsAt >= ASSETS_SECONDS then
+            assetsAt = at
+            local ok, decoded = pcall(Json.decode, read(nativeDir .. "discord_assets.json", 2048) or "")
+            assets = ok and type(decoded) == "table" and decoded or nil
+        end
+        if assets then
             local key = hud and hud.code:lower() or "default"
             local image = assets[key] or assets.default
             if type(image) == "string" and #image > 0 and #image <= 256 then
@@ -157,14 +193,7 @@ function Presence.init(deps)
         end
         local raw = Presence.encode(activity)
         if #raw > 4095 then raw = "null" end
-        local out = io.open(nativeDir .. "discord_activity.json", "wb")
-        if not out then return end
-        local written, closed = out:write(raw), out:close()
-        if not written or not closed then return end
-        if not nativeUpdate then
-            nativeUpdate = package and package.loadlib and package.loadlib(nativeDir .. "mjolnir_lobby.dll", "mjolnir_discord_update")
-        end
-        if nativeUpdate then nativeUpdate() end
+        hand(raw)
     end
     local function loop()
         local started = os.clock()

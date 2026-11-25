@@ -100,6 +100,9 @@ jobs:
       - name: Test Discord presence and public-session joins
         run: lua5.4 tools/tests/test_discord_presence.lua
 
+      - name: Test the lobby DLL channels in memory (hub calls, connection, held world)
+        run: lua5.4 tools/tests/test_games_memory.lua
+
       - name: Test kill floors
         run: lua5.4 tools/tests/test_kill_floor.lua
 

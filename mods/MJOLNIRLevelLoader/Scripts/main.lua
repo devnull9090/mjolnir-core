@@ -7078,7 +7078,10 @@ local function multiplayerLevel(code)
     local path = code and levelPathFor(code)
     local raw = path and readFile(path)
     if not raw then return nil end
-    -- Kept for the load that follows (LevelFiles), which reads it again.
+    -- The load's own table when it came first (a join under way), which the
+    -- switch only reads; else decoded and kept for the load that follows.
+    local shared = LevelFiles.shared(path, raw)
+    if shared then return shared.multiplayer == true and shared or nil end
     local ok, level = LevelFiles.decode(path, raw, false)
     if ok and type(level) == "table" and level.multiplayer == true then return level end
     return nil
@@ -7106,6 +7109,11 @@ local function loadMegaloSwitch()
     -- the native half installs it where the simulation's loader reads it at
     -- the next round reset (docs/ce_map_conversion.md).
     local variant = package.loadlib(dll, "mjolnir_megalo_variant")
+    -- The variant as hex: a string read through the DLL's Lua channel ends at
+    -- its first zero byte, and a variant has many (mjolnir_megalo_variant_hex).
+    local VariantHex = package.loadlib(dll, "mjolnir_megalo_variant_hex")
+    local HEX = {}
+    for i = 0, 255 do HEX[string.char(i)] = string.format("%02x", i) end
     -- A FORGE game (MJOLNIRLobby) runs the sandbox engine instead, whose
     -- default variant the load builds itself (docs/re/forge_engine.md).
     local forgeOn = package.loadlib(dll, "mjolnir_forge_on")
@@ -7269,11 +7277,23 @@ local function loadMegaloSwitch()
                         .. "); the map's hidden spawn points and vehicles stay hidden")
                 end
             end
+            -- native\variant.mglo is still written: MJOLNIRHud reads the score
+            -- to win and the time limit from it (modeFor). The DLL gets the
+            -- variant as an argument (mjolnir_megalo_variant_hex) instead of
+            -- reading the file straight back; one without that export reads
+            -- the file.
             local staged = bytes and io.open(MOD_DIR .. "\\native\\variant.mglo", "wb")
             if staged then
                 staged:write(bytes)
                 staged:close()
-                variant()
+            end
+            local handed = false
+            if bytes and VariantHex then
+                local okB, kept = pcall(VariantHex, (bytes:gsub(".", HEX)))
+                handed = okB and kept ~= nil
+            end
+            if staged and not handed then variant() end
+            if handed or staged then
                 Log("multiplayer switch: variant " .. name .. " (see native\\map_registry.log)")
                 -- CTF makes each team's flag of its own type, and the blue
                 -- one ships in the CE runtime pack: without it the
@@ -7331,19 +7351,34 @@ local function loadMegaloSwitch()
     -- A player who joins a match under way gets no travel from the host:
     -- MJOLNIRLobby's native half replays the client side of one, which does
     -- not pass through ClientTravelInternal. MJOLNIRLobby leaves the URL in
-    -- join_switch.txt (a console command needs a player controller that a
-    -- held world does not have yet), or it is typed here.
+    -- the shared variable MJOLNIR.join_switch (games.lua; a console command
+    -- needs a player controller that a held world does not have yet), or
+    -- join_switch.txt without shared variables, or it is typed here.
     RegisterConsoleCommandHandler("mjolnir_level_join", function(full)
         local target = tostring(full or ""):match("^%S+%s+(%S+)")
         if target then switchForUrl(target, "join in progress") end
         return true
     end)
+    local joinKey = "MJOLNIR.join_switch"
+    local modRef = rawget(_G, "ModRef")
+    local function takeShared()
+        local value = modRef:GetSharedVariable(joinKey)
+        if type(value) ~= "string" or value == "" then return nil end
+        modRef:SetSharedVariable(joinKey, "")
+        return value
+    end
     every(500, "join switch", function()
-        local path = MOD_DIR .. "\\join_switch.txt"
-        local target = readFile(path)
-        if not target then return end
-        os.remove(path)
-        target = target:match("^%s*(%S+)")
+        local target
+        local shared, value = false, nil
+        if modRef then shared, value = pcall(takeShared) end
+        if shared then
+            target = value
+        else
+            local path = MOD_DIR .. "\\join_switch.txt"
+            target = readFile(path)
+            if target then os.remove(path) end
+        end
+        target = target and target:match("^%s*(%S+)")
         if target then switchForUrl(target, "join in progress") end
     end)
     Log(hooked and "multiplayer switch: armed (levels with \"multiplayer\": true)"
@@ -7354,6 +7389,12 @@ end
 local function initialize()
     -- Kill floors (#234) and Halo 2's lifts (#235), kept on Teams: main.lua
     -- is at Lua's 200 locals. Both run Blam script through sim_script.lua.
+    -- MJOLNIRHud's biped watch (Scripts/bipeds.lua): one NotifyOnNewObject on
+    -- the native ancestor, armed here before any map, so team colours know
+    -- each Spartan as it is made instead of walking every object for them.
+    -- Without MJOLNIRHud, Teams falls back to a scan.
+    local okB, bipedWatch = pcall(dofile, MOD_DIR .. "\\..\\MJOLNIRHud\\Scripts\\bipeds.lua")
+    if okB and type(bipedWatch) == "table" and bipedWatch.arm(Log) then Teams.Bipeds = bipedWatch end
     Teams.Script = dofile(MOD_DIR .. "\\Scripts\\sim_script.lua")
     Teams.Script.init(MOD_DIR)
     Teams.KillFloor = dofile(MOD_DIR .. "\\Scripts\\kill_floor.lua")

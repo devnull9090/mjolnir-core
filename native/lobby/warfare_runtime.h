@@ -1296,9 +1296,8 @@ static int warfare_keep_playing(void) {
 __declspec(dllexport) int mjolnir_warfare_open(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH], header[64], map[64], revision[64], protocol[64], expected_revision[64], expected_protocol[64];
-    snprintf(path, sizeof path, "%swarfare_config.txt", dir);
-    FILE *file = fopen(path, "r");
+    char header[64], map[64], revision[64], protocol[64], expected_revision[64], expected_protocol[64];
+    FILE *file = open_request("warfare_config.txt");
     int valid = file && fgets(header, sizeof header, file) && fgets(map, sizeof map, file)
         && fgets(revision, sizeof revision, file) && fgets(protocol, sizeof protocol, file);
     if (file) fclose(file);

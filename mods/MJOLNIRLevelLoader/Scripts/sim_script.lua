@@ -2,9 +2,10 @@
 --
 -- MJOLNIRLobby's DLL, which every player has, runs them on the simulation
 -- thread while a game is running (native\script.txt, then
--- mjolnir_sim_script). One counter for every caller (kill_floor.lua): the
--- DLL skips a file whose id it has already run. Script.request hands the DLL
--- any other request file the same way (lifts.lua's phantoms).
+-- mjolnir_sim_script; in memory with mjolnir_request_put). One counter for
+-- every caller (kill_floor.lua): the DLL skips a request whose id it has
+-- already run. Script.request hands the DLL any other request file the same
+-- way (lifts.lua's phantoms).
 
 local Script = {}
 
@@ -29,15 +30,32 @@ local function export(name)
     return exports[name]
 end
 
---- Write `text` to the DLL's native\`file` and call its `name` export to
---- read it. False when MJOLNIRLobby's DLL, or that export, is not there.
-function Script.request(file, name, text)
-    local run = export(name)
-    if not run then return false end
+--- Hands `text` to the DLL as its request file `file`: in memory
+--- (mjolnir_request_put), or written to native\`file` by a DLL without that
+--- export. On a PC with Windows Defender's real-time scan, the DLL opening a
+--- file a moment after Lua wrote it waited ~5 ms, at every kill floor and
+--- lift. `keep` serves every read until the next hand. True once it is
+--- there either way.
+function Script.hand(file, text, keep)
+    local put = export("mjolnir_request_put")
+    if put then
+        local ok, held = pcall(put, file, text, nil, keep and true or false)
+        if ok and held == true then return true end
+    end
+    if not dir then return false end
     local f = io.open(dir .. file, "wb")
     if not f then return false end
     f:write(text)
     f:close()
+    return true
+end
+
+--- Hand `text` to the DLL as `file` and call its `name` export to read it.
+--- False when MJOLNIRLobby's DLL, or that export, is not there.
+function Script.request(file, name, text)
+    local run = export(name)
+    if not run then return false end
+    if not Script.hand(file, text) then return false end
     pcall(run)
     return true
 end
@@ -49,10 +67,7 @@ function Script.send(lines)
     if not run then return false end
     if type(lines) == "string" then lines = { lines } end
     id = id + 1
-    local f = io.open(dir .. "script.txt", "wb")
-    if not f then return false end
-    f:write(tostring(id), "\n", table.concat(lines, "\n"), "\n")
-    f:close()
+    if not Script.hand("script.txt", tostring(id) .. "\n" .. table.concat(lines, "\n") .. "\n") then return false end
     pcall(run)
     return true
 end
