@@ -338,6 +338,12 @@ local function refreshState()
 end
 
 local served = 0
+-- The id of the request.txt request last taken. A pipe request never moves
+-- it: request.txt keeps the last file request after it is answered, and
+-- comparing it with `served` replayed that old request after every pipe
+-- call (a stale "mjolnir_auto public on" relisted a private game,
+-- 2026-11-25).
+local fileServed = 0
 local pending = nil
 local polls = 0
 
@@ -432,7 +438,7 @@ end
 local function adoptExistingRequest()
     local headers = parseMessage(readFile(REQUEST))
     local id = headers and tonumber(headers.id or "")
-    if id then served = id end
+    if id then served, fileServed = id, id end
 end
 
 local function start()
@@ -448,7 +454,8 @@ local function start()
             local headers, body = parseMessage(readFile(REQUEST))
             if headers then
                 local id = tonumber(headers.id or "")
-                if id and id ~= served then
+                if id and id ~= fileServed then
+                    fileServed = id
                     pending = id
                     local op = headers.op or "ping"
                     ExecuteInGameThread(function() serveSafely(id, op, body, fileResponder) end)
