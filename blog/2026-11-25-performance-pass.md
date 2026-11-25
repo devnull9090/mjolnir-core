@@ -53,7 +53,7 @@ Frame times on the test PC (lower is better; the median is the typical frame, p9
 | Hitches during play | 3 | 15 | 3 | 3 |
 | Worst frame during play | 87 ms | 70 ms | 84 ms | 38 ms |
 
-The median is 20–22 ms in all four runs: on this PC the graphics card sets the typical frame. The difference is in the slow frames. Before, p95 and p99 sat 6 to 12 ms above the median, and that gap is the file reads landing on top of a normal frame. After, the slowest 1% of frames sit 4 to 5 ms above the median. In the full match, the 15 hitches during play dropped to 3, all of them 31–38 ms frames at the Pelican launch. In both joined matches the worst one is the same: the team armour colours being applied as you join (see below). Most of the slow frames a match still has, about 16, come in its last second, at the round end.
+The median is 20–22 ms in all four runs: on this PC the graphics card sets the typical frame. The difference is in the slow frames. Before, p95 and p99 sat 6 to 12 ms above the median, and that gap is the file reads landing on top of a normal frame. After, the slowest 1% of frames sit 4 to 5 ms above the median. In the full match, the 15 hitches during play dropped to 3, all of them 31–38 ms frames at the Pelican launch. In both joined matches the worst one is the same: the team armour colours being applied as you join. That one is fixed too, after these runs (below). Most of the slow frames a match still has, about 16, come in its last second, at the round end.
 
 ## What we changed
 
@@ -71,6 +71,8 @@ The median is 20–22 ms in all four runs: on this PC the graphics card sets the
 | Post-game vote screen: a check for hidden menus | 60–72 ms frame every 1.5 s | gone |
 | A kill-feed line after a player's avatar was unloaded | 26 ms | under 8 ms |
 | The Pelican launch: three zone walls built at once | one 48–52 ms frame | 31 and 36 ms frames |
+| Team armour colours at a match start | one 104–107 ms frame | 23 ms at most |
+| Team armour colours when you join a match | one 55–63 ms frame | 8 ms at most |
 
 **Nearly every other handoff between our mods and native code** now goes through memory: joining, the lobby, the hub, map installs, kill floors, Halo 2's lifts and bots. Costs per use on the test PC:
 
@@ -90,7 +92,7 @@ Being honest about what we didn't fix:
 
 - **The end of every match.** There's about a second of slow frames (70–90 ms), then one long one (~285 ms) as the round ends and the world unloads. Our scripts are idle then, on both PCs; it's the game's own round end.
 - **Lua garbage collection.** Our scripts' memory cleanup takes a 20–25 ms frame about three times a match.
-- **Joining.** A few one-off costs of 60–100 ms land while the join's loading screen is up: switching to the map, team armour colours and the HUD's first widgets. They're next on the list.
+- **Joining.** A few one-off costs of 60–100 ms land while the join's loading screen is up: switching to the map and the HUD's first widgets. They're next on the list.
 
 ## Why it matters
 
