@@ -521,12 +521,19 @@ function Warfare.new(deps)
                 if text and watched then text = text .. "  /  WATCHING " .. string.upper(who or "A TEAMMATE") end
                 if text then line.say(text .. "   /   M: MAP") else line.hideLine() end
             end
+            -- A zone's first draw spawns its wall and traces the ground under
+            -- each panel; all three at once held the launch tick ~25 ms (GTX
+            -- 1080 Ti test PC, 2026-11-25). One new zone a tick spreads it.
+            local placed = false
             for i, field in ipairs(self.fields) do
                 local spot = self.spot(i)
                 -- From insertion on: the zones may have moved, so riders see where to steer.
                 if s and (s.phase == 1 or s.phase == 2) and spot and not match.over then
                     local owner = s.owner[i]
-                    field.draw(world, now, i, spot)
+                    if field.drawn == i or not placed then
+                        if field.drawn ~= i then placed = true end
+                        field.draw(world, now, i, spot)
+                    end
                     field.paint(COLOUR[owner], now)
                     field.mark(pc, deps.Hill.markerSpot(spot), COLOUR[owner], "Koth",
                         string.char(64 + i) .. "  /  " .. OWNER[owner], now)
