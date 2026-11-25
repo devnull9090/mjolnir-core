@@ -1,7 +1,7 @@
 # Chasing milliseconds: what a slower PC taught us about performance
 
 **Author:** MJOLNIR Core
-**Summary:** We tested MJOLNIR on an older PC with Windows Defender on and found our mods spending up to 57 ms of every second on the game thread. After this pass it's under 4 ms, and the stutters during play are mostly gone. Here's how we measured it.
+**Summary:** We tested MJOLNIR on an older PC with Windows Defender on and found our mods spending up to 57 ms of every second on the game thread. After this pass it's 3 to 6 ms, and far fewer frames stutter. Here's how we measured it.
 **Tags:** multiplayer, performance
 
 Most of MJOLNIR's development happens on a fast PC: a Ryzen 9 7950X3D with an RTX 5090. Any game runs well on it, which is exactly the problem: it hides slow code. So this week we did the opposite and ran a full performance pass on our slowest test PC.
@@ -37,22 +37,23 @@ Time our scripts held the game thread, per second of play (lower is better):
 
 | Script loop | Before | After |
 |---|---|---|
-| HUD | 21–49 ms | 1.0–2.2 ms |
+| HUD | 21–49 ms | 2.6–4.5 ms |
 | Lobby Discord presence | 7.5 ms | 0.1 ms |
-| Everything else together | 1–2 ms | 0.5–1.4 ms |
-| **Total** | **31–57 ms** | **1.6–3.7 ms** |
+| Everything else together | 1–2 ms | 0.6–1.6 ms |
+| **Total** | **31–57 ms** | **3.2–6.2 ms** |
 
 Frame times on the test PC (lower is better; the median is the typical frame, p95 and p99 the slowest 5% and 1%):
 
 | | Before: join under way | Before: full match | After: join under way | After: full match |
 |---|---|---|---|---|
-| Length | 4 min 19 s | 6 min 49 s | 6 min 22 s | 6 min 50 s |
-| Median frame | 22 ms | 20 ms | 22 ms | 22 ms |
+| Length | 4 min 19 s | 6 min 49 s | 6 min 10 s | 6 min 49 s |
+| Median frame | 22 ms | 20 ms | 22 ms | 21 ms |
 | p95 frame | 28 ms | 31 ms | 25 ms | 25 ms |
 | p99 frame | 31 ms | 32 ms | 26 ms | 26 ms |
-| Hitches during play | 3 | 15 | 1 | **0** |
+| Hitches during play | 3 | 15 | 3 | 3 |
+| Worst frame during play | 87 ms | 70 ms | 84 ms | 38 ms |
 
-The median is 20–22 ms in all four runs: on this PC the graphics card sets the typical frame. The difference is in the slow frames. Before, p95 and p99 sat 6 to 12 ms above the median, and that gap is the file reads landing on top of a normal frame. After, the slowest 1% of frames sit 4 ms above the median, and the full match had no hitches during play at all. The ~18 slow frames each match still has all come in the last second, at the round end (see below).
+The median is 20–22 ms in all four runs: on this PC the graphics card sets the typical frame. The difference is in the slow frames. Before, p95 and p99 sat 6 to 12 ms above the median, and that gap is the file reads landing on top of a normal frame. After, the slowest 1% of frames sit 4 to 5 ms above the median. In the full match, the 15 hitches during play dropped to 3, all of them 31–38 ms frames at the Pelican launch. In both joined matches the worst one is the same: the team armour colours being applied as you join (see below). Most of the slow frames a match still has, about 16, come in its last second, at the round end.
 
 ## What we changed
 
@@ -71,7 +72,7 @@ The median is 20–22 ms in all four runs: on this PC the graphics card sets the
 | A kill-feed line after a player's avatar was unloaded | 26 ms | under 8 ms |
 | The Pelican launch: three zone walls built at once | one 48–52 ms frame | 31 and 36 ms frames |
 
-**Every other handoff between our mods and native code** now goes through memory: joining, the lobby, the hub, map installs, kill floors, Halo 2's lifts and bots. Costs per use on the test PC:
+**Nearly every other handoff between our mods and native code** now goes through memory: joining, the lobby, the hub, map installs, kill floors, Halo 2's lifts and bots. Costs per use on the test PC:
 
 | Handoff | Before | After |
 |---|---|---|
