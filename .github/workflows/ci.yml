@@ -88,6 +88,9 @@ jobs:
       - name: Test the widget watch (no object walk for a hidden or absent menu)
         run: lua5.4 tools/tests/test_ui_widget_watch.lua
 
+      - name: Test hub avatars (a collected texture is imported again, not looked up)
+        run: lua5.4 tools/tests/test_hubnames_avatar.lua
+
       - name: Test the game type picker
         run: lua5.4 tools/tests/test_gametype_picker.lua
 

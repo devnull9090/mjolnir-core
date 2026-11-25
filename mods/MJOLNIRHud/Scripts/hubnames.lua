@@ -15,7 +15,7 @@ local RELOAD_SECONDS = 2
 local file, coversDir
 local known = {}         -- [in-game name] = { id, name, reports }
 local nextLoad = 0
-local textures = {}      -- account id -> texture object name
+local renderingLibrary = nil
 local handles = {}       -- account id -> the texture, while it is valid
 local sizes = {}         -- account id -> "<w>x<h>" of the imported texture
 
@@ -65,30 +65,25 @@ local function stillAvatar(id, tex)
 end
 
 --- Account `id`'s avatar as a texture, once MJOLNIRLobby has cached it.
---- The texture is kept and checked with IsValid before each use (a
---- transient texture no brush holds is collected), then found by name: by
---- path alone, StaticFindObject costs ~2 ms in UE4SS, per avatar, per
---- scoreboard redraw and kill line.
+--- The texture is kept and checked before each use. A transient texture no
+--- brush holds is collected, and then it is imported again (0.1 ms). It was
+--- looked for by name first, but a collected texture is gone, so that
+--- StaticFindObject only ever missed, at ~22 ms on a map: a hitch on every
+--- kill line once the last line showing the avatar had gone (2026-11-25).
 function HubNames.avatar(id, world)
     if not id then return nil end
     if handles[id] and stillAvatar(id, handles[id]) then return handles[id] end
-    if textures[id] then
-        local ok, tex = pcall(StaticFindObject, textures[id])
-        if ok and stillAvatar(id, tex) then
-            handles[id] = tex
-            return tex
-        end
-    end
     local path = coversDir .. "av_" .. id .. ".png"
     local f = io.open(path, "rb")
     if not f then return nil end
     f:close()
-    local krl = StaticFindObject("/Script/Engine.Default__KismetRenderingLibrary")
+    if not valid(renderingLibrary) then
+        renderingLibrary = StaticFindObject("/Script/Engine.Default__KismetRenderingLibrary")
+    end
+    local krl = renderingLibrary
     if not (valid(krl) and world) then return nil end
     local ok, tex = pcall(function() return krl:ImportFileAsTexture2D(world, path) end)
     if not (ok and valid(tex)) then return nil end
-    local okName, full = pcall(function() return tex:GetFullName() end)
-    textures[id] = okName and full and full:match("^%S+%s+(.+)$") or nil
     handles[id], sizes[id] = tex, sizeOf(tex)
     return tex
 end
