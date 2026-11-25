@@ -137,26 +137,49 @@ end
 --- Call the hub API: done(status, decoded body or nil). Status 0 means the
 --- hub could not be reached, or did not answer in time. `body` is a flat
 --- table, or JSON text sent as it is.
+---
+--- The request goes to the DLL as an argument (mjolnir_hub_send) and the
+--- reply comes back from its mailbox (mjolnir_reply_take); a DLL without
+--- them gets hub_request.txt and answers in hub_reply_<id>.txt. On a PC with
+--- Windows Defender's real-time scan each of those files waited ~5 ms when
+--- opened a moment after it was written.
 local function hub(method, path, body, done)
     sequence = sequence + 1
     local id = string.format("g%d%d", os.time() % 100000, sequence)
-    local f = io.open(nativeDir .. "hub_request.txt", "wb")
-    if not f then
-        done(0, nil)
-        return
+    local request = id .. " " .. method .. " " .. path .. "\n"
+        .. (type(body) == "string" and body or (body and encode(body)) or "")
+    local send, take = export("mjolnir_hub_send"), export("mjolnir_reply_take")
+    local inMemory = false
+    if send and take then
+        local ok, sent = pcall(send, request)
+        inMemory = ok and sent == true
     end
-    f:write(id, " ", method, " ", path, "\n", type(body) == "string" and body or (body and encode(body)) or "")
-    f:close()
-    if not native("mjolnir_hub_call") then
-        done(0, nil)
-        return
+    if not inMemory then
+        local f = io.open(nativeDir .. "hub_request.txt", "wb")
+        if not f then
+            done(0, nil)
+            return
+        end
+        f:write(request)
+        f:close()
+        if not native("mjolnir_hub_call") then
+            done(0, nil)
+            return
+        end
     end
-    local reply = nativeDir .. "hub_reply_" .. id .. ".txt"
+    local name = "hub_reply_" .. id .. ".txt"
+    local reply = nativeDir .. name
     local deadline = os.time() + REPLY_TIMEOUT
     local function poll()
-        local text = readFile(reply)
+        local text
+        if inMemory then
+            local ok, known, got = pcall(take, name)
+            text = ok and known and got or nil
+        else
+            text = readFile(reply)
+            if text then os.remove(reply) end
+        end
         if text then
-            os.remove(reply)
             local status, rest = text:match("^(%d+)\n(.*)$")
             local ok, data = pcall(Json.decode, rest or "")
             done(tonumber(status) or 0, ok and denull(data) or nil)
@@ -317,15 +340,25 @@ local function audioBindTick()
     if os.clock() - audioSeen.at < AUDIO_BIND_WAIT then return end
     local okS, subsystem = pcall(FindFirstOf, "HaloAudioInterfaceSubSystem")
     if not okS or not subsystem or not subsystem:IsValid() then return end
-    local f = io.open(nativeDir .. "audio_bind.txt", "wb")
-    if not f then return end
-    f:write(string.format("world %x\nsubsystem %x\n", world:GetAddress(), subsystem:GetAddress()))
-    f:close()
-    if not native("mjolnir_audio_bind") then return end
-    local r = io.open(nativeDir .. "audio_bind_reply.txt", "rb")
-    if not r then return end
-    local reply = r:read("a") or ""
-    r:close()
+    -- The addresses as arguments and the reply returned (mjolnir_audio_bind_to);
+    -- audio_bind.txt and its reply file from a DLL without that export.
+    local reply
+    local bindTo = export("mjolnir_audio_bind_to")
+    if bindTo then
+        local ok, text = pcall(bindTo, world:GetAddress(), subsystem:GetAddress())
+        if ok and type(text) == "string" then reply = text end
+    end
+    if not reply then
+        local f = io.open(nativeDir .. "audio_bind.txt", "wb")
+        if not f then return end
+        f:write(string.format("world %x\nsubsystem %x\n", world:GetAddress(), subsystem:GetAddress()))
+        f:close()
+        if not native("mjolnir_audio_bind") then return end
+        local r = io.open(nativeDir .. "audio_bind_reply.txt", "rb")
+        if not r then return end
+        reply = r:read("a") or ""
+        r:close()
+    end
     if reply:find("already bound", 1, true) or reply:find("\nrefused", 1, true) then
         audioBoundWorld = name
     elseif reply:find("\nok ", 1, true) then
@@ -384,10 +417,23 @@ local function jipTick()
     native("mjolnir_jip_tick")
 end
 
+--- What mjolnir_lobby_connection reports: "ok <string>\nlock <0|1>\nmax <n>\n"
+--- or "none <why>\n"; nil without the native half. Returned by
+--- mjolnir_lobby_connection_get, or through lobby_connection.txt.
+function Games.connectionText()
+    local get = export("mjolnir_lobby_connection_get")
+    if get then
+        local ok, text = pcall(get)
+        if ok and type(text) == "string" then return text end
+    end
+    if not native("mjolnir_lobby_connection") then return nil end
+    return readFile(nativeDir .. "lobby_connection.txt") or ""
+end
+
 --- The current PlayFab lobby's connection string, or nil and why.
 local function connectionString()
-    if not native("mjolnir_lobby_connection") then return nil, "the native half is not loaded" end
-    local text = readFile(nativeDir .. "lobby_connection.txt") or ""
+    local text = Games.connectionText()
+    if not text then return nil, "the native half is not loaded" end
     local conn = text:match("^ok (%S+)")
     if conn then return conn end
     return nil, text:match("^none (.-)%s*$") or "no lobby"

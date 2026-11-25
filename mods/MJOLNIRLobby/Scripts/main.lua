@@ -1266,10 +1266,9 @@ end
 
 --- The size PlayFab reports for the lobby, or nil when there is none.
 local function lobbyMax()
-    local native = MOD_DIR .. "\\native\\"
-    local read = package and package.loadlib and package.loadlib(native .. "mjolnir_lobby.dll", "mjolnir_lobby_connection")
-    if not (read and pcall(read)) then return nil end
-    return tonumber((readFile(native .. "lobby_connection.txt") or ""):match("\nmax (%d+)") or "")
+    local text = Games.connectionText()
+    if not text then return nil end
+    return tonumber(text:match("\nmax (%d+)") or "")
 end
 
 -- PlayFab throttles lobby updates: thirty in twenty seconds left the lobby
