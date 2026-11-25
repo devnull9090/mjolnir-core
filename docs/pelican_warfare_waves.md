@@ -140,6 +140,11 @@ on three game copies.
     above, and the line reads "WAITING FOR YOUR PELICAN / IT LEAVES IN
     m:ss / MOVE TO PLAY FROM BASE". Boarding keeps the view until the
     seat.
+  - **Two deciders.** The host and each client decide waiting from their
+    own samples: the host for the shield, the client for its camera. After
+    a laggy respawn they can briefly disagree, so a client may spectate an
+    unshielded body. The host pairs every shield with its own unshield, so
+    nobody stays invulnerable.
   - **Not yet shown.** A joiner waiting (the host shields the joiner's
     body) needs two PCs. There is still no key to cycle teammates.
 

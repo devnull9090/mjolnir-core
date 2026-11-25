@@ -214,6 +214,38 @@ sharedUntil = 20
 turns.queue = { { event = "altitude_yell", priority = 3, expires = 21, at = 19.9 } }
 turns.pump(19.95); eq(spoke[2], "cortana_altitude_yell_a", "the fall does not wait")
 
+-- Only the fall talks over the announcer: the end of the match waits its turn.
+local endSpoke, endFloor = {}, 30
+local ending = Voice.new({
+    lines = { covenant_win = { { "cortana_covenant_win_a", 2.1 } } },
+    load = function(path) return { path = path } end,
+    spawn = function(wave) endSpoke[#endSpoke + 1] = wave.path return {} end,
+    volume = function() return 1 end, random = function() return 1 end,
+    floor = function() return endFloor end, setFloor = function(t) endFloor = t end })
+ending.queue = { { event = "covenant_win", priority = 3, expires = 40, at = 28 } }
+ending.pump(29); eq(#endSpoke, 0, "covenant_win waits for game_over")
+ending.pump(30.1); eq(#endSpoke, 1, "then plays")
+
+-- A full queue and a cut-in: the urgent line plays once and the cut line is kept.
+local fullSpoke = {}
+local full = Voice.new({
+    lines = { zones_open = { { "announcer_zones_open_a", 1.6 } }, altitude_yell = { { "cortana_altitude_yell_a", 1.8 } },
+        first_wave = { { "cortana_first_wave_a", 3.0 } } },
+    load = function(path) return { path = path } end,
+    spawn = function(wave) fullSpoke[#fullSpoke + 1] = wave.path:match("_([%w]+_[%w]+)_a%.") return {} end,
+    stop = function() end, volume = function() return 1 end, random = function() return 1 end })
+full.queue = { { event = "zones_open", priority = 2, expires = 9, at = 0 } }
+full.pump(0)
+for i = 1, 7 do full.queue[#full.queue + 1] = { event = "first_wave", priority = 1, expires = 60, at = 0.01 * i } end
+full.queue[#full.queue + 1] = { event = "altitude_yell", priority = 3, expires = 2, at = 0.2 }
+full.pump(0.2)
+local yells, zones = 0, 0
+for _, e in ipairs(full.queue) do
+    if e.event == "altitude_yell" then yells = yells + 1 end
+    if e.event == "zones_open" then zones = zones + 1 end
+end
+eq(yells, 0, "the yell is not left queued to play twice"); eq(zones, 1, "the cut line is queued again")
+
 -- The launch sequence as it plays: the launch line, the briefing after it,
 -- and the call to jump waiting for the briefing to finish, never cutting it.
 local heard, cut = {}, {}

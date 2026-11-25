@@ -47,6 +47,9 @@ Voice.WAVE_FIRST, Voice.WAVE_INTERVAL, Voice.WAVE_LEAD = 45, 90, 10
 -- The briefing (up to 6 s) follows the launch line, and the call to jump comes
 -- after it: riders are put out about 15 s after boarding on PWR.
 Voice.WARMUP_AT, Voice.BRIEFING_AT, Voice.JUMP_NOW_AT, Voice.QUIET_BEFORE_LANDING = 20, 3, 11, 20
+-- The player's own fall: these never wait for the announcer (the ground will
+-- not); every other line takes its turn, the end of the match included.
+local FALL = { altitude_yell = true, splat = true }
 local LETTER = { "a", "b", "c" }
 local COVENANT = 3
 
@@ -293,21 +296,24 @@ function Voice.new(io)
         if not best then return end
         if playing and now < playing.ends then
             if best.priority <= playing.priority then return end
-            if playing.component and io.stop then pcall(io.stop, playing.component) end
-            -- A line cut in its first second has not been heard: it plays
-            -- again after the urgent one ("Capture the zones!" under the fall's
-            -- yell, PC 1, 2026-11-24).
-            if now - playing.started < 1.0 then
-                -- Its old place in line: it goes before what queued after it.
-                enqueue(playing.event, now)
-                self.queue[#self.queue].at = playing.at
-            end
-        elseif best.priority < 3 and io.floor and now < (io.floor() or 0) then
+        elseif not FALL[best.event] and io.floor and now < (io.floor() or 0) then
             -- The announcer (MJOLNIRLevelLoader announcer.lua) is speaking:
             -- wait, unless it is the player's own fall, which cannot.
             return
         end
+        -- Out of the queue before anything is added to it: a full queue
+        -- drops its oldest entry, which would shift `index`.
         table.remove(self.queue, index)
+        if playing and now < playing.ends then
+            if playing.component and io.stop then pcall(io.stop, playing.component) end
+            -- A line cut in its first second has not been heard: it plays
+            -- again after the urgent one ("Capture the zones!" under the fall's
+            -- yell, PC 1, 2026-11-24), in its old place in line.
+            if now - playing.started < 1.0 then
+                enqueue(playing.event, now)
+                self.queue[#self.queue].at = playing.at
+            end
+        end
         playing = nil
         start(best, now, pc)
     end

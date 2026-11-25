@@ -257,6 +257,12 @@ landing at the first real ground contact:
   tick rate;
 - a pull 0.4 s out still dies;
 - a pull 4 s out lands.
+- a joiner under canopy lands on the host (`test_remote_landing`).
+
+The splat is judged from the body's own last airborne sink, not the host's
+simulation of the descent. The host is told only of a joiner's cabin jump,
+never their parachute pull, so its controller copy stays in freefall; judged
+from that, every joiner died on landing (caught in review before release).
 
 Before 2026-11-24 the chute opened itself near 76 m; the user asked for the
 fall to be the player's responsibility. Bots are AI bipeds, not players, and

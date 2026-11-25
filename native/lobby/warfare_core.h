@@ -61,6 +61,10 @@ typedef struct {
      * WARFARE_WAIT_MAX_SECONDS (waited). */
     int fresh;
     float wait_origin[2], waited;
+    /* fall_sink: the body's own sink (m/s) at the last airborne sample with a
+     * velocity, which is what decides a splat: the host never sees a
+     * joiner's parachute pull, only the body slowing. */
+    float fall_sink;
 } warfare_player;
 typedef struct { unsigned flags; float velocity[3]; } warfare_output;
 /* One Pelican flight a player can ride: the insertion (phase 1) or a team's
@@ -519,7 +523,7 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
     }
     if (p->stage == WF_EXITING) {
         if (s->parent == WARFARE_NONE && s->carrier_clear) {
-            p->stage = WF_FALLING; p->elapsed = 0; p->departure_z = s->position[2];
+            p->stage = WF_FALLING; p->elapsed = 0; p->departure_z = s->position[2]; p->fall_sink = 0;
             o->flags |= WF_WAKE;
             /* Clear of a Pelican still out of sight beyond the play area (a
              * jump while it waits there): home, by the biped's own machine. */
@@ -565,9 +569,13 @@ static void warfare_step(warfare_player *p, const warfare_sample *s, int phase,
      * contact lands anyone: a joiner stayed under canopy on the ground two
      * minutes until the descent timeout sent them home (2026-11-23). */
     int grounded = s->support_world && s->carrier_clear && p->departure_z - s->position[2] > 3.0f;
-    /* The first real contact decides it, from the controller's sink (it is not
-     * applied while supported, so it is the speed the body met the ground at). */
-    if (grounded && -p->air_velocity[2] > WARFARE_SPLAT_SINK) {
+    /* The first real contact decides it, from the speed the body itself was
+     * last seen falling at. Not the controller's sink: on the host a joiner's
+     * descent is never told of their pull (only the cabin jump is relayed),
+     * so its controller stays in freefall while the body hangs under canopy;
+     * deciding from it killed every joiner on landing (review, 2026-11-24). */
+    if (!s->support_world && s->velocity_valid && isfinite(s->velocity[2])) p->fall_sink = fmaxf(0, -s->velocity[2]);
+    if (grounded && p->fall_sink > WARFARE_SPLAT_SINK) {
         warfare_ready_weapon(p, o);
         o->flags |= WF_SPLAT | WF_UNPROTECT; p->protected_fall = 0; p->stage = WF_LANDED; return;
     }

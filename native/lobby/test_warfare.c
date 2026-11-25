@@ -651,9 +651,31 @@ static void test_waiting(void) {
     printf("waiting: shield on a fresh home spawn, off by boarding, walking, vehicle, cap, match end, warmup, client seat\n");
 }
 
+/* The host never sees a joiner's parachute pull (only the cabin jump is
+ * relayed), so its copy of the descent stays in freefall: a splat must be
+ * judged from the body's own sampled sink, or every joiner dies on landing. */
+static void test_remote_landing(void) {
+    warfare_player p; warfare_sample s; warfare_output o;
+    for (int pulled = 0; pulled <= 1; pulled++) {
+        warfare_player_reset(&p); s = sample(90); s.remote = 1; s.local_user = -1;
+        p.unit = s.unit; p.stage = WF_FALLING; p.protected_fall = 1; p.saw_insertion = 1; p.departure_z = 550;
+        s.position[2] = 400;
+        for (int n = 0; n < 180; n++) {
+            s.velocity[2] = pulled ? -16.0f : -54.0f;
+            step(&p, &s, 1, 10, 0, &o);
+            assert(p.stage == WF_FALLING); /* the host's copy never opens */
+        }
+        s.support_world = 1; memset(s.velocity, 0, sizeof s.velocity);
+        step(&p, &s, 1, 13, 0, &o);
+        assert(pulled ? !(o.flags & WF_SPLAT) : (o.flags & WF_SPLAT) != 0);
+    }
+    printf("remote landing: a joiner under canopy lands on the host; one in freefall splats\n");
+}
+
 int main(void) {
     test_paths();
     test_waiting();
+    test_remote_landing();
     test_waves();
     test_remote_rider();
     test_reinforcements();
