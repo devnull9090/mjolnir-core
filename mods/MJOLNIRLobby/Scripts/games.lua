@@ -354,6 +354,45 @@ end
 -- began, 2026-10-25) registers the game's world listener twice. Only a
 -- player who joined in progress is still unbound by then.
 local AUDIO_BIND_WAIT = 10
+
+-- Subsystems from UE's own SubsystemBlueprintLibrary, by their native class:
+-- under 0.01 ms, where FindFirstOf walked every object (~20 ms a call while
+-- a joined world loads; a join's games loop held the game thread 89-99 ms
+-- on PC 3, 2026-11-25). Each class and the library are looked up once.
+local Sub = { lib = nil, classes = {} }
+local function subsystemClass(path)
+    local cls = Sub.classes[path]
+    if cls == nil then
+        local ok, found = pcall(StaticFindObject, path)
+        cls = ok and found or false
+        Sub.classes[path] = cls
+    end
+    return cls or nil
+end
+local function subsystemLibrary()
+    if Sub.lib == nil then
+        local ok, found = pcall(StaticFindObject, "/Script/Engine.Default__SubsystemBlueprintLibrary")
+        Sub.lib = ok and found or false
+    end
+    return Sub.lib or nil
+end
+--- The engine subsystem of native class `path`, or nil.
+local function engineSubsystem(path)
+    local lib, cls = subsystemLibrary(), subsystemClass(path)
+    if not (lib and cls) then return nil end
+    local ok, sub = pcall(function() return lib:GetEngineSubsystem(cls) end)
+    if ok and sub and sub:IsValid() then return sub end
+    return nil
+end
+--- The game instance subsystem of native class `path` for `context` (an
+--- object in a world), or nil.
+local function gameInstanceSubsystem(context, path)
+    local lib, cls = subsystemLibrary(), subsystemClass(path)
+    if not (lib and cls and context) then return nil end
+    local ok, sub = pcall(function() return lib:GetGameInstanceSubsystem(context, cls) end)
+    if ok and sub and sub:IsValid() then return sub end
+    return nil
+end
 local audioBoundWorld
 local audioSeen = { key = nil, at = 0 }
 local function audioBindTick()
@@ -375,8 +414,8 @@ local function audioBindTick()
     if audioBoundWorld == name then return end
     if audioSeen.key ~= name then audioSeen.key, audioSeen.at = name, os.clock() end
     if os.clock() - audioSeen.at < AUDIO_BIND_WAIT then return end
-    local okS, subsystem = pcall(FindFirstOf, "HaloAudioInterfaceSubSystem")
-    if not okS or not subsystem or not subsystem:IsValid() then return end
+    local subsystem = gameInstanceSubsystem(world, "/Script/HaloAudioUnreal.HaloAudioInterfaceSubSystem")
+    if not subsystem then return end
     -- The addresses as arguments and the reply returned (mjolnir_audio_bind_to);
     -- audio_bind.txt and its reply file from a DLL without that export.
     local reply
@@ -404,15 +443,34 @@ local function audioBindTick()
     end
 end
 
+-- The held world, found once a hold (one FindFirstOf, where the hold ran
+-- three each second) and checked before every use: a stored object crashes
+-- the game once freed. The jip_map text last handed over: again only when it
+-- changes.
+local Hold = { world = nil, text = nil }
+local function heldWorld()
+    local w = Hold.world
+    if w then
+        local ok, valid = pcall(function() return w:IsValid() end)
+        if ok and valid then return w end
+        Hold.world = nil
+    end
+    local ok, found = pcall(function() return FindFirstOf("PlayerController"):GetWorld() end)
+    if ok and found and found:IsValid() then
+        Hold.world = found
+        return found
+    end
+    return nil
+end
+
 local function jipTick()
     audioBindTick()
     levelSwitchTick()
     local held = Games.worldHeld()
-    if not held then jipJoinedUrl = nil end
+    if not held then jipJoinedUrl, Hold.world, Hold.text = nil, nil, nil end
     if held then
-        local ok, full = pcall(function()
-            return FindFirstOf("PlayerController"):GetWorld():GetFullName()
-        end)
+        local world = heldWorld()
+        local ok, full = pcall(function() return world:GetFullName() end)
         -- "World /Game/Levels/Halo1/Solo/BCK/BCK.BCK" -> "/Game/Levels/Halo1/Solo/BCK/BCK"
         local path = ok and full and full:match("^%S+%s+([^%.]+)")
         if path then
@@ -433,18 +491,18 @@ local function jipTick()
             -- The engine subsystem whose map-loaded step lifts the loading
             -- screen once the Blam game has started.
             local okManager, manager = pcall(function()
-                return FindFirstOf("BlamEngineLoadingManagerEngineSubsystem"):GetAddress()
+                return engineSubsystem("/Script/BlamEngine.BlamEngineLoadingManagerEngineSubsystem"):GetAddress()
             end)
             -- The world's GameState experience component, whose bWaiting...
             -- bits the loading step waits on (logged).
             local okExperience, experience = pcall(function()
-                local gs = FindFirstOf("PlayerController"):GetWorld().GameState
-                local cls = StaticFindObject("/Script/BlamExperience.BlamExperienceManagerComponent")
-                return gs:GetComponentByClass(cls):GetAddress()
+                local cls = subsystemClass("/Script/BlamExperience.BlamExperienceManagerComponent")
+                return world.GameState:GetComponentByClass(cls):GetAddress()
             end)
             -- Kept: the DLL may read it on more than one tick of the hold.
-            Games.put("jip_map.txt", url .. "\n" .. string.format("%X\n%X\n", okManager and manager or 0,
-                okExperience and experience or 0), nil, true)
+            local text = url .. "\n" .. string.format("%X\n%X\n", okManager and manager or 0,
+                okExperience and experience or 0)
+            if text ~= Hold.text and Games.put("jip_map.txt", text, nil, true) then Hold.text = text end
         end
     end
     native("mjolnir_jip_tick")
