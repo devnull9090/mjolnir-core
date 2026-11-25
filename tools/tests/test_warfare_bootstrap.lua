@@ -11,9 +11,20 @@ local calls, files, loops, bound = {}, {}, {}, {}
 local originalLoadlib, originalOpen = package.loadlib, io.open
 package.loadlib = function(path, symbol)
     assert(path == "C:\\Mods\\MJOLNIRLobby\\native\\mjolnir_lobby.dll")
+    -- The config goes to the DLL in memory (mjolnir_request_put).
+    if symbol == "mjolnir_request_put" then
+        return function(name, text) files["C:\\Mods\\MJOLNIRLobby\\native\\" .. name] = text; return true end
+    end
     return function() calls[symbol] = (calls[symbol] or 0) + 1; return true end
 end
+-- A development PC (its mark file): the 2 Hz pump for the smoke tools runs.
+local originalGetenv = os.getenv
+os.getenv = function(name) return name == "LOCALAPPDATA" and "C:\\Local" or originalGetenv(name) end
 io.open = function(path, mode)
+    if mode == "rb" then
+        assert(path == "C:\\Local\\Meteorite\\Saved\\mjolnir_dev.txt")
+        return { close = function() end }
+    end
     assert(mode == "wb")
     return { write = function(_, text) files[path] = text end, close = function() end }
 end
@@ -51,4 +62,16 @@ for path, content in pairs(files) do
 end
 assert(configs == 1)
 package.loadlib, io.open = originalLoadlib, originalOpen
+
+-- A player's PC (no mark): no pump loop at all; the HUD reads the snapshot
+-- from memory.
+os.getenv = function(name) return name == "LOCALAPPDATA" and "C:\\Local" or originalGetenv(name) end
+local playerLoops = {}
+package.loadlib = function() return function() return true end end
+io.open = function(_, mode) if mode == "rb" then return nil end return { write = function() end, close = function() end } end
+package.loaded["mods/MJOLNIRLevelLoader/Scripts/warfare.lua"] = nil
+local p = dofile("mods/MJOLNIRLevelLoader/Scripts/warfare.lua")
+p.init("C:\\Mods\\MJOLNIRLevelLoader", function() end, function(_, _, fn) playerLoops[#playerLoops + 1] = fn end)
+assert(#playerLoops == 0, "a player's game registers no warfare pump")
+package.loadlib, io.open, os.getenv = originalLoadlib, originalOpen, originalGetenv
 print("Warfare bootstrap: descriptor, map gate, event-only input, 2Hz snapshot, travel cleanup passed")
