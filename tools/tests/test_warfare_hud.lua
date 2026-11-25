@@ -273,7 +273,7 @@ do
         hookIncidents=noop, ensureWidgets=noop, ensureFrameHook=noop,
         refreshLocalPlayer=noop, isHostWorld=function() return false end,
         findBipeds=noop, Markers=dispatch, now=function() return stamp end,
-        HudHidden=true, LOCAL_PLAYER=0, boardDirty=false, Bots={tick=noop},
+        HudHidden=true, LOCAL_PLAYER=0, boardDirty=false, Bots={tick=noop}, WidgetBudget={ tick = 0, spent = -1 },
         -- The first roster refresh immediately after objective dispatch marks
         -- the end of this test's portion of the full game-thread poll.
         syncBotNames=function() error(stop) end,
