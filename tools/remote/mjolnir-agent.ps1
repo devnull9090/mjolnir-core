@@ -76,7 +76,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AgentVersion = "14"
+$AgentVersion = "15"
 
 # --- Where things are --------------------------------------------------------
 
@@ -575,6 +575,13 @@ function Handle($request, $stream) {
                 if ($raised -ne $text) { [System.IO.File]::WriteAllText($ini, $raised) }
             }
             Start-Process "steam://rungameid/2806050"
+            # A start that stalls before the engine's first tick leaves no
+            # crash report, event or log: hangwatch.ps1 dumps it into hangs\.
+            $watch = Join-Path $PSScriptRoot "hangwatch.ps1"
+            if (Test-Path $watch) {
+                Start-Process powershell -WindowStyle Hidden -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-File", "`"$watch`"", "-Log", "`"$(Join-Path $Ue4ss 'UE4SS.log')`"")
+            }
             $note = if ($reporters.Count) { "launched through Steam (closed the crash reporter first)" } else { "launched through Steam" }
             Send-Json $stream 200 @{ ok = $true; note = $note }
         }
