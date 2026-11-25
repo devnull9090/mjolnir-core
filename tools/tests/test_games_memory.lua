@@ -42,6 +42,8 @@ env = setmetatable({
         clock = function() return time end }, { __index = os }),
     ExecuteInGameThreadWithDelay = function(ms, fn) scheduled[#scheduled + 1] = { at = time + ms / 1000, fn = fn } end,
     package = { loadlib = function(_, name) return exports[name] or function() end end },
+    -- The mod's own Windows paths, on any OS (CI runs Linux).
+    dofile = function(path) return assert(loadfile((path:gsub("\\", "/")), "t", env))() end,
 }, { __index = _G })
 env._G = env
 local Games = assert(loadfile("mods/MJOLNIRLobby/Scripts/games.lua", "t", env))()
