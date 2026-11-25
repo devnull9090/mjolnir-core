@@ -42,6 +42,9 @@ local modules = {
         isPublic = function() return false end, status = function() return "" end,
         changed = function() calls[#calls+1] = "changed" end,
         hosting = function(on) calls[#calls+1] = "hosting:" .. tostring(on) end,
+        -- The native half's request files, as games.lua hands them over.
+        put = function(name, text) writes[name] = text; return "memory" end,
+        reply = function() return nil end,
     },
     -- No world index here (MapLive.worlds returns nil: "cannot say").
     maplive = { register = function() calls[#calls+1] = "register"; return true end, release = function() return {} end,

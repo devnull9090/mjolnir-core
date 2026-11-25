@@ -26,6 +26,10 @@ local LOBBY_LOST_SECONDS = 15 -- this long without a lobby in the menu, it is go
 local MAX_PLAYERS = 16        -- the hub's ceiling, and the fireteam's
 
 local nativeDir, listingFile, noticeFile, Json, Net, log, Session, guest
+-- Until Games.init: from this script's own path (<mod>\Scripts\games.lua), for
+-- a Games.put made before it (main.lua opens the fireteam first).
+nativeDir = (((debug.getinfo(1, "S").source or ""):gsub("^@", ""):gsub("/", "\\")
+    :match("^(.*\\)Scripts\\[^\\]*$")) or "") .. "native\\"
 local reportSlow = function() end
 local publicPresence, presenceCheckedAt, lastWorld, nextPresenceBroadcast = nil, nil, nil, 0
 local connectionChecked, online = 0, false
@@ -98,6 +102,47 @@ function Games.worldHeld()
     local f = io.open(nativeDir .. "jip_held.txt", "rb")
     if f then f:close() end
     return f ~= nil
+end
+
+--- Hands the request file `name` to the lobby DLL in memory
+--- (mjolnir_request_put): "memory", or "file" when it had to be written, nil
+--- when neither worked. On a PC with Windows Defender's real-time scan, the
+--- DLL opening a file a moment after Lua wrote it waited ~5 ms. `reply`
+--- claims that reply for Games.reply; `keep` serves every read until the
+--- next put (a setting the DLL reads more than once).
+function Games.put(name, text, reply, keep)
+    local put = export("mjolnir_request_put")
+    if put then
+        local ok, held = pcall(put, name, text, reply, keep and true or false)
+        if ok and held == true then return "memory" end
+    end
+    local f = io.open(nativeDir .. name, "wb")
+    if not f then return nil end
+    f:write(text)
+    f:close()
+    return "file"
+end
+
+--- Claims the next reply `name` for Games.reply, for an export that answers
+--- without a request (mjolnir_map_install_status): "memory", or "file".
+function Games.claim(name)
+    local claim = export("mjolnir_reply_claim")
+    if claim then
+        local ok, held = pcall(claim, name)
+        if ok and held == true then return "memory" end
+    end
+    return "file"
+end
+
+--- The reply `name` to a request Games.put sent by `route`: taken from the
+--- DLL's mailbox, or read from its file. nil while there is none.
+function Games.reply(name, route)
+    if route == "memory" then
+        local take = export("mjolnir_reply_take")
+        local ok, known, text = pcall(take, name)
+        return ok and known and text or nil
+    end
+    return readFile(nativeDir .. name)
 end
 
 --- A UE4SS shared variable for the other mods; false without one (a test,
@@ -216,11 +261,9 @@ local keeping = nil
 local function keepLobby(on)
     on = on and true or false
     if keeping == on then return end
-    local f = io.open(nativeDir .. "keep_lobby.txt", "wb")
-    if not f then return end
     -- Then 1 in a match: going private there closes the lobby again.
-    f:write(on and "1" or "0", (Host.inMatch and Host.inMatch()) and " 1" or " 0")
-    f:close()
+    local text = (on and "1" or "0") .. ((Host.inMatch and Host.inMatch()) and " 1" or " 0")
+    if not Games.put("keep_lobby.txt", text) then return end
     if native("mjolnir_keep_lobby") then keeping = on end
 end
 
@@ -231,10 +274,7 @@ end
 --- arms the joiner's world hold: a match world that begins before its Blam
 --- game waits for it (see jipTick).
 local function stayOnline(on)
-    local f = io.open(nativeDir .. "stay_online.txt", "wb")
-    if not f then return end
-    f:write(on and "1" or "0")
-    f:close()
+    if not Games.put("stay_online.txt", on and "1" or "0") then return end
     native("mjolnir_stay_online")
 end
 
@@ -248,10 +288,7 @@ local hostingOnline = nil
 function Games.hosting(on)
     on = on and true or false
     if hostingOnline == on then return end
-    local f = io.open(nativeDir .. "host_online.txt", "wb")
-    if not f then return end
-    f:write(on and "1" or "0")
-    f:close()
+    if not Games.put("host_online.txt", on and "1" or "0") then return end
     if native("mjolnir_host_online") then hostingOnline = on end
 end
 
@@ -393,25 +430,21 @@ local function jipTick()
                 -- "where"/"mapindex").
                 pcall(Net.toHost, "where", string.upper(code))
             end
-            local f = io.open(nativeDir .. "jip_map.txt", "wb")
-            if f then
-                f:write(url, "\n")
-                -- The engine subsystem whose map-loaded step lifts the
-                -- loading screen once the Blam game has started.
-                local okManager, manager = pcall(function()
-                    return FindFirstOf("BlamEngineLoadingManagerEngineSubsystem"):GetAddress()
-                end)
-                f:write(string.format("%X\n", okManager and manager or 0))
-                -- The world's GameState experience component, whose
-                -- bWaiting... bits the loading step waits on (logged).
-                local okExperience, experience = pcall(function()
-                    local gs = FindFirstOf("PlayerController"):GetWorld().GameState
-                    local cls = StaticFindObject("/Script/BlamExperience.BlamExperienceManagerComponent")
-                    return gs:GetComponentByClass(cls):GetAddress()
-                end)
-                f:write(string.format("%X\n", okExperience and experience or 0))
-                f:close()
-            end
+            -- The engine subsystem whose map-loaded step lifts the loading
+            -- screen once the Blam game has started.
+            local okManager, manager = pcall(function()
+                return FindFirstOf("BlamEngineLoadingManagerEngineSubsystem"):GetAddress()
+            end)
+            -- The world's GameState experience component, whose bWaiting...
+            -- bits the loading step waits on (logged).
+            local okExperience, experience = pcall(function()
+                local gs = FindFirstOf("PlayerController"):GetWorld().GameState
+                local cls = StaticFindObject("/Script/BlamExperience.BlamExperienceManagerComponent")
+                return gs:GetComponentByClass(cls):GetAddress()
+            end)
+            -- Kept: the DLL may read it on more than one tick of the hold.
+            Games.put("jip_map.txt", url .. "\n" .. string.format("%X\n%X\n", okManager and manager or 0,
+                okExperience and experience or 0), nil, true)
         end
     end
     native("mjolnir_jip_tick")
@@ -756,20 +789,18 @@ function Games.join(lobby, done)
             settings:close()
         end
         joiningGameType = data.game_type or lobby.game_type
-        local f = io.open(nativeDir .. "join_request.txt", "wb")
-        if not f then
+        local route = Games.put("join_request.txt", data.connection_string .. "\n", "join_reply.txt")
+        if not route then
             done(false, "cannot write the join request")
             return
         end
-        f:write(data.connection_string, "\n")
-        f:close()
         if not native("mjolnir_join") then
             done(false, "the native half is not loaded")
             return
         end
         local deadline = os.time() + 5
         local function poll()
-            local reply = readFile(nativeDir .. "join_reply.txt")
+            local reply = Games.reply("join_reply.txt", route)
             if reply then
                 if reply:match("^delivered") then
                     log("games: joining " .. tostring(lobby.host) .. "'s game")

@@ -31,6 +31,8 @@
 #include <wchar.h>
 #include <intrin.h>
 #include <tlhelp32.h>
+#include <io.h>
+#include <fcntl.h>
 
 typedef void *(__fastcall *fname_ctor_t)(void *self, const wchar_t *name, int find_type, void *unused);
 typedef void *(__fastcall *fweak_ctor_t)(void *self, const void *object);
@@ -1240,7 +1242,45 @@ static char *mailbox_take(const char *name, size_t *length) {
     return text;
 }
 
+/* Requests Lua hands over in memory (mjolnir_request_put) instead of writing
+   a file beside this DLL, and the replies it has claimed instead of reading
+   a reply file. On a PC with Windows Defender's real-time scan, opening a
+   file a moment after it was written waits ~5 ms for the scan, and every
+   request below was read straight after Lua wrote it.
+
+   A one-shot request is gone once read, as a file read once would be; a
+   kept one (team_game.txt, bot_teams.txt) is served to every read until it
+   is replaced. A claim sends the next reply of that name to the mailbox
+   (mjolnir_reply_take) instead of a file. A tool that writes the request
+   file itself and claims nothing (tools/remote/instances.mjs) gets files, as
+   before. */
+#define REQUEST_SLOTS 32
+#define REQUEST_CAP 65536
+static struct memory_request {
+    char name[64];
+    char *text;
+    size_t length;
+    int keep;
+} requests[REQUEST_SLOTS];
+static char reply_claims[16][64];
+
+static int claimed_reply(const char *name) {
+    int found = 0;
+    AcquireSRWLockExclusive(&mailbox_lock);
+    for (int i = 0; i < 16 && !found; i++)
+        if (reply_claims[i][0] && strcmp(reply_claims[i], name) == 0) {
+            reply_claims[i][0] = 0;
+            found = 1;
+        }
+    ReleaseSRWLockExclusive(&mailbox_lock);
+    return found;
+}
+
 static void write_reply(const char *name, const char *text, size_t length) {
+    if (claimed_reply(name)) {
+        mailbox_put(name, text, length);
+        return;
+    }
     if (!dir[0]) find_dir();
     char path[MAX_PATH], tmp[MAX_PATH];
     snprintf(path, sizeof path, "%s%s", dir, name);
@@ -1250,6 +1290,72 @@ static void write_reply(const char *name, const char *text, size_t length) {
     fwrite(text, 1, length, f);
     fclose(f);
     MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING);
+}
+
+/* A read-only stream over `length` bytes of memory: an anonymous pipe holding
+   the text, so a parser written for a file reads it unchanged. The text
+   fits the pipe's buffer (REQUEST_CAP), so the write never waits. */
+static FILE *memory_stream(const char *text, size_t length) {
+    HANDLE read_end, write_end;
+    if (!CreatePipe(&read_end, &write_end, NULL, (DWORD)length + 1)) return NULL;
+    DWORD wrote = 0;
+    BOOL ok = length == 0 || WriteFile(write_end, text, (DWORD)length, &wrote, NULL);
+    CloseHandle(write_end);
+    if (!ok || wrote != length) {
+        CloseHandle(read_end);
+        return NULL;
+    }
+    int fd = _open_osfhandle((intptr_t)read_end, _O_RDONLY | _O_BINARY);
+    if (fd < 0) {
+        CloseHandle(read_end);
+        return NULL;
+    }
+    FILE *f = _fdopen(fd, "rb");
+    if (!f) _close(fd);
+    return f;
+}
+
+/* Forgets the request `name` held in memory, as deleting its file would. */
+static void drop_request(const char *name) {
+    AcquireSRWLockExclusive(&mailbox_lock);
+    for (int i = 0; i < REQUEST_SLOTS; i++)
+        if (requests[i].text && strcmp(requests[i].name, name) == 0) {
+            free(requests[i].text);
+            requests[i].text = NULL;
+        }
+    ReleaseSRWLockExclusive(&mailbox_lock);
+}
+
+/* The request `name`: what Lua handed over in memory, or the file of that
+   name beside this DLL. NULL when there is neither. */
+static FILE *open_request(const char *name) {
+    char *text = NULL;
+    size_t length = 0;
+    int found = 0;
+    AcquireSRWLockExclusive(&mailbox_lock);
+    for (int i = 0; i < REQUEST_SLOTS && !found; i++) {
+        struct memory_request *r = &requests[i];
+        if (!r->text || strcmp(r->name, name) != 0) continue;
+        found = 1;
+        length = r->length;
+        if (r->keep) {
+            text = (char *)malloc(length ? length : 1);
+            if (text) memcpy(text, r->text, length);
+        } else {
+            text = r->text;
+            r->text = NULL;
+        }
+    }
+    ReleaseSRWLockExclusive(&mailbox_lock);
+    if (found) {
+        FILE *f = text ? memory_stream(text, length) : NULL;
+        free(text);
+        return f;
+    }
+    if (!dir[0]) find_dir();
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%s%s", dir, name);
+    return fopen(path, "r");
 }
 
 /* native\lobby_max.txt: the host's MAX PLAYERS (2 to the fireteam size). Kept
@@ -1263,9 +1369,8 @@ typedef long(__stdcall *get_owner_t)(void *, const void **);
 __declspec(dllexport) int mjolnir_lobby_max(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH], out[128];
-    snprintf(path, sizeof path, "%slobby_max.txt", dir);
-    FILE *f = fopen(path, "r");
+    char out[128];
+    FILE *f = open_request("lobby_max.txt");
     unsigned size = 0;
     if (f) {
         if (fscanf(f, "%u", &size) != 1) size = 0;
@@ -2391,6 +2496,7 @@ static void held_flag(int on) {
         remove(path);
         snprintf(path, sizeof path, "%sjip_map.txt", dir);
         remove(path);
+        drop_request("jip_map.txt");
     }
 }
 
@@ -3252,9 +3358,7 @@ __declspec(dllexport) int mjolnir_sim_life_cycle(void *L) {
         fireteam_log("life: unreadable");
         return 0;
     }
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%slife_cycle.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("life_cycle.txt");
     int wanted = -1;
     if (f) {
         if (fscanf(f, "%d", &wanted) != 1) wanted = -1;
@@ -3842,9 +3946,7 @@ static int inject_needed(void) {
    loads. */
 static int lobby_team_game(unsigned char *session) {
     if (!dir[0]) find_dir();
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%steam_game.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("team_game.txt");
     if (f) {
         int c = fgetc(f);
         fclose(f);
@@ -4535,9 +4637,7 @@ __declspec(dllexport) int mjolnir_sim_script(void *L) {
     if (!dir[0]) find_dir();
     unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim || !install_main_tick(sim)) return 0;
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%sscript.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("script.txt");
     if (!f) return 0;
     char line[SCRIPT_LINE];
     long long id = -1;
@@ -4768,9 +4868,7 @@ __declspec(dllexport) int mjolnir_bots_teams(void *L) {
     memset(table, 0xFF, sizeof table);
     memset(players, 0xFF, sizeof players);
     int count = 0;
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%sbot_teams.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("bot_teams.txt");
     if (f) {
         int campaign, multiplayer;
         while (fscanf(f, "%d %d", &campaign, &multiplayer) == 2) {
@@ -5298,9 +5396,7 @@ __declspec(dllexport) int mjolnir_jip_tick(void *L) {
     static void *replayed;
     if (!blam_game_running(&g) && waited > JIP_NUDGE_MS && replayed != ws) {
         char map[260] = "", manager_line[64] = "", experience_line[64] = "";
-        char path[MAX_PATH];
-        snprintf(path, sizeof path, "%sjip_map.txt", dir);
-        FILE *f = fopen(path, "r");
+        FILE *f = open_request("jip_map.txt");
         if (f) {
             if (!fgets(map, sizeof map, f)) map[0] = 0;
             if (!fgets(manager_line, sizeof manager_line, f)) manager_line[0] = 0;
@@ -5453,9 +5549,7 @@ static const char *hook_shell_commands(void) {
 __declspec(dllexport) int mjolnir_sim_command(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%ssim_command.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("sim_command.txt");
     int type = -1, subtype = -1;
     if (f) {
         if (fscanf(f, "%d %d", &type, &subtype) != 2) type = -1;
@@ -5490,9 +5584,7 @@ static const char *online_alone(void) {
 __declspec(dllexport) int mjolnir_stay_online(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%sstay_online.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("stay_online.txt");
     int value = 0;
     if (f) {
         if (fscanf(f, "%d", &value) != 1) value = 0;
@@ -5516,9 +5608,7 @@ __declspec(dllexport) int mjolnir_stay_online(void *L) {
 __declspec(dllexport) int mjolnir_host_online(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%shost_online.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("host_online.txt");
     int value = 0;
     if (f) {
         if (fscanf(f, "%d", &value) != 1) value = 0;
@@ -5584,17 +5674,14 @@ static void post_join_state(int open) {
 __declspec(dllexport) int mjolnir_keep_lobby(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%skeep_lobby.txt", dir);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("keep_lobby.txt");
     int value = 0, in_match = 0;
     if (f) {
         if (fscanf(f, "%d %d", &value, &in_match) < 1) value = 0;
         fclose(f);
     }
     LONG was = InterlockedExchange(&keep_lobby, value ? 1 : 0);
-    snprintf(path, sizeof path, "%sjoin_in_progress.txt", dir);
-    f = fopen(path, "r");
+    f = open_request("join_in_progress.txt");
     /* Joins into a public match under way are on unless the file says 0. */
     int jip = 1;
     if (f) {
@@ -5624,10 +5711,9 @@ __declspec(dllexport) int mjolnir_join(void *L) {
     char path[MAX_PATH];
     snprintf(path, sizeof path, "%sjoin_reply.txt", dir);
     remove(path);
-    snprintf(path, sizeof path, "%sjoin_request.txt", dir);
     const char *problem = NULL;
     struct join_request *req = (struct join_request *)calloc(1, sizeof *req);
-    FILE *f = fopen(path, "r");
+    FILE *f = open_request("join_request.txt");
     if (!req) {
         problem = "out of memory";
     } else if (!real_online_tick && !real_gdk_tick) {
@@ -5938,9 +6024,8 @@ static HANDLE install_process;
 __declspec(dllexport) int mjolnir_map_install(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH], code[8] = "", release[72] = "";
-    snprintf(path, sizeof path, "%smap_install_request.txt", dir);
-    FILE *f = fopen(path, "rb");
+    char code[8] = "", release[72] = "";
+    FILE *f = open_request("map_install_request.txt");
     if (f) {
         /* "<CODE> [<release id>]": the release a host runs, when it differs. */
         if (fscanf(f, "%7s %71s", code, release) < 1) code[0] = 0;
@@ -6064,9 +6149,8 @@ static int launcher_has(const char *feature) {
 __declspec(dllexport) int mjolnir_launcher(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH], verb[16] = "";
-    snprintf(path, sizeof path, "%slauncher_request.txt", dir);
-    FILE *f = fopen(path, "rb");
+    char verb[16] = "";
+    FILE *f = open_request("launcher_request.txt");
     if (f) {
         if (fscanf(f, "%15s", verb) < 1) verb[0] = 0;
         fclose(f);
@@ -6141,9 +6225,7 @@ __declspec(dllexport) int mjolnir_fireteam_open(void *L) {
     (void)L;
     LONGLONG started = qpc_now();
     if (!dir[0]) find_dir();
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%sfireteam_request.txt", dir);
-    FILE *req = fopen(path, "r");
+    FILE *req = open_request("fireteam_request.txt");
     if (req) {
         unsigned size = 0;
         if (fscanf(req, "%u", &size) == 1 && size >= 4 && size <= FIRETEAM_MAX) fireteam_size = size;
@@ -6917,6 +6999,92 @@ __declspec(dllexport) int mjolnir_hub_send(void *L) {
     } else {
         lc_push_nil(&f);
     }
+    lc_end(&f);
+    return 1;
+}
+
+/* Lua: mjolnir_request_put(name, text [, reply [, keep]]) -> true once the
+   request is held for open_request, in place of writing the file `name`.
+   `reply` claims the next reply of that name for the mailbox; `keep` serves
+   every read until replaced. nil for a name that is not a plain file name or
+   text over REQUEST_CAP (the caller then writes the file). */
+__declspec(dllexport) int mjolnir_request_put(void *L) {
+    static char text[REQUEST_CAP];
+    char name[64], reply[64];
+    size_t length = 0;
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    int named = lc_take_string(&f, 1, name, sizeof name, NULL);
+    int have_text = lc_take_string(&f, 1, text, sizeof text, &length) && length < sizeof text;
+    int claim = lc_take_string(&f, 1, reply, sizeof reply, NULL);
+    int keep = lc_take_bool(&f, 1);
+    for (const char *c = name; *c && named; c++)
+        named = (*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || *c == '_' ||
+                *c == '.';
+    char *copy = named && have_text && name[0] ? (char *)malloc(length ? length : 1) : NULL;
+    if (!copy) {
+        lc_push_nil(&f);
+        lc_end(&f);
+        return 1;
+    }
+    memcpy(copy, text, length);
+    AcquireSRWLockExclusive(&mailbox_lock);
+    struct memory_request *slot = NULL;
+    for (int i = 0; i < REQUEST_SLOTS; i++) {
+        struct memory_request *r = &requests[i];
+        if (r->text && strcmp(r->name, name) == 0) {
+            free(r->text);
+            r->text = NULL;
+        }
+        if (!r->text && !slot) slot = r;
+    }
+    if (slot) {
+        snprintf(slot->name, sizeof slot->name, "%s", name);
+        slot->text = copy;
+        slot->length = length;
+        slot->keep = keep;
+        copy = NULL;
+        if (claim && reply[0]) {
+            int placed = 0;
+            for (int i = 0; i < 16 && !placed; i++)
+                if (strcmp(reply_claims[i], reply) == 0) placed = 1;
+            for (int i = 0; i < 16 && !placed; i++)
+                if (!reply_claims[i][0]) {
+                    snprintf(reply_claims[i], sizeof reply_claims[i], "%s", reply);
+                    placed = 1;
+                }
+        }
+    }
+    ReleaseSRWLockExclusive(&mailbox_lock);
+    int held = copy == NULL;
+    free(copy);
+    if (held) lc_push_bool(&f, 1); else lc_push_nil(&f);
+    lc_end(&f);
+    return 1;
+}
+
+/* Lua: mjolnir_reply_claim(name) -> true: the next reply of that name goes to
+   the mailbox (for an export that answers without a request, such as
+   mjolnir_map_install_status). */
+__declspec(dllexport) int mjolnir_reply_claim(void *L) {
+    char name[64];
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    int ok = lc_take_string(&f, 1, name, sizeof name, NULL) && name[0];
+    if (ok) {
+        AcquireSRWLockExclusive(&mailbox_lock);
+        int placed = 0;
+        for (int i = 0; i < 16 && !placed; i++)
+            if (strcmp(reply_claims[i], name) == 0) placed = 1;
+        for (int i = 0; i < 16 && !placed; i++)
+            if (!reply_claims[i][0]) {
+                snprintf(reply_claims[i], sizeof reply_claims[i], "%s", name);
+                placed = 1;
+            }
+        ok = placed;
+        ReleaseSRWLockExclusive(&mailbox_lock);
+    }
+    if (ok) lc_push_bool(&f, 1); else lc_push_nil(&f);
     lc_end(&f);
     return 1;
 }

@@ -11,6 +11,7 @@ function M.init(dir, log, every)
         for _, name in ipairs({ "open", "close", "action", "pump", "controls" }) do
             M[name .. "Native"] = package.loadlib(dll, "mjolnir_warfare_" .. name)
         end
+        M.putNative = package.loadlib(dll, "mjolnir_request_put")
     end
     if not (M.openNative and M.closeNative and M.actionNative and M.pumpNative) then
         log("Pelican Warfare: native transport exports unavailable; deployment will not be enabled")
@@ -46,10 +47,16 @@ function M.select(code, variant, layout)
         return
     end
     if M.active or not M.openNative then return end
-    local f, err = io.open(M.nativeDir .. "\\warfare_config.txt", "wb")
-    if not f then M.log("Pelican Warfare config: " .. tostring(err)); return end
-    f:write("warfare-config 2\nmap PWR\nlayout 3\nprotocol 20569\n")
-    f:close()
+    -- In memory (mjolnir_request_put); the file for a DLL without it.
+    local config = "warfare-config 2\nmap PWR\nlayout 3\nprotocol 20569\n"
+    local okPut, held = false, nil
+    if M.putNative then okPut, held = pcall(M.putNative, "warfare_config.txt", config) end
+    if not (okPut and held == true) then
+        local f, err = io.open(M.nativeDir .. "\\warfare_config.txt", "wb")
+        if not f then M.log("Pelican Warfare config: " .. tostring(err)); return end
+        f:write(config)
+        f:close()
+    end
     local ok, result = pcall(M.openNative)
     M.active = ok and result ~= false
     if not M.active then M.log("Pelican Warfare native start failed: " .. tostring(result)) end

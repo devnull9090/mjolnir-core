@@ -11,6 +11,10 @@ local calls, files, loops, bound = {}, {}, {}, {}
 local originalLoadlib, originalOpen = package.loadlib, io.open
 package.loadlib = function(path, symbol)
     assert(path == "C:\\Mods\\MJOLNIRLobby\\native\\mjolnir_lobby.dll")
+    -- The config goes to the DLL in memory (mjolnir_request_put).
+    if symbol == "mjolnir_request_put" then
+        return function(name, text) files["C:\\Mods\\MJOLNIRLobby\\native\\" .. name] = text; return true end
+    end
     return function() calls[symbol] = (calls[symbol] or 0) + 1; return true end
 end
 io.open = function(path, mode)

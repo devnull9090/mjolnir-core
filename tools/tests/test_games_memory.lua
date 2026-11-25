@@ -10,7 +10,7 @@ local function eq(actual, expected, label)
     assert(actual == expected, (label or "value") .. ": expected " .. tostring(expected) .. ", got " .. tostring(actual))
 end
 
-local opened, scheduled, sent, mailbox = {}, {}, {}, {}
+local opened, scheduled, sent, mailbox, requests, claims = {}, {}, {}, {}, {}, {}
 local time = 0
 local held, declines = false, false
 local exports = {
@@ -26,6 +26,11 @@ local exports = {
     end,
     mjolnir_lobby_connection_get = function() return "ok conn-1\nlock 0\nmax 8\n" end,
     mjolnir_jip_held = function() return held end,
+    mjolnir_request_put = function(name, text, reply, keep)
+        requests[name] = { text = text, reply = reply, keep = keep }
+        return true
+    end,
+    mjolnir_reply_claim = function(name) claims[name] = true; return true end,
 }
 local env
 env = setmetatable({
@@ -95,5 +100,19 @@ eq(filesTouched("jip_held"), 0, "no jip_held.txt")
 declines = true
 Games.call("GET", "/lobbies", nil, function() end)
 eq(filesTouched("hub_request.txt"), 1, "file route when the DLL declines")
+
+-- Request files the DLL reads: handed over in memory, the reply claimed and
+-- taken from the mailbox; a setting kept for every read.
+eq(Games.put("lobby_max.txt", "8", "lobby_max_reply.txt"), "memory", "request in memory")
+eq(requests["lobby_max.txt"].text, "8", "request text")
+eq(requests["lobby_max.txt"].reply, "lobby_max_reply.txt", "reply claimed")
+eq(requests["lobby_max.txt"].keep, false, "one-shot by default")
+mailbox["lobby_max_reply.txt"] = "ok 8\n"
+eq(Games.reply("lobby_max_reply.txt", "memory"), "ok 8\n", "reply from the mailbox")
+eq(Games.put("team_game.txt", "1", nil, true), "memory", "setting in memory")
+eq(requests["team_game.txt"].keep, true, "setting kept")
+eq(Games.claim("map_install_status.txt"), "memory", "a reply claimed without a request")
+eq(claims["map_install_status.txt"], true, "claim reached the DLL")
+eq(filesTouched("lobby_max") + filesTouched("team_game"), 0, "no request or reply file")
 
 print("games memory channels: " .. checks .. " checks passed")

@@ -258,10 +258,8 @@ end
 --- joining test copy's own file was the Steam install's, copied in with the
 --- rest, and its team fallback put every free-for-all player on team 0.
 local function writeTeamGame(teams)
-    local f = io.open(MOD_DIR .. "\\native\\team_game.txt", "w")
-    if not f then return end
-    f:write(teams and "1" or "0")
-    f:close()
+    -- Kept: the native half reads it whenever a player's team is settled.
+    Games.put("team_game.txt", teams and "1" or "0", nil, true)
 end
 
 -- The controller and campaign helpers already exist at PRESS ENTER TO START.
@@ -1252,15 +1250,13 @@ end
 local function applyMaxPlayers()
     Games.setMaxPlayers(Game.maxPlayers)
     local native = MOD_DIR .. "\\native\\"
-    local request = io.open(native .. "lobby_max.txt", "wb")
-    if not request then return "error cannot write lobby_max.txt" end
-    request:write(tostring(Game.maxPlayers))
-    request:close()
+    local route = Games.put("lobby_max.txt", tostring(Game.maxPlayers), "lobby_max_reply.txt")
+    if not route then return "error cannot write lobby_max.txt" end
     local apply = package and package.loadlib and package.loadlib(native .. "mjolnir_lobby.dll", "mjolnir_lobby_max")
     if not apply then return "error the native half is not installed" end
     local ok, err = pcall(apply)
     if not ok then return "error " .. tostring(err) end
-    local reply = (readFile(native .. "lobby_max_reply.txt") or "error no reply"):gsub("%s+$", "")
+    local reply = (Games.reply("lobby_max_reply.txt", route) or "error no reply"):gsub("%s+$", "")
     return reply
 end
 
@@ -4327,11 +4323,7 @@ end
 
 local function openFireteam()
     local native = MOD_DIR .. "\\native\\"
-    local request = io.open(native .. "fireteam_request.txt", "w")
-    if request then
-        request:write(tostring(FIRETEAM_SIZE))
-        request:close()
-    end
+    Games.put("fireteam_request.txt", tostring(FIRETEAM_SIZE))
     local open = package and package.loadlib and package.loadlib(native .. "mjolnir_lobby.dll", "mjolnir_fireteam_open")
     if not open then
         log("fireteam: the native half is not installed; the fireteam stays at four")
@@ -5225,7 +5217,7 @@ local function initialize()
         end
     end
     ExecuteInGameThreadWithDelay(2000, function() registerInstalled(0) end)
-    Outdated.init({ json = Json, ui = UI, log = log, nativeDir = MOD_DIR .. "\\native\\" })
+    Outdated.init({ json = Json, ui = UI, log = log, nativeDir = MOD_DIR .. "\\native\\", games = Games })
     -- No joining or public listing while the mod check finds mods or has
     -- not answered (outdated.lua).
     Games.gate = Outdated.mpBlock
