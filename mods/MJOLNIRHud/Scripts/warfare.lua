@@ -318,6 +318,9 @@ function Warfare.new(deps)
     if deps.Instruments then self.instruments = deps.Instruments.new() end
     if deps.Countdown then self.countdown = deps.Countdown.new() end
     if deps.Spectate and deps.bipedAt then self.spectate = deps.Spectate.new({ bipedAt = deps.bipedAt }) end
+    -- Cortana and the announcer (warfare_voice.lua): fed each accepted
+    -- snapshot below, silent when its waves are not installed.
+    if deps.Voice and deps.voiceIO then self.voice = deps.Voice.new(deps.voiceIO) end
     local pending, refreshedAt, line
 
     --- Where site `i` is this match: its chosen candidate (candidate 0 is the
@@ -392,6 +395,7 @@ function Warfare.new(deps)
     function self.tick(match, now, pc, hidden, me, currentCode)
         if match.variant ~= "warfare" or match.code ~= "PWR" or currentCode ~= "PWR" then
             self.snapshot, pending, refreshedAt = nil, nil, nil
+            if self.voice then self.voice.reset() end
             self.hide()
             return false
         end
@@ -410,6 +414,9 @@ function Warfare.new(deps)
             local lifetime = activeFlight and deps.pumpFlight and .8 or STALE
             if refreshedAt and now - refreshedAt > lifetime and self.snapshot and self.snapshot.phase ~= 3 then
                 self.snapshot, pending = nil, nil
+                -- After a gap the next sample is a fresh baseline: no burst of
+                -- lines for what changed while the state was not read.
+                if self.voice then self.voice.reset() end
             end
             if accepted then
                 local snap = self.snapshot
@@ -435,12 +442,19 @@ function Warfare.new(deps)
                     end
                     self.seenOwners = snap.phase == 2 and { instance = snap.instance, snap.owner[1], snap.owner[2], snap.owner[3] } or nil
                 end
+                if self.voice then
+                    local ok, err = pcall(self.voice.observe, snap, me, now)
+                    if not ok and deps.log then deps.log("warfare voice: " .. tostring(err)) end
+                end
                 local score = self.snapshot.score
                 changed = match.teams[0] ~= score[1] or match.teams[1] ~= score[2]
                 match.teams[0], match.teams[1] = score[1], score[2]
                 match.warfareInstance = self.snapshot.instance
             end
         end
+        -- Every tick, after the match too: the result lines are queued by the
+        -- last accepted sample and play out over the postgame.
+        if self.voice then pcall(self.voice.pump, now, pc) end
         local s = self.snapshot
         if self.input then
             self.input.tick(not match.over and s or nil, pc, hidden)

@@ -165,6 +165,37 @@ local WarfareJump = {}
 -- Pelican Warfare zones: the zone bars in the top left and the capture lines in
 -- the feed (filled in with the tactical map, below).
 local WarfareSites = {}
+-- Pelican Warfare's voice (warfare_voice.lua): the waves' catalogue and the
+-- engine calls it plays them with. A line plays at the dialogue slider, as the
+-- loader's announcer does (MJOLNIRLevelLoader gameVolume).
+local VoiceSettings = nil
+local okVoiceLines, VoiceLines = pcall(dofile, MOD_DIR .. "\\Scripts\\warfare_voice_lines.lua")
+local VoiceIO = {
+    lines = okVoiceLines and type(VoiceLines) == "table" and VoiceLines or {},
+    load = function(path)
+        local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+        local wave = ksl:LoadAsset_Blocking(ksl:Conv_SoftObjPathToSoftObjRef(ksl:MakeSoftObjectPath(path)))
+        if wave and wave:IsValid() then return wave end
+        return nil
+    end,
+    -- SpawnSound2D rather than PlaySound2D: its component can be stopped
+    -- when a more urgent line cuts in.
+    spawn = function(wave, volume, pc)
+        return StaticFindObject("/Script/Engine.Default__GameplayStatics"):SpawnSound2D(pc, wave, volume, 1.0, 0.0, nil, false, true)
+    end,
+    stop = function(component) if component and component:IsValid() then component:Stop() end end,
+    volume = function()
+        local ok, v = pcall(function()
+            if not (VoiceSettings and VoiceSettings:IsValid()) then
+                VoiceSettings = StaticFindObject("/Script/Engine.Default__GameUserSettings"):GetGameUserSettings()
+            end
+            return VoiceSettings.VolumeMaster * VoiceSettings.VolumeVODialog
+        end)
+        if ok and type(v) == "number" and v == v then return math.max(0, math.min(1, v)) end
+        return 1
+    end,
+    log = function(text) Log(text) end,
+}
 local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua"),
     Waypoint = dofile(MOD_DIR .. "\\Scripts\\waypoint.lua"),
@@ -178,6 +209,8 @@ local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     Instruments = dofile(MOD_DIR .. "\\Scripts\\warfare_instruments.lua"),
     WarfareCountdown = dofile(MOD_DIR .. "\\Scripts\\warfare_countdown.lua"),
     WarfareSpectate = dofile(MOD_DIR .. "\\Scripts\\warfare_spectate.lua"),
+    WarfareVoice = dofile(MOD_DIR .. "\\Scripts\\warfare_voice.lua"),
+    voiceIO = VoiceIO,
     flightControls = package.loadlib(warfareDll, "mjolnir_warfare_controls"),
     pumpFlight = package.loadlib(warfareDll, "mjolnir_warfare_pump"),
     warfareJump = function(index) if WarfareJump.request then WarfareJump.request(index) end end,
