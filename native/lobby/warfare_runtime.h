@@ -724,7 +724,8 @@ static warfare_inventory warfare_kits[WARFARE_PLAYERS];
 /* Cabin clearance is both: right after the host detaches a rider it still
  * places the biped, and a client's clearance alone snapped back five times in
  * two seconds until the host's state timed out (two copies, 2026-11-19). */
-#define WF_HOST_AUTHORITY (WF_BOARD | WF_EXIT | WF_CLEAR_CABIN | WF_PROTECT | WF_UNPROTECT | WF_LOWER_WEAPON | WF_RAISE_WEAPON | WF_WAKE | WF_SPLAT)
+#define WF_HOST_AUTHORITY (WF_BOARD | WF_EXIT | WF_CLEAR_CABIN | WF_PROTECT | WF_UNPROTECT | WF_LOWER_WEAPON | WF_RAISE_WEAPON \
+                           | WF_WAKE | WF_SPLAT | WF_SHIELD | WF_UNSHIELD)
 #define WF_OWNER_AUTHORITY (WF_VELOCITY | WF_HOME | WF_WARMUP | WF_CLEAR_CABIN | WF_WAKE)
 
 /* A reinforcement rider's seat: their own (roster) seat unless a teammate
@@ -794,6 +795,14 @@ static void warfare_apply(unsigned char *tls, const warfare_sample all[WARFARE_P
     }
     if (out->flags & WF_UNPROTECT) {
         snprintf(line, sizeof line, "(unit_falling_damage_disable (player_get %d) false)", hs_player); warfare_hs(line);
+    }
+    if (out->flags & WF_SHIELD) {
+        snprintf(line, sizeof line, "(object_cannot_take_damage (player_get %d))", hs_player); warfare_hs(line);
+        fireteam_log("warfare: player %d waits at home for the Pelican (shielded)", i);
+    }
+    if (out->flags & WF_UNSHIELD) {
+        snprintf(line, sizeof line, "(object_can_take_damage (player_get %d))", hs_player); warfare_hs(line);
+        fireteam_log("warfare: player %d stops waiting (unshielded)", i);
     }
     if (out->flags & WF_SPLAT) {
         /* No chute, or too late: the ground wins (warfare_core.h WARFARE_SPLAT_SINK). */

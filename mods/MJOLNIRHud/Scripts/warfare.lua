@@ -190,7 +190,7 @@ function Warfare.parse(text)
         elseif key == "player" then
             if #words ~= 8 then return nil end
             local p = { index = integer(words[1], 0, 15), team = integer(words[2], -1, 7),
-                stage = integer(words[3], 0, 7), localUser = integer(words[4], -1, 3),
+                stage = integer(words[3], 0, 8), localUser = integer(words[4], -1, 3),
                 unit = integer(words[8], 0, 4294967295) }
             if not p.index or not p.team or not p.stage or not p.localUser or not p.unit or s.players[p.index] then return nil end
             for i = 5, 7 do
@@ -253,6 +253,11 @@ function Warfare.describe(s, me, jump)
         local player = s.players[me]
         local stage = player and player.stage
         if stage == 1 then return "REINFORCEMENTS  /  BOARDING YOUR TEAM'S PELICAN" end
+        -- Native WF_WAITING: respawned at home while the Pelican cannot be
+        -- boarded; shielded and unarmed, watching a teammate (warfare_spectate).
+        if stage == 8 then
+            return "WAITING FOR YOUR PELICAN  /  IT LEAVES IN " .. clock(wave.departs) .. "  /  MOVE TO PLAY FROM BASE"
+        end
         if stage == 2 and not wave.flying then
             return "REINFORCEMENTS DEPART IN " .. clock(wave.departs) .. "  /  " .. jump .. ": JUMP NOW"
         end
@@ -317,7 +322,19 @@ function Warfare.new(deps)
     local seated, jumped = {}, {}
     if deps.Instruments then self.instruments = deps.Instruments.new() end
     if deps.Countdown then self.countdown = deps.Countdown.new() end
-    if deps.Spectate and deps.bipedAt then self.spectate = deps.Spectate.new({ bipedAt = deps.bipedAt }) end
+    -- With no teammate to watch while waiting, the view looks over the three
+    -- zones from behind and above them (their centre, Unreal cm).
+    local function overview()
+        local x, y, z, n = 0, 0, 0, 0
+        for i = 1, 3 do
+            local spot = self.spot(i)
+            if spot then x, y, z, n = x + spot.x, y + spot.y, z + spot.z, n + 1 end
+        end
+        if n == 0 then return nil end
+        x, y, z = x / n, y / n, z / n
+        return { at = { X = x - 9000, Y = y, Z = z + 7500 }, rot = { Pitch = -38, Yaw = 0, Roll = 0 } }
+    end
+    if deps.Spectate and deps.bipedAt then self.spectate = deps.Spectate.new({ bipedAt = deps.bipedAt, overview = overview }) end
     -- Cortana and the announcer (warfare_voice.lua): fed each accepted
     -- snapshot below, silent when its waves are not installed.
     if deps.Voice and deps.voiceIO then self.voice = deps.Voice.new(deps.voiceIO) end

@@ -585,8 +585,74 @@ static void test_paths(void) {
     }
 }
 
+/* A respawn at home while the Pelican cannot be boarded waits, shielded and
+ * unarmed; every way out takes the shield off, and only boarding keeps the
+ * weapon lowered (for the ride). */
+static void waiting_spawn(warfare_player *p, warfare_sample *s, uint32_t unit) {
+    warfare_player_reset(p); *s = sample(unit); s->team = 0; at_home(s); s->support_world = 1;
+}
+static void test_waiting(void) {
+    const float dt = 1.0f / 60;
+    warfare_player p; warfare_sample s; warfare_output o;
+    warfare_sortie away; memset(&away, 0, sizeof away); away.active = 1; away.id = 1; away.duration = 30; /* out of sight */
+    warfare_sortie none; memset(&none, 0, sizeof none);
+    waiting_spawn(&p, &s, 80);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o);
+    assert(p.stage == WF_WAITING && (o.flags & WF_SHIELD) && (o.flags & WF_LOWER_WEAPON));
+    for (int n = 0; n < 600; n++) {
+        warfare_step(&p, &s, 2, &away, dt, 0, &o);
+        assert(p.stage == WF_WAITING && !(o.flags & (WF_SHIELD | WF_UNSHIELD | WF_BOARD)));
+    }
+    /* The Pelican parks: boarded straight from waiting. */
+    warfare_sortie parked; warfare_reinforcement_sortie(50, 60, 30, &parked);
+    warfare_step(&p, &s, 2, &parked, dt, 0, &o);
+    assert(p.stage == WF_BOARDING && (o.flags & WF_UNSHIELD) && (o.flags & WF_BOARD)
+        && !(o.flags & WF_RAISE_WEAPON) && p.weapon_lowered && !p.fresh);
+    /* A shuffle is not a walk; a walk ends it, and this life never waits again. */
+    waiting_spawn(&p, &s, 81);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING);
+    s.position[0] += 1.5f; warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING);
+    s.position[0] += 1.0f; warfare_step(&p, &s, 2, &away, dt, 0, &o);
+    assert(p.stage == WF_GROUND && (o.flags & WF_UNSHIELD) && (o.flags & WF_RAISE_WEAPON));
+    s.position[0] -= 2.5f; warfare_step(&p, &s, 2, &away, dt, 0, &o);
+    assert(p.stage == WF_GROUND && !(o.flags & WF_SHIELD));
+    /* A vehicle ends it. */
+    waiting_spawn(&p, &s, 82);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING);
+    s.parent = 99; warfare_step(&p, &s, 2, &away, dt, 0, &o);
+    assert(p.stage == WF_GROUND && (o.flags & WF_UNSHIELD));
+    /* So does the cap, if the Pelican never comes. */
+    waiting_spawn(&p, &s, 83);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o);
+    int ended = 0;
+    for (int n = 0; n < (int)(WARFARE_WAIT_MAX_SECONDS * 60) + 2; n++) {
+        warfare_step(&p, &s, 2, &away, dt, 0, &o);
+        if (o.flags & WF_UNSHIELD) ended = 1;
+    }
+    assert(ended && p.stage == WF_GROUND);
+    /* The match ending, or a new warmup. */
+    waiting_spawn(&p, &s, 84);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING);
+    warfare_step(&p, &s, 3, &away, dt, 0, &o); assert(o.flags & WF_UNSHIELD);
+    waiting_spawn(&p, &s, 85);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING);
+    warfare_step(&p, &s, 0, &none, dt, 0, &o); assert((o.flags & WF_UNSHIELD) && p.stage == WF_GROUND);
+    /* A client that finds itself seated (its host boarded it first). */
+    waiting_spawn(&p, &s, 86);
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_WAITING);
+    s.parent = 12; s.parent_is_transport = 1;
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_SEATED && (o.flags & WF_UNSHIELD));
+    /* No waves on the map, or not on solid ground yet: no wait. */
+    waiting_spawn(&p, &s, 87);
+    warfare_step(&p, &s, 2, &none, dt, 0, &o); assert(p.stage == WF_GROUND && !(o.flags & WF_SHIELD));
+    waiting_spawn(&p, &s, 88); s.support_world = 0;
+    warfare_step(&p, &s, 2, &away, dt, 0, &o); assert(p.stage == WF_GROUND);
+    printf("waiting: shield on a fresh home spawn, off by boarding, walking, vehicle, cap, match end, warmup, client seat\n");
+}
+
 int main(void) {
     test_paths();
+    test_waiting();
     test_waves();
     test_remote_rider();
     test_reinforcements();

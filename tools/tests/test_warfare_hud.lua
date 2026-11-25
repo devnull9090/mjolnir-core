@@ -195,6 +195,11 @@ do
     eq(Warfare.parse(withSites(550, packed(1, false, false, 16), 16 * 60, 2, "1 0 2")), nil, "Covenant progress beyond the steps")
     hud.snapshot, hud.next, hud.seenOwners = nil, 0, nil   -- the poll test below starts its own clock
 end
+-- Native WF_WAITING (8): respawned at home while the Pelican cannot be boarded.
+local waiting = assert(Warfare.parse(sample(100, 2, 0, 0, "9", 8)), "stage 8 parses")
+eq(waiting.players[0].stage, 8)
+eq(Warfare.describe(waiting, 0), "WAITING FOR YOUR PELICAN  /  IT LEAVES IN 0:50  /  MOVE TO PLAY FROM BASE")
+eq(Warfare.parse(sample(100, 2, 0, 0, "9", 9)), nil, "no stage past 8")
 print("Warfare HUD: strict parser, freshness/instance/map guards, authoritative totals, capture fields and insertion hints passed")
 
 -- Build and tick the actual runtime-composed panel with a small UMG double.

@@ -30,12 +30,25 @@ local SNAP, KEEP_WORLD = 2, 1 -- EAttachmentRule
 -- Stages a watchable teammate can be in: on foot (ground, landed, failed).
 local ON_FOOT = { [0] = true, [5] = true, [6] = true }
 
---- Whether this snapshot wants the local player spectating: their row is
---- seated (2) in combat and the reinforcement wave is parked long enough.
+--- Whether this snapshot wants the local player spectating, in combat:
+--- - waiting at home for a Pelican that cannot be boarded yet (native
+---   WF_WAITING, 8; the native code decides it, shielded and unarmed), or
+--- - boarding (1) or seated (2) while the wave is parked long enough. Boarding
+---   counts so the view does not snap back to the pawn for the moment
+---   between waiting and the seat.
 function Spectate.wanted(s, me, wave)
     local p = s and s.players and s.players[me]
-    return p ~= nil and p.localUser >= 0 and s.phase == 2 and p.stage == 2
+    if not (p ~= nil and p.localUser >= 0 and s.phase == 2) then return false end
+    if p.stage == 8 then return true end
+    return (p.stage == 1 or p.stage == 2)
         and wave ~= nil and not wave.flying and wave.departs > Spectate.RETURN_BEFORE
+end
+
+--- Whether the local player is waiting (stage 8): then, with no teammate to
+--- watch, the view looks over the zones instead of staying on the pawn.
+function Spectate.waiting(s, me)
+    local p = s and s.players and s.players[me]
+    return p ~= nil and p.localUser >= 0 and s.phase == 2 and p.stage == 8
 end
 
 --- Teammates to watch, in a stable order: same team, on foot, not me.
@@ -86,7 +99,9 @@ function Spectate.new(deps)
     end
 
     --- The watched index, or nil. `players` is match.players (absolute index).
-    function self.watching() return watching end
+    function self.watching() return type(watching) == "number" and watching or nil end
+    --- Whether the view is the zones' overview (waiting, nobody to watch).
+    function self.overlooking() return watching == "overview" end
 
     local function same(a, b)
         local ok, equal = pcall(function() return valid(a) and valid(b) and a:GetAddress() == b:GetAddress() end)
@@ -106,11 +121,26 @@ function Spectate.new(deps)
             local _, _, biped = deps.bipedAt(players and players[index], index)
             if valid(biped) then pick, body = index, biped; break end
         end
-        if not pick then return self.restore(pc) end
+        local view = not pick and Spectate.waiting(s, me) and deps.overview and deps.overview()
+        if not pick and not view then return self.restore(pc) end
         local world = pc:GetWorld()
         if not valid(world) then return self.restore(pc) end
         if not valid(camera) then camera = makeCamera(world) end
         if not valid(camera) then return self.restore(pc) end
+        if view then
+            -- Nobody to watch: the zones from above, the camera standing free.
+            if watching ~= "overview" then
+                pcall(function() camera:K2_DetachFromActor(KEEP_WORLD, KEEP_WORLD, KEEP_WORLD) end)
+                camera:K2_SetActorLocationAndRotation(view.at, view.rot, false, {}, true)
+                if watching == nil then
+                    local ok, current = pcall(function() return pc:GetViewTarget() end)
+                    previous = ok and current or nil
+                    pc:SetViewTargetWithBlend(camera, BLEND_IN, 0, 0, false)
+                end
+                watching = "overview"
+            end
+            return
+        end
         show(body)
         if pick == watching and same(camera:GetAttachParentActor(), body) then return end
         camera:K2_AttachToActor(body, name("None"), SNAP, SNAP, KEEP_WORLD, false)
