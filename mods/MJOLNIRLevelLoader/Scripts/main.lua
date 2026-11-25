@@ -7331,19 +7331,34 @@ local function loadMegaloSwitch()
     -- A player who joins a match under way gets no travel from the host:
     -- MJOLNIRLobby's native half replays the client side of one, which does
     -- not pass through ClientTravelInternal. MJOLNIRLobby leaves the URL in
-    -- join_switch.txt (a console command needs a player controller that a
-    -- held world does not have yet), or it is typed here.
+    -- the shared variable MJOLNIR.join_switch (games.lua; a console command
+    -- needs a player controller that a held world does not have yet), or
+    -- join_switch.txt without shared variables, or it is typed here.
     RegisterConsoleCommandHandler("mjolnir_level_join", function(full)
         local target = tostring(full or ""):match("^%S+%s+(%S+)")
         if target then switchForUrl(target, "join in progress") end
         return true
     end)
+    local joinKey = "MJOLNIR.join_switch"
+    local modRef = rawget(_G, "ModRef")
+    local function takeShared()
+        local value = modRef:GetSharedVariable(joinKey)
+        if type(value) ~= "string" or value == "" then return nil end
+        modRef:SetSharedVariable(joinKey, "")
+        return value
+    end
     every(500, "join switch", function()
-        local path = MOD_DIR .. "\\join_switch.txt"
-        local target = readFile(path)
-        if not target then return end
-        os.remove(path)
-        target = target:match("^%s*(%S+)")
+        local target
+        local shared, value = false, nil
+        if modRef then shared, value = pcall(takeShared) end
+        if shared then
+            target = value
+        else
+            local path = MOD_DIR .. "\\join_switch.txt"
+            target = readFile(path)
+            if target then os.remove(path) end
+        end
+        target = target and target:match("^%s*(%S+)")
         if target then switchForUrl(target, "join in progress") end
     end)
     Log(hooked and "multiplayer switch: armed (levels with \"multiplayer\": true)"

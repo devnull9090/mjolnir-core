@@ -2,7 +2,8 @@
 -- (docs/player_identity.md).
 --
 -- MJOLNIRLobby learns which hub (Discord) account each player is, proven to
--- the host by tickets, and writes it to its identities.txt:
+-- the host by tickets, and shares it in the UE4SS shared variable
+-- MJOLNIR.identities (its identities.txt without one):
 -- "<in-game name>\t<account id>\t<hub name>\t<reports>" per player. It also
 -- caches each account's avatar as MJOLNIRMaps\_covers\av_<id>.png. The HUD
 -- only reads them: names for the scoreboard, kill feed and name tags, and
@@ -24,16 +25,35 @@ local function valid(o)
     return ok and v
 end
 
+local SHARED_KEY = "MJOLNIR.identities"
+local lastText = nil
+local function getShared(modRef) return modRef:GetSharedVariable(SHARED_KEY) end
+
+--- The Lobby's roster text: its shared variable, or identities.txt from a
+--- Lobby that set none.
+local function rosterText()
+    local modRef = rawget(_G, "ModRef")
+    if modRef then
+        local ok, shared = pcall(getShared, modRef)
+        if ok and type(shared) == "string" then return shared end
+    end
+    local f = io.open(file, "rb")
+    if not f then return nil end
+    local text = f:read("*a")
+    f:close()
+    return text
+end
+
 local function load()
     if os.clock() < nextLoad then return end
     nextLoad = os.clock() + RELOAD_SECONDS
-    local f = io.open(file, "rb")
-    if not f then
+    local text = rosterText()
+    if text == lastText then return end
+    lastText = text
+    if not text then
         known = {}
         return
     end
-    local text = f:read("*a")
-    f:close()
     local next_ = {}
     for line in text:gmatch("[^\r\n]+") do
         local platform, id, name, reports = line:match("^([^\t]*)\t([%x%-]+)\t([^\t]*)\t(%d*)$")

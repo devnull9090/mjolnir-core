@@ -2289,9 +2289,13 @@ static void log_blam_game(const char *what, const struct blam_game *g) {
     fireteam_log("%s (engine %p, +40 %p, +50 %p, +60 %p)", what, g->engine, g->at40, g->at50, g->at60);
 }
 
-/* native\jip_held.txt exists while a world is held; games.lua then writes
-   native\jip_map.txt, the held world's package path. */
+/* While a world is held games.lua writes native\jip_map.txt, the held
+   world's package path. It asks mjolnir_jip_held each second; jip_held.txt,
+   which exists while a world is held, stays for an older Lobby (opening it
+   each second cost a scan on a PC with Windows Defender's real-time scan). */
+static volatile LONG jip_held_on;
 static void held_flag(int on) {
+    InterlockedExchange(&jip_held_on, on ? 1 : 0);
     if (!dir[0]) find_dir();
     char path[MAX_PATH];
     snprintf(path, sizeof path, "%sjip_held.txt", dir);
@@ -6774,6 +6778,15 @@ static void sound_trace_arm(void) {
 #include "lifts_runtime.h"
 #include "roster_runtime.h"
 #include "medals_runtime.h"
+
+/* Lua: mjolnir_jip_held() -> whether a joined world is held (held_flag). */
+__declspec(dllexport) int mjolnir_jip_held(void *L) {
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    lc_push_bool(&f, InterlockedCompareExchange(&jip_held_on, 0, 0) != 0);
+    lc_end(&f);
+    return 1;
+}
 
 /* --- The one-time code searches' worker -------------------------------------
 

@@ -69,12 +69,45 @@ local function readDevMark()
 end
 Games.dev = readDevMark()
 
+-- Each export once: package.loadlib makes a new closure on every call.
+local exports = {}
+local function export(name)
+    local fn = exports[name]
+    if fn == nil then
+        fn = package and package.loadlib and package.loadlib(nativeDir .. "mjolnir_lobby.dll", name) or false
+        exports[name] = fn
+    end
+    return fn
+end
 local function native(name)
-    local fn = package and package.loadlib and package.loadlib(nativeDir .. "mjolnir_lobby.dll", name)
+    local fn = export(name)
     if not fn then return false end
     local ok = pcall(fn)
     return ok
 end
+
+--- Whether a world joined under way is held: mjolnir_jip_held, or
+--- native\jip_held.txt from an older DLL (opening it each second waited on
+--- Windows Defender's scan).
+function Games.worldHeld()
+    local fn = export("mjolnir_jip_held")
+    if fn then
+        local ok, held = pcall(fn)
+        if ok and type(held) == "boolean" then return held end
+    end
+    local f = io.open(nativeDir .. "jip_held.txt", "rb")
+    if f then f:close() end
+    return f ~= nil
+end
+
+--- A UE4SS shared variable for the other mods; false without one (a test,
+--- an old UE4SS), when the caller falls back to a file.
+local function share(key, value)
+    local modRef = rawget(_G, "ModRef")
+    return modRef ~= nil and pcall(modRef.SetSharedVariable, modRef, key, value)
+end
+--- The level loader's key for a joined match's URL (MJOLNIRLevelLoader main.lua).
+Games.JOIN_SWITCH_KEY = "MJOLNIR.join_switch"
 
 --- A flat object as JSON: strings, numbers and booleans.
 local function encode(t)
@@ -212,8 +245,9 @@ local jipJoinedUrl
 
 --- Hand the level loader a joined match's URL (Megalo engine, game type,
 --- running.txt for MJOLNIRHud), as the host's travel would, before the
---- native half builds this side's game: MJOLNIRLevelLoader\join_switch.txt,
---- which the loader reads within half a second. Written again every ten
+--- native half builds this side's game: the shared variable
+--- Games.JOIN_SWITCH_KEY (MJOLNIRLevelLoader\join_switch.txt without shared
+--- variables), which the loader reads within half a second. Written again every ten
 --- seconds until the loader's running.txt names the map. The URL's slot names
 --- only the engine, so the listing's exact variant goes in match_variant.txt
 --- first (modes.lua).
@@ -233,10 +267,12 @@ local function levelSwitchTick()
     end
     if pendingSwitch.tries % 10 == 0 then
         Host.modes.follow(loaderDir:sub(1, -2), pendingSwitch.code, joiningGameType, log)
-        local f = io.open(loaderDir .. "join_switch.txt", "wb")
-        if f then
-            f:write(pendingSwitch.url, "\n")
-            f:close()
+        if not share(Games.JOIN_SWITCH_KEY, pendingSwitch.url) then
+            local f = io.open(loaderDir .. "join_switch.txt", "wb")
+            if f then
+                f:write(pendingSwitch.url, "\n")
+                f:close()
+            end
         end
     end
     pendingSwitch.tries = pendingSwitch.tries + 1
@@ -301,10 +337,9 @@ end
 local function jipTick()
     audioBindTick()
     levelSwitchTick()
-    local held = io.open(nativeDir .. "jip_held.txt", "rb")
+    local held = Games.worldHeld()
     if not held then jipJoinedUrl = nil end
     if held then
-        held:close()
         local ok, full = pcall(function()
             return FindFirstOf("PlayerController"):GetWorld():GetFullName()
         end)

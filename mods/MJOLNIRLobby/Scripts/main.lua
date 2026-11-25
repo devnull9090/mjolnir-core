@@ -5039,7 +5039,7 @@ local function initialize()
         local tries = 0
         local function leave()
             tries = tries + 1
-            if readFile(MOD_DIR .. "\\native\\jip_held.txt") and tries < 240 then
+            if Games.worldHeld() and tries < 240 then
                 ExecuteInGameThreadWithDelay(500, leave)
                 return
             end

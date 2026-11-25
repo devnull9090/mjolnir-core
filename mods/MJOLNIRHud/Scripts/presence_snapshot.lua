@@ -29,6 +29,11 @@ end
 --- second on Windows Defender's scan; a shared variable is no file at all.
 Snapshot.SHARED_KEY = "MJOLNIR.discord_match"
 
+--- The Lobby's session marker for this launch (Scripts/presence.lua).
+Snapshot.SESSION_KEY = "MJOLNIR.discord_session"
+
+local function getShared(modRef, key) return modRef:GetSharedVariable(key) end
+
 function Snapshot.new(modDir)
     local last, hadMatch = 0, false
     local marker = modDir .. "\\..\\MJOLNIRLobby\\native\\discord_session.txt"
@@ -37,14 +42,21 @@ function Snapshot.new(modDir)
         local at = os.time()
         if at == last and hadMatch == (match ~= nil) then return end
         last, hadMatch = at, match ~= nil
-        -- Written once at the Lobby's start, so cheap to open after that.
-        local f = io.open(marker, "rb")
-        local session = f and f:read(160)
-        if f then f:close() end
+        -- In memory from the Lobby; the marker file from an older one.
+        local session
+        if modRef then
+            local ok, shared = pcall(getShared, modRef, Snapshot.SESSION_KEY)
+            if ok and type(shared) == "string" and shared ~= "" then session = shared end
+        end
+        if not session then
+            local f = io.open(marker, "rb")
+            session = f and f:read(160)
+            if f then f:close() end
+        end
         if not session then return end
         local text = Snapshot.encode(match, index, session, at)
-        if modRef then pcall(modRef.SetSharedVariable, modRef, Snapshot.SHARED_KEY, text) end
-        -- The file stays for an older Lobby.
+        if modRef and pcall(modRef.SetSharedVariable, modRef, Snapshot.SHARED_KEY, text) then return end
+        -- No shared variables: the file, as before.
         local out = io.open(modDir .. "\\discord_match.txt", "wb")
         if out then out:write(text); out:close() end
     end

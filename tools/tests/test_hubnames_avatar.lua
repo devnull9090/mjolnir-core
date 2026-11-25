@@ -57,4 +57,19 @@ assert(second ~= first, "the new texture")
 eq(#finds, 1, "the rendering library looked up once, nothing else")
 
 eq(HubNames.avatar(nil, world), nil, "no account, no avatar")
+
+-- The roster comes from the Lobby's shared variable, with no file opened.
+local shared = { ["MJOLNIR.identities"] = "Chief\tabc-1\tJohn\t2\n" }
+env.ModRef = { GetSharedVariable = function(_, key) return shared[key] end }
+env._G = env -- the mods look ModRef up with rawget(_G, ...)
+local opened = 0
+env.io = setmetatable({ open = function(path, mode)
+    opened = opened + 1
+    return real(path, mode)
+end }, { __index = io })
+env.os = setmetatable({ clock = function() return 1000 end }, { __index = os })
+local who = HubNames.of("Chief")
+eq(who and who.name, "John", "hub name from the shared roster")
+eq(who and who.reports, 2, "reports from the shared roster")
+eq(opened, 0, "no identities file opened")
 print("hub avatars: " .. checks .. " checks passed")
