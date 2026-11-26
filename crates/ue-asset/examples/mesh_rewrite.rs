@@ -4,7 +4,7 @@
 //! ```text
 //! cargo run -p ue-asset --example mesh_rewrite -- \
 //!     <paks> <donor path substring> <mesh.gltf> <out.uasset> //!     [--selftest] [--offset x,y,z] [--rename /Game/Path/SM_Name] \
-//!     [--material Slot=/Game/Path/MI_X=pat1|pat2]... [--lightmap-uvs] [@args.txt]
+//!     [--material Slot=/Game/Path/MI_X=pat1|pat2]... [--lightmap-uvs] [--fit-axes] [@args.txt]
 //! ```
 //!
 //! `@args.txt` reads more arguments from a file, one per line.
@@ -40,6 +40,8 @@
 //! The geometry is normalised into the donor's bounding box, because the
 //! bounds the engine culls against live in the tail this rewrite preserves.
 //! Pass `--donor-sphere cm` with the donor's verified radius to fit its sphere too.
+//! `--fit-axes` fits each axis on its own (a per-axis spawn scale), so a flat
+//! or long piece keeps bounds as tight as its own box.
 //! The scale it prints is what the spawned component has to use to put the
 //! mesh back at its intended size.
 use ue_asset::mesh_write::{rewrite_static_mesh, Geometry};
@@ -304,7 +306,11 @@ fn main() {
     let more = (2..8)
         .take_while(|k| {
             doc["meshes"].as_array().into_iter().flatten().any(|m| {
-                m["primitives"].as_array().into_iter().flatten().any(|p| p["attributes"].get(format!("TEXCOORD_{k}")).is_some())
+                m["primitives"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|p| p["attributes"].get(format!("TEXCOORD_{k}")).is_some())
             })
         })
         .count();
@@ -441,6 +447,18 @@ fn main() {
         .fold(0.0f32, f32::max)
         .max(1e-6);
     let mut fit = DONOR_HALF / half;
+    // `--fit-axes`: each axis fills the donor's box on its own, so a flat or
+    // long piece gets bounds as tight as its own box instead of a cube of its
+    // longest side. The component then needs a per-axis scale (printed), and
+    // the normals are stored pre-divided by it: the engine scales normals by
+    // the inverse, which brings them back to the geometry's own.
+    let fit_axes = a.iter().any(|s| s == "--fit-axes");
+    let mut fits = [fit; 3];
+    if fit_axes {
+        for k in 0..3 {
+            fits[k] = DONOR_HALF / ((hi[k] - lo[k]) * 0.5).max(1e-3);
+        }
+    }
     if let Some(i) = a.iter().position(|s| s == "--donor-sphere") {
         let limit: f32 = a
             .get(i + 1)
@@ -451,30 +469,39 @@ fn main() {
             limit.is_finite() && limit > 0.0,
             "invalid donor sphere radius"
         );
+        // The radius the normalised geometry needs, at the scale chosen so far.
         let radius = geo
             .positions
             .chunks_exact(3)
             .map(|p| {
                 let v = to_cm(p);
                 (0..3)
-                    .map(|k| (v[k] - centre[k]).powi(2))
+                    .map(|k| ((v[k] - centre[k]) * fits[k]).powi(2))
                     .sum::<f32>()
                     .sqrt()
             })
             .fold(0.0f32, f32::max);
-        fit = fit.min(limit / radius.max(1e-6));
+        if radius > limit {
+            let shrink = limit / radius;
+            fit *= shrink;
+            for f in fits.iter_mut() {
+                *f *= shrink;
+            }
+        }
     }
     let mut normalised = Vec::with_capacity(geo.positions.len());
     for p in geo.positions.chunks_exact(3) {
         let v = to_cm(p);
         for k in 0..3 {
-            normalised.push((v[k] - centre[k]) * fit);
+            normalised.push((v[k] - centre[k]) * fits[k]);
         }
     }
     geo.positions = normalised;
     let mut swapped = Vec::with_capacity(geo.normals.len());
     for n in geo.normals.chunks_exact(3) {
-        swapped.extend_from_slice(&[n[0], n[2], n[1]]);
+        let m = [n[0] / fits[0], n[2] / fits[1], n[1] / fits[2]];
+        let len = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt().max(1e-12);
+        swapped.extend_from_slice(&[m[0] / len, m[1] / len, m[2] / len]);
     }
     geo.normals = swapped;
     // The same swap for the bump frame. Exchanging two axes is a mirror, so the
@@ -484,9 +511,15 @@ fn main() {
             .chunks_exact(4)
             .any(|t| t[0] != 0.0 || t[1] != 0.0 || t[2] != 0.0)
     {
+        // Tangents scale like positions (the engine scales them by the
+        // component's scale), so a per-axis fit stores them multiplied by it.
         geo.tangents = tangents
             .chunks_exact(4)
-            .flat_map(|t| [t[0], t[2], t[1], -t[3]])
+            .flat_map(|t| {
+                let m = [t[0] * fits[0], t[2] * fits[1], t[1] * fits[2]];
+                let len = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt().max(1e-12);
+                [m[0] / len, m[1] / len, m[2] / len, -t[3]]
+            })
             .collect();
     }
     // The incident direction, re-expressed in each vertex's own tangent frame
@@ -525,13 +558,25 @@ fn main() {
     println!(
         "  normalised bounding sphere {radius:.1} (donor's box half-extent is {DONOR_HALF};          its sphere radius must be at least this)"
     );
-    println!(
-        "  SPAWN: location ({:.1}, {:.1}, {:.1}) cm, uniform scale {:.4}",
-        centre[0],
-        centre[1],
-        centre[2],
-        1.0 / fit
-    );
+    if fit_axes {
+        println!(
+            "  SPAWN: location ({:.1}, {:.1}, {:.1}) cm, axis scale ({:.4}, {:.4}, {:.4})",
+            centre[0],
+            centre[1],
+            centre[2],
+            1.0 / fits[0],
+            1.0 / fits[1],
+            1.0 / fits[2]
+        );
+    } else {
+        println!(
+            "  SPAWN: location ({:.1}, {:.1}, {:.1}) cm, uniform scale {:.4}",
+            centre[0],
+            centre[1],
+            centre[2],
+            1.0 / fit
+        );
+    }
 
     let (want_v, want_i) = (geo.vertices(), geo.indices.len());
     let produced = rewrite_static_mesh(&ctx, bytes, &geo).expect("rewrite with gltf geometry");

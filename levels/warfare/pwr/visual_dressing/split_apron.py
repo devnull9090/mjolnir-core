@@ -9,6 +9,8 @@ its own mesh and its own bounds, the engine frustum-culls the sectors out of
 view. The triangles are the apron's own, untouched: same vertices, normals
 and UVs, so the joins are exact and the look is the same.
 
+Each sector is fitted per axis (mesh_rewrite --fit-axes) so its bounds hug it.
+
 Reads a finished apron directory (apron.gltf/.bin, receipt.json,
 runtime_decor.json), checks the geometry against its receipt, and writes to
 --out: one glTF and one cooked mesh per sector (mesh_rewrite, the apron's own
@@ -31,6 +33,12 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[4]
 PAKS = Path("C:/Program Files (x86)/Steam/steamapps/common/Halo Campaign Evolved/Meteorite/Content/Paks")
 STEM = "pakchunk963-MJOLNIRPWRVISTA_P"
+# /Engine/BasicShapes/Cylinder's bounds: a box of half-extent 50 and the
+# sphere round it (radius 50, half-height 50). Each sector fills the box per
+# axis (mesh_rewrite --fit-axes), so its bounds are its own box, not a cube of
+# its longest side, which reached a kilometre under the ground and kept the
+# sectors drawn while looking down.
+DONOR_SPHERE = "70.7"
 TOOLS = REPO / "target/release/examples"  # cargo build --release -p ue-asset --example mesh_rewrite; -p blam-pack --example package_add
 
 
@@ -130,19 +138,22 @@ def split(apron, out, count):
         uasset = work / (name.rsplit("/", 1)[-1] + ".uasset")
         log = run([TOOLS / "mesh_rewrite.exe", PAKS, "basicshapes/cylinder", work / "apron.gltf", uasset,
                    "--offset", "0,0,0", "--rename", name, "--material", f"DistantGranite={material}=*",
-                   "--asset-imports", "--selftest"], work / "mesh.log")
-        m = re.search(r"SPAWN: location \(([-\d.]+), ([-\d.]+), ([-\d.]+)\) cm, uniform scale ([\d.]+)", log)
+                   "--asset-imports", "--selftest", "--fit-axes", "--donor-sphere", DONOR_SPHERE], work / "mesh.log")
+        m = re.search(r"SPAWN: location \(([-\d.]+), ([-\d.]+), ([-\d.]+)\) cm, axis scale "
+                      r"\(([\d.]+), ([\d.]+), ([\d.]+)\)", log)
         if not m:
             raise RuntimeError(f"sector {k}: mesh_rewrite printed no spawn transform")
-        x, y, z, scale = map(float, m.groups())
+        x, y, z, sx, sy, sz = map(float, m.groups())
+        scale = [sx, sy, sz]
         row = copy.deepcopy(base)
         row["id"] = "pwr_distant_apron" if k == 0 else f"pwr_distant_apron_s{k:02d}"
         row["mesh"] = f"{name}.{name.rsplit('/', 1)[-1]}"
-        row["pos"], row["scale"] = [x, y, z], [scale] * 3
+        row["pos"], row["scale"] = [x, y, z], scale
         rows.append(row)
         packages += ["--package", f"{name}={uasset}"]
         sectors.append({"sector": k, "vertices": verts, "triangles": ntris, "pos": [x, y, z], "scale": scale})
-        print(f"sector {k:2d}: {ntris:8d} triangles, {verts:8d} vertices, at ({x:.0f}, {y:.0f}, {z:.0f}) x{scale:.1f}")
+        print(f"sector {k:2d}: {ntris:8d} triangles, {verts:8d} vertices, at ({x:.0f}, {y:.0f}, {z:.0f}) "
+              f"x({sx:.0f}, {sy:.0f}, {sz:.0f})")
     run([TOOLS / "package_add.exe", PAKS, out, "--name", STEM] + packages, out / "package.log")
     # The container's .pak is the game's empty one, as package_apron copies it.
     (out / (STEM + ".pak")).write_bytes((apron / (STEM + ".pak")).read_bytes())
