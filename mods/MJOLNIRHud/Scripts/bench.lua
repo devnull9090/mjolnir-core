@@ -214,6 +214,35 @@ local function cvarCondition(name, value)
         undo = function() console(name .. " " .. was) end }, was
 end
 
+--- `hide <text>`: every shown StaticMeshActor whose own name or mesh name
+--- contains `text` (plain, case-sensitive); `hideclass <Class>`: every shown
+--- actor of that class (FindAllOf). Hidden in turns against the base like a
+--- cvar, so a match's drift (AI arriving, a round ending) falls on both.
+--- One FindAllOf per bench.
+local function hideCondition(mode, text)
+    local list = {}
+    if mode == "hideclass" then
+        for _, a in ipairs(FindAllOf(text) or {}) do
+            if a:IsValid() and not a.bHidden then list[#list + 1] = a end
+        end
+    else
+        for _, a in ipairs(FindAllOf("StaticMeshActor") or {}) do
+            if a:IsValid() and not a.bHidden then
+                local name = a:GetFName():ToString()
+                local okM, mesh = pcall(function() return a.StaticMeshComponent.StaticMesh:GetFName():ToString() end)
+                if name:find(text, 1, true) or okM and mesh and mesh:find(text, 1, true) then list[#list + 1] = a end
+            end
+        end
+    end
+    local function set(hidden)
+        for _, a in ipairs(list) do
+            if a:IsValid() then a:SetActorHiddenInGame(hidden) end
+        end
+    end
+    return { name = string.format("%s %s (%d)", mode, text, #list),
+        apply = function() set(true) end, undo = function() set(false) end }, #list
+end
+
 --------------------------------------------------------------------------------
 -- Frame times (stat unit's Game, Draw, RHIT, GPU)
 --------------------------------------------------------------------------------
@@ -597,7 +626,7 @@ function Bench.chat(notify)
 end
 
 --- `mjolnir_bench`, `mjolnir_bench send`, `mjolnir_bench <cvar> <value>`,
---- `mjolnir_bench stop`.
+--- `mjolnir_bench hide <text>`, `mjolnir_bench hideclass <Class>`, `mjolnir_bench stop`.
 function Bench.command(args)
     local a, b = args and args[1], args and args[2]
     if a and a:lower() == "stop" then
@@ -606,6 +635,14 @@ function Bench.command(args)
         return "bench stopped"
     end
     if run then return "a bench is already running (mjolnir_bench stop)" end
+    if a and b and (a:lower() == "hide" or a:lower() == "hideclass") then
+        local okH, c, n = pcall(hideCondition, a:lower(), b)
+        if not okH then return "cannot find " .. b .. ": " .. tostring(c) end
+        if n == 0 then return "nothing shown matches " .. b end
+        local list = {}
+        for i = 1, CVAR_PAIRS do list[i] = c end
+        return start(list, c.name .. " against shown", { kind = "cvar" })
+    end
     if a and b then
         local okC, c, was = pcall(cvarCondition, a, b)
         if not okC then return "cannot read " .. a .. ": " .. tostring(c) end
@@ -614,7 +651,7 @@ function Bench.command(args)
         return start(list, string.format("%s %s against %s", a, b, was), { kind = "cvar" })
     end
     if a and a:lower() ~= "send" then
-        return "usage: mjolnir_bench [send] | mjolnir_bench <cvar> <value> | mjolnir_bench stop"
+        return "usage: mjolnir_bench [send] | <cvar> <value> | hide <mesh or actor name text> | hideclass <Class> | stop"
     end
     return foliageBench({ send = a ~= nil })
         or "no level loader foliage on this map; try mjolnir_bench <cvar> <value>"
