@@ -522,6 +522,8 @@ How it works:
 - **Foliage quality.** Grassy groups are dealt once more into four tiers (3,
   1, 2 and 6 clumps in 12). The loader hides the tiers above the quality:
   tier 0 at Low, 0–1 at Medium, 0–2 at High. That is the old keep-1-in-4/3/2.
+  Since 2026-11-26 the quality comes from the game's Geometry setting, not
+  `sg.FoliageQuality` (which the game leaves at 3).
   The engine's own density scaling would not do: the game's scalability sets
   `foliage.DensityScale` 0 at Low, which clears every instance at load.
 - **The loader** (MJOLNIRLevelLoader 0.7.5; it first shipped as 0.7.6, in
@@ -675,6 +677,95 @@ Death Island overall, from the first runtime build: the loader's load frame
 went from 15.5 s to 0.9 s, its live heap from 5.3 MB to 2.3 MB, the handles
 it holds from 8,581 to 68, at the same frame rate and look.
 
+## The player's Video settings never reached our foliage (PC3, 2026-11-26)
+
+Measured on PC3: GTX 1080 Ti, Ryzen 9 7900X, 1920x1080 borderless, the game's
+Medium preset (TSR Medium, so `r.ScreenPercentage` 50). Vsync off and
+`t.MaxFPS 0` for the benches. The game's own 60 fps limit otherwise pins
+every bench at 16.67 ms. At these settings the card sets the frame: Game
+2.1–2.4 ms, GPU 9–15 ms.
+
+**The finding.** The loader picked the foliage tier from
+`sg.FoliageQuality`. This game never moves the engine's `sg.*` groups: every
+one reads 3 at every Video preset. Every player got the Epic tier: all of
+the clumps, full cull distances, and wind. The player's choice lives in the
+game's own settings object, `BlamGameUserSettings` (`GetGeometryQualitySetting`,
+`EVideoQualitySetting` VeryLow 0, Low 1, Medium 2, High 3, Ultra 4).
+
+`Foliage.quality` now takes the lower of the two values (MJOLNIRLevelLoader
+0.21.9):
+
+- The Geometry setting maps VeryLow and Low to tier 0, Medium to 1, High to
+  2 and Ultra to 3.
+- `sg.FoliageQuality`, which still works as a manual override from the
+  console.
+
+The `foliage quality` log line names both inputs. The bench's settings line
+now also carries the game's own settings (`game: Preset 2, Geometry 2, ...`;
+MJOLNIRHud 0.25.5).
+
+Things that do not work for this:
+
+- **`GetGameUserSettings()` at the title screen** reads 4/4/4, the defaults.
+  It reads the player's values only once they have signed in and the
+  cloud copy is loaded. Every map load comes after that.
+- **Editing `GeometryQuality` in `HaloLocalGameUserSettings.ini`** does not
+  stick: the cloud copy wins.
+- **Calling the setters and an apply from Lua** changes no cvar while the
+  game runs. To compare tiers live, set the in-memory value and reload the
+  foliage. For example, `GetGameUserSettings():SetGeometryQualitySetting(4)`
+  then `mjolnir_foliage on`. Set it back the same way.
+
+Same held view, same session, the loader's tier the only change:
+
+| Map, view | Ultra tier (what Medium got before) | Medium tier (now) | Saved | Foliage cost |
+|---|---|---|---|---|
+| Blood Gulch (29654, 49846) | 15.99 ms | 13.58 ms | **2.41 ms (15%)** | 4.08 → 1.75 ms |
+| Death Island (-18383, -16047) | 13.70 ms | 12.39 ms | 1.31 ms (10%) | 1.73 → 0.69 ms |
+
+At Blood Gulch the frame without foliage read the same in both runs (11.83
+and 11.91 ms), so the whole difference is the foliage. Death Island's floor
+moved by 0.3 ms between its two runs, so take about 1.0 ms there.
+
+Medium players see thinner grass that does not sway. High players get the
+High tier and Low players the Low tier. Ultra is unchanged.
+
+**What else of ours costs GPU, Death Island at a held view (9.97 ms base):**
+each group was hidden from the bridge and timed with a no-op `mjolnir_bench`
+(base runs repeat within ±0.01 ms):
+
+| Hidden | Saved |
+|---|---|
+| Flux sea (coastline surface) | 0.54 ms, of which the surface grid 0.47 and the caustics decal 0.06 |
+| Landscape | 0.20 ms |
+| Cladding rocks (7,652 actors) | 0.29 ms; their shadows ~0 |
+| Decor (760 pieces) | 0.03 ms |
+| Our 20 placed lights | 0 |
+
+The sea's cost is the visible water: hiding Flux's first
+`NS_InfiniteSurfaceMesh` removes the sea. The second draws nothing.
+`GridMeshScale` and `GridLevels` set on the live component change nothing,
+because they are read when the grid is spawned. The scattering and absorption
+volumes, the underwater post-process and the 60 Hz wave texture cost
+nothing measurable.
+
+**Pelican Warfare** sat at GPU ~15 ms. No single thing of ours stood out:
+
+- foliage 0.4 ms
+- volumetric fog and Nanite's pixels-per-edge within noise
+- its rivers are baked playback, with no live simulation
+
+A solo player with no input freefalls without deploying and dies, so the
+camera keeps returning to the Pelican. Bench Pelican Warfare with a player
+who lands.
+
+**Hitches on PC3 during play** (PWR, hitch log): the HUD tick reads 18–29
+ms once at about 30 s and once at about 90 s into a match. The one-offs at
+screen changes are not seen in play: the Lobby's main menu watch takes
+106–136 ms as the post-game screen opens, and the loader's tick 101–103 ms
+at the world swap. The round end is as the performance pass blog post
+describes it.
+
 ## What is left
 
 - **Bake the other remastered maps** (`bake_foliage` per map, a full
@@ -693,8 +784,9 @@ it holds from 8,581 to 68, at the same frame rate and look.
 - **Measure weaker PCs.** Every number above is from a 5090, apart from one
   player's RX 9060 XT benches. `/bench` on PC 2, and from players, fills the
   Benchmarks tab with real hardware.
-- **Pick the foliage tier from the GPU.** `sg.FoliageQuality` only helps
-  players who open Video settings. `Saved/GpuBenchmark.json` has a `gpuScore`
+- **Pick the foliage tier from the GPU.** The tier follows the game's
+  Geometry setting (2026-11-26, above), so it only helps players who open
+  Video settings or whose preset the game picked. `Saved/GpuBenchmark.json` has a `gpuScore`
   (2060 on the 5090), and every bench report carries it with the foliage
   cost. Once the Benchmarks tab holds a few cards, the loader can choose
   `keep` / `cull` / `still` from the score; picking thresholds before that
