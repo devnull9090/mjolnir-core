@@ -208,3 +208,54 @@ also remain unchanged. Candidate grass is written to `outcrops-v2/grass` from th
 original exact PCG transforms. Integration requires reviewed new hulls, native
 collision recompilation, `refresh_native_probes.py`, and fresh live acceptance;
 the passing previous collision receipt cannot certify changed rock placements.
+
+## Splitting the apron into sectors (performance, 2026-11-26)
+
+The shipped apron (`out/pwr/vista/apron-v9b`, 3.24M triangles) is one mesh
+whose bounds always hold the camera, so the engine drew all of it every frame,
+whichever way the player looked. On PC3 (GTX 1080 Ti, Medium, 1080p) hiding it
+saved 1.7-2.7 ms from the map's centre looking out and 0.9 ms looking at the
+ground (`mjolnir_bench hide DistantApron`).
+
+`split_apron.py` cuts a finished apron folder into angular sectors of equal
+triangle count and cooks each as its own mesh. `mesh_rewrite --fit-axes` gives
+each sector a box fitted per axis (a per-axis spawn scale). With one uniform
+scale, a flat sector's box was a cube reaching over a kilometre under the
+ground, and looking down still drew it. The triangles, normals and UVs are the
+apron's own, so the joins are exact.
+
+```sh
+cargo build --release -p ue-asset --example mesh_rewrite
+cargo build --release -p blam-pack --example package_add
+python levels/warfare/pwr/visual_dressing/split_apron.py \
+  --apron-dir out/pwr/vista/apron-v9b --out out/pwr/apron-sectors-12b --sectors 12
+```
+
+The output folder has package_apron's layout (chunk 963 plus a
+`runtime_decor.json`, now with a row per sector), so `VISTA_APRON=<it>` stages
+it. `stage_vista.py` replaces the level's range row with one row per sector,
+each keeping the level's materials and vista.json's values. The first sector
+keeps the id `pwr_distant_apron`. Stage from a level that still has the single
+range row: vista.json finds the range by its mesh.
+
+Measured on PC3 with 12 sectors, `hide DistantApron` (what the ring costs) at
+three views, two runs each, the same session procedure:
+
+| View | One mesh | 12 sectors, cube bounds | 12 sectors, fitted bounds |
+|---|---|---|---|
+| Centre, looking out | 2.72 / 1.68 ms | 0.24 / 0.33 ms | 0.40 / -0.20 ms |
+| Centre, looking down | 0.93 ms | 1.43 ms | -0.22 ms |
+| Red base, looking across the map | 2.64 / 2.93 ms | 2.86 / 2.59 ms | 2.80 / 3.57 ms |
+
+Across the whole map the mountains fill the view and their sectors are drawn:
+no change there. A lower-detail ring for lower Geometry qualities is the
+lever left for that view; it changes the look.
+
+Ray tracing is not the cost on this card: `r.RayTracing.Geometry.StaticMeshes
+0`, `r.Lumen.HardwareRayTracing 0` and a 300 m `r.RayTracing.Culling.Radius`
+each changed the look-down frame by less than 0.2 ms.
+
+Twelve headings from 300 m showed the range whole, with no gaps at the joins.
+Tested with the sector container installed beside the released map (as
+`pakchunk10990-MJOLNIRAPRONTEST_P`) and the level file's row swapped. Not
+released: the next map build carries it.

@@ -78,10 +78,23 @@ def apply(inputs, level, hashes, apron_dir=None, config=CONFIG):
             member = "content/" + target.name + ext
             hashes[member] = sha(target.with_suffix(ext))
             replaced[member] = hashes[member]
-        decor = json.loads((apron_dir / "runtime_decor.json").read_text())["decor"][0]
+        # One row a mesh in the apron's container: one for a whole ring, one a
+        # sector for a split one (visual_dressing/split_apron.py). Each takes
+        # the level's range row (with the values above) and the apron row's
+        # id, mesh and placement.
+        rows = json.loads((apron_dir / "runtime_decor.json").read_text())["decor"]
+        out = []
         for d in level["decor"]:
-            if d.get("mesh") == mesh:
-                d["pos"], d["scale"] = decor["pos"], decor["scale"]
+            if d.get("mesh") != mesh:
+                out.append(d)
+                continue
+            for r in rows:
+                piece = json.loads(json.dumps(d))
+                piece["pos"], piece["scale"] = r["pos"], r["scale"]
+                if len(rows) > 1:
+                    piece["id"], piece["mesh"] = r["id"], r["mesh"]
+                out.append(piece)
+        level["decor"] = out
     return {"config_sha256": sha(config), "environment": spec.get("environment", {}),
             "landscape_haze": haze, "ambience": ambience, "lifted_decor": lifted,
             "range_decor": touched, "range_container": replaced}
