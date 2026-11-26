@@ -235,8 +235,9 @@ local function hideCondition(mode, text)
         end
     end
     local function set(hidden)
+        -- pcall: a round's end can take the actors away mid-bench.
         for _, a in ipairs(list) do
-            if a:IsValid() then a:SetActorHiddenInGame(hidden) end
+            pcall(function() if a:IsValid() then a:SetActorHiddenInGame(hidden) end end)
         end
     end
     return { name = string.format("%s %s (%d)", mode, text, #list),
