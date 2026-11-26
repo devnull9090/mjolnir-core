@@ -41,6 +41,9 @@ local SEND_WARM = 120 -- /bench waits this long; the hub's summary skips younger
 local CVAR_PAIRS = 3
 local SG = { "ViewDistance", "AntiAliasing", "Shadow", "GlobalIllumination", "Reflection", "PostProcess",
     "Texture", "Effects", "Foliage", "Shading" }
+-- The game's own Video settings (BlamGameUserSettings Get<name>QualitySetting).
+local GAME = { "Geometry", "Texture", "Reflections", "GlobalIllumination", "Lighting", "Effects", "Atmospherics",
+    "Postprocessing" }
 
 local log = print
 local filePath = nil
@@ -116,6 +119,17 @@ local function quality(out)
     end
     local okS, sp = pcall(function() return k:GetConsoleVariableFloatValue("r.ScreenPercentage") end)
     if okS then out.screen_percentage = sp end
+    -- The player's Video settings (EVideoQualitySetting, VeryLow 0 ..
+    -- Ultra 4). The game leaves every sg.* at 3, so these are what the
+    -- player chose; the loader's foliage tier follows Geometry.
+    local gus = object("/Script/Engine.Default__GameUserSettings"):GetGameUserSettings()
+    out.game = {}
+    for _, name in ipairs(GAME) do
+        local ok, v = pcall(function() return gus["Get" .. name .. "QualitySetting"](gus) end)
+        if ok and type(v) == "number" then out.game[name] = v end
+    end
+    local okP, p = pcall(function() return gus.QualityPreset end)
+    if okP and type(p) == "number" then out.game.Preset = p end
 end
 
 --- What a run was taken on: the size drawn, window mode, vsync, frame
@@ -135,9 +149,11 @@ function Bench.settings(s)
     s = s or Bench.settingsTable()
     local parts = {}
     for _, name in ipairs(SG) do parts[#parts + 1] = string.format("%s %s", name, tostring(s.sg[name] or "?")) end
-    return string.format("settings: %sx%s %s, vsync %s, fps limit %s; sg: %s; r.ScreenPercentage %s; %s (score %s); CPU %s x%s",
+    local game = { "Preset " .. tostring((s.game or {}).Preset or "?") }
+    for _, name in ipairs(GAME) do game[#game + 1] = string.format("%s %s", name, tostring((s.game or {})[name] or "?")) end
+    return string.format("settings: %sx%s %s, vsync %s, fps limit %s; game: %s; sg: %s; r.ScreenPercentage %s; %s (score %s); CPU %s x%s",
         tostring(s.viewport_w or "?"), tostring(s.viewport_h or "?"), s.window_mode or "?", s.vsync and "on" or "off",
-        (s.fps_limit or 0) > 0 and string.format("%.0f", s.fps_limit) or "none", table.concat(parts, ", "),
+        (s.fps_limit or 0) > 0 and string.format("%.0f", s.fps_limit) or "none", table.concat(game, ", "), table.concat(parts, ", "),
         s.screen_percentage and string.format("%g", s.screen_percentage) or "?", s.gpu_name or "GPU ?",
         tostring(s.gpu_score or "?"), s.cpu or "?", tostring(s.cpu_threads or "?"))
 end

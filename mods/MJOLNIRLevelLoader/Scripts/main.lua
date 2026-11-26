@@ -4070,8 +4070,13 @@ function Placed.decals(world)
     Log(string.format("decals: %d placed, %d failed", n, failed))
 end
 
---- The game's foliage quality (Settings > Video, sg.FoliageQuality 0..3):
---- below Epic the grass groups keep one clump in `keep` and every group
+--- The foliage quality, 0..3, from the player's Video settings: the game's
+--- own Geometry quality (BlamGameUserSettings, EVideoQualitySetting VeryLow
+--- 0 .. Ultra 4). The game never moves the engine's sg.* groups, which read
+--- 3 at every preset, so reading sg.FoliageQuality alone gave every player
+--- the Epic tier (a GTX 1080 Ti at Medium paid 1.73 ms for Death Island's
+--- foliage instead of 0.69, 2026-11-26). sg.FoliageQuality set lower by
+--- hand in the console still wins. Below Epic the grass groups keep one clump in `keep` and every group
 --- culls at `cull` of its distance, so a lower setting pays less for B30's
 --- grass (Blood Gulch's valley: ~2 ms of a 14 ms frame at Epic, 4K).
 --- `still`: no wind at Low and Medium. Swaying grass was half of Death
@@ -4082,11 +4087,19 @@ Foliage.QUALITY = { [0] = { keep = 4, cull = 0.45, still = true }, [1] = { keep 
     [2] = { keep = 2, cull = 0.8 }, [3] = { keep = 1, cull = 1.0 } }
 Foliage.GRASSY = { grass = true, ["short grass"] = true, ["lip grass"] = true, weeds = true, tufts = true }
 
+-- EVideoQualitySetting (VeryLow, Low, Medium, High, Ultra) to a tier.
+Foliage.FROM_GAME = { [0] = 0, [1] = 0, [2] = 1, [3] = 2, [4] = 3 }
 function Foliage.quality()
     local ok, q = pcall(function()
         return findObject("/Script/Engine.Default__KismetSystemLibrary"):GetConsoleVariableIntValue("sg.FoliageQuality")
     end)
-    q = ok and tonumber(q) or 3
+    local sg = ok and tonumber(q) or 3
+    local okG, g = pcall(function()
+        return findObject("/Script/Engine.Default__GameUserSettings"):GetGameUserSettings():GetGeometryQualitySetting()
+    end)
+    local fromGame = okG and Foliage.FROM_GAME[tonumber(g)]
+    q = math.min(sg, fromGame or 3)
+    Log(string.format("foliage quality %d (game geometry %s, sg.FoliageQuality %d)", q, okG and tostring(g) or "?", sg))
     return Foliage.QUALITY[math.max(0, math.min(3, q))] or Foliage.QUALITY[3]
 end
 
