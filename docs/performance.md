@@ -686,9 +686,12 @@ every bench at 16.67 ms. At these settings the card sets the frame: Game
 2.1–2.4 ms, GPU 9–15 ms.
 
 **The finding.** The loader picked the foliage tier from
-`sg.FoliageQuality`. This game never moves the engine's `sg.*` groups: every
-one reads 3 at every Video preset. Every player got the Epic tier: all of
-the clumps, full cull distances, and wind. The player's choice lives in the
+`sg.FoliageQuality`. This game does not drive the engine's `sg.*` groups from
+its Video settings: on PC3 at the Medium preset every one of them read 3, and
+the game keeps the player's choice in its own enum. So the loader gave the
+Epic tier (all of the clumps, full cull distances, wind) to a player who had
+chosen Medium. Only Medium was seen on a real install; the other presets were
+not tried. The player's choice lives in the
 game's own settings object, `BlamGameUserSettings` (`GetGeometryQualitySetting`,
 `EVideoQualitySetting` VeryLow 0, Low 1, Medium 2, High 3, Ultra 4).
 
@@ -709,8 +712,8 @@ Things that do not work for this:
 - **`GetGameUserSettings()` at the title screen** reads 4/4/4, the defaults.
   It reads the player's values only once they have signed in and the
   cloud copy is loaded. Every map load comes after that.
-- **Editing `GeometryQuality` in `HaloLocalGameUserSettings.ini`** does not
-  stick: the cloud copy wins.
+- **Editing `GeometryQuality` in `HaloLocalGameUserSettings.ini`** did not
+  stick in one try: the game loaded Medium, presumably from the cloud copy.
 - **Calling the setters and an apply from Lua** changes no cvar while the
   game runs. To compare tiers live, set the in-memory value and reload the
   foliage. For example, `GetGameUserSettings():SetGeometryQualitySetting(4)`
@@ -727,17 +730,26 @@ At Blood Gulch the frame without foliage read the same in both runs (11.83
 and 11.91 ms), so the whole difference is the foliage. Death Island's floor
 moved by 0.3 ms between its two runs, so take about 1.0 ms there.
 
-Medium players see thinner grass that does not sway. High players get the
-High tier and Low players the Low tier. Ultra is unchanged.
+Clumps drawn: Blood Gulch 291,376 in 779 meshes at Ultra, 106,491 in 417 at
+Medium; Death Island 203,877 at Medium (534,835 at Epic). Medium players see
+thinner grass that does not sway. High and Low follow the mapping (not run on
+PC3); Ultra is unchanged.
+
+Both views above already ran under PC3's 60 fps limit, so there the saving is
+headroom for busier moments. Pelican Warfare, where PC3's median frame was
+20-22 ms in a two-PC match, has one tiered group and was not compared by
+tier.
 
 **What else of ours costs GPU, Death Island at a held view (9.97 ms base):**
 each group was hidden from the bridge and timed with a no-op `mjolnir_bench`
-(base runs repeat within ±0.01 ms):
+(base runs repeat within ±0.01 ms). With the camera still, cached shadow
+pages hide most shadow-caster cost, so these are lower bounds for a moving
+player, and one view only:
 
 | Hidden | Saved |
 |---|---|
 | Flux sea (coastline surface) | 0.54 ms, of which the surface grid 0.47 and the caustics decal 0.06 |
-| Landscape | 0.20 ms |
+| Landscape (the one `Landscape` actor; not checked on screen) | 0.20 ms |
 | Cladding rocks (7,652 actors) | 0.29 ms; their shadows ~0 |
 | Decor (760 pieces) | 0.03 ms |
 | Our 20 placed lights | 0 |

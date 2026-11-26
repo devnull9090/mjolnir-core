@@ -4072,9 +4072,9 @@ end
 
 --- The foliage quality, 0..3, from the player's Video settings: the game's
 --- own Geometry quality (BlamGameUserSettings, EVideoQualitySetting VeryLow
---- 0 .. Ultra 4). The game never moves the engine's sg.* groups, which read
---- 3 at every preset, so reading sg.FoliageQuality alone gave every player
---- the Epic tier (a GTX 1080 Ti at Medium paid 1.73 ms for Death Island's
+--- 0 .. Ultra 4). The game does not drive the engine's sg.* groups from it
+--- (all read 3 at Medium on PC3), so reading sg.FoliageQuality alone gave a
+--- Medium player the Epic tier (a GTX 1080 Ti at Medium paid 1.73 ms for Death Island's
 --- foliage instead of 0.69, 2026-11-26). sg.FoliageQuality set lower by
 --- hand in the console still wins. Below Epic the grass groups keep one clump in `keep` and every group
 --- culls at `cull` of its distance, so a lower setting pays less for B30's
