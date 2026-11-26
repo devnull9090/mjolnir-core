@@ -260,6 +260,15 @@ export const CREDIT_SECTIONS: CreditSection[] = [
         status: "planned",
       },
       {
+        name: "Qwen3-TTS",
+        by: "the Qwen team, Alibaba Cloud",
+        url: "https://github.com/QwenLM/Qwen3-TTS",
+        licence: "Apache License 2.0",
+        licenceUrl: APACHE,
+        use: "Speaks Pelican Warfare's AI companion and announcer. Both are original voices inspired by the series' own characters.",
+        status: "planned",
+      },
+      {
         name: "DeepBump",
         by: "Hugo Tini",
         url: "https://github.com/HugoTini/DeepBump",

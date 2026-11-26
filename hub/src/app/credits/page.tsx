@@ -113,6 +113,11 @@ export default function CreditsPage() {
             affiliated with or endorsed by any of them, and you need your own copy of the games.
           </p>
           <p>
+            Pelican Warfare&apos;s AI companion and match announcer are inspired by the series&apos; own: Cortana, as
+            performed by Jen Taylor, and the series&apos; multiplayer announcer. These are original synthetic voices;
+            neither performer took part in or endorses them.
+          </p>
+          <p>
             Maps and mods on the Hub are credited to the people who published them, on each one&apos;s own page.
           </p>
         </div>

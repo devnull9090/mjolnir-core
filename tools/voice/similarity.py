@@ -44,7 +44,7 @@ def main():
             e = enc.encode_batch(load(path).unsqueeze(0).cuda()).squeeze()
         return torch.nn.functional.normalize(e, dim=0)
 
-    real = sorted(f for f in os.listdir(a.real) if f.lower().endswith(AUDIO) and a.exclude not in (f if a.exclude else "\0"))
+    real = sorted(f for f in os.listdir(a.real) if f.lower().endswith(AUDIO) and not (a.exclude and a.exclude in f))
     random.Random(7).shuffle(real)
     pool, held = real[:30], real[30:40]
     mean = torch.nn.functional.normalize(torch.stack([embed(os.path.join(a.real, f)) for f in pool]).mean(0), dim=0)
