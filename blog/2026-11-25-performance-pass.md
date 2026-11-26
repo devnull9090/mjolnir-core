@@ -98,4 +98,4 @@ Being honest about what we didn't fix:
 
 The PCs we build on aren't the PCs most of you play on. Every few milliseconds we spend on the game thread comes out of your frame time, and the cost is highest on the PCs that have the least to spare. From now on we profile on the slow PC first.
 
-These changes are coming in the next mods update. If you still see stutter in a match, the HUD's hitch log (`MJOLNIRHud\hitches.log`) records where and when, and it's the most useful thing you can send us.
+These changes shipped in mods 0.57.0, alongside Pelican Warfare's reinforcement waves, the Covenant and voice lines. If you still see stutter in a match, the HUD's hitch log (`MJOLNIRHud\hitches.log`) records where and when, and it's the most useful thing you can send us.
