@@ -51,6 +51,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
+#include <io.h>
+#include <fcntl.h>
+#include "../lobby/lua_channel.h"
 
 // The exe's addresses, one set per build. The Game Pass set was found from the
 // Steam one by native/signatures/port_rvas.py (every function matches
@@ -543,7 +546,58 @@ __declspec(dllexport) int mjolnir_map_registry_rescan(void *L) {
 // `ok`, then `<name> 1` or `<name> 0` for each name; `error <why>` while
 // there is no index to ask, which the lobby takes as "cannot say".
 static void native_path(const char *file, char *out, size_t cap);
+// A call from mjolnir_map_call: the request comes from its argument and the
+// reply goes back as its result, instead of `<x>_request.txt` and
+// `<x>_reply.txt` beside this DLL. On a PC with Windows Defender's real-time
+// scan, opening a file a moment after it was written waits ~5 ms for the
+// scan, and each of these was read straight after it was written. Only the
+// game thread calls these, one at a time.
+static struct {
+    int active;
+    const char *request;      // the request file the call stands in for
+    const char *text;
+    size_t length;
+    char reply[32768];        // what write_reply was given
+    size_t reply_length;
+    int replied;
+} g_call;
+
 static void write_reply(const char *file, const char *text);
+
+// A read-only stream over memory: an anonymous pipe holding the text, so a
+// parser written for a file reads it unchanged (the text fits the pipe's
+// buffer, so the write never waits).
+static FILE *memory_stream(const char *text, size_t length) {
+    HANDLE read_end, write_end;
+    if (!CreatePipe(&read_end, &write_end, NULL, (DWORD)length + 1)) return NULL;
+    DWORD wrote = 0;
+    BOOL ok = length == 0 || WriteFile(write_end, text, (DWORD)length, &wrote, NULL);
+    CloseHandle(write_end);
+    if (!ok || wrote != length) {
+        CloseHandle(read_end);
+        return NULL;
+    }
+    int fd = _open_osfhandle((intptr_t)read_end, _O_RDONLY | _O_BINARY);
+    if (fd < 0) {
+        CloseHandle(read_end);
+        return NULL;
+    }
+    FILE *f = _fdopen(fd, "rb");
+    if (!f) _close(fd);
+    return f;
+}
+
+static void native_path(const char *file, char *out, size_t cap);
+
+// The request `file`: mjolnir_map_call's argument, or the file beside this DLL.
+static FILE *open_request(const char *file) {
+    if (g_call.active && strcmp(g_call.request, file) == 0) return memory_stream(g_call.text, g_call.length);
+    char path[MAX_PATH];
+    native_path(file, path, sizeof path);
+    FILE *f = NULL;
+    if (fopen_s(&f, path, "rb") != 0) return NULL;
+    return f;
+}
 
 __declspec(dllexport) int mjolnir_worlds_known(void *L) {
     (void)L;
@@ -552,20 +606,13 @@ __declspec(dllexport) int mjolnir_worlds_known(void *L) {
         write_reply("world_reply.txt", g_hooked ? "error no world is indexed" : "error the world index is not open");
         return 0;
     }
-    char path[MAX_PATH];
-    native_path("world_request.txt", path, sizeof path);
-    FILE *in = NULL;
-    if (fopen_s(&in, path, "rb") != 0 || !in) {
+    FILE *in = open_request("world_request.txt");
+    if (!in) {
         write_reply("world_reply.txt", "error no world_request.txt");
         return 0;
     }
-    native_path("world_reply.txt", path, sizeof path);
-    FILE *out = NULL;
-    if (fopen_s(&out, path, "wb") != 0 || !out) {
-        fclose(in);
-        return 0;
-    }
-    fputs("ok\n", out);
+    static char out[32768];
+    size_t used = (size_t)snprintf(out, sizeof out, "ok\n");
     char line[160];
     while (fgets(line, sizeof line, in)) {
         size_t n = strlen(line);
@@ -583,10 +630,12 @@ __declspec(dllexport) int mjolnir_worlds_known(void *L) {
         EnterCriticalSection(&g_cs);
         for (int i = 0; i < g_nmaps && !known; i++) known = _wcsicmp(leaf, g_maps[i].leaf) == 0;
         LeaveCriticalSection(&g_cs);
-        fprintf(out, "%s %d\n", line, known);
+        int wrote = snprintf(out + used, sizeof out - used, "%s %d\n", line, known);
+        if (wrote < 0 || (size_t)wrote >= sizeof out - used) break;
+        used += (size_t)wrote;
     }
     fclose(in);
-    fclose(out);
+    write_reply("world_reply.txt", out);
     return 0;
 }
 
@@ -623,6 +672,15 @@ static void native_path(const char *file, char *out, size_t cap) {
 }
 
 static void write_reply(const char *file, const char *text) {
+    if (g_call.active) {
+        size_t n = strlen(text);
+        if (n >= sizeof g_call.reply) n = sizeof g_call.reply - 1;
+        memcpy(g_call.reply, text, n);
+        g_call.reply[n] = 0;
+        g_call.reply_length = n;
+        g_call.replied = 1;
+        return;
+    }
     char path[MAX_PATH];
     native_path(file, path, sizeof path);
     FILE *f = NULL;
@@ -671,10 +729,8 @@ __declspec(dllexport) int mjolnir_mount_paks(void *L) {
         write_reply("mount_reply.txt", "error this game build is not one MJOLNIR knows; maps cannot be mounted live");
         return 0;
     }
-    char request[MAX_PATH];
-    native_path("mount_request.txt", request, sizeof request);
-    FILE *f = NULL;
-    if (fopen_s(&f, request, "rb") != 0 || !f) {
+    FILE *f = open_request("mount_request.txt");
+    if (!f) {
         write_reply("mount_reply.txt", "error no mount_request.txt");
         return 0;
     }
@@ -743,10 +799,8 @@ __declspec(dllexport) int mjolnir_unmount_paks(void *L) {
         write_reply("unmount_reply.txt", "error this game build is not one MJOLNIR knows");
         return 0;
     }
-    char request[MAX_PATH];
-    native_path("unmount_request.txt", request, sizeof request);
-    FILE *f = NULL;
-    if (fopen_s(&f, request, "rb") != 0 || !f) {
+    FILE *f = open_request("unmount_request.txt");
+    if (!f) {
         write_reply("unmount_reply.txt", "error no unmount_request.txt");
         return 0;
     }
@@ -1047,12 +1101,10 @@ __declspec(dllexport) int mjolnir_scenario_add(void *L) {
         write_reply("scenario_reply.txt", "error this game build is not one MJOLNIR knows");
         return 0;
     }
-    char request[MAX_PATH];
-    native_path("scenario_request.txt", request, sizeof request);
-    FILE *f = NULL;
     unsigned long long table = 0, campaign = 0;
     char code[8] = "", from[8] = "";
-    if (fopen_s(&f, request, "rb") != 0 || !f) {
+    FILE *f = open_request("scenario_request.txt");
+    if (!f) {
         write_reply("scenario_reply.txt", "error no scenario_request.txt");
         return 0;
     }
@@ -1177,13 +1229,11 @@ __declspec(dllexport) int mjolnir_scenario_place(void *L) {
         write_reply("place_reply.txt", "error this game build is not one MJOLNIR knows");
         return 0;
     }
-    char request[MAX_PATH];
-    native_path("place_request.txt", request, sizeof request);
-    FILE *f = NULL;
     unsigned long long campaign_addr = 0;
     char code[8] = "";
     int want = -1;
-    if (fopen_s(&f, request, "rb") != 0 || !f) {
+    FILE *f = open_request("place_request.txt");
+    if (!f) {
         write_reply("place_reply.txt", "error no place_request.txt");
         return 0;
     }
@@ -1452,51 +1502,33 @@ __declspec(dllexport) int mjolnir_forge_on(void *L) {
 // as a static library. 0 = safe, non-zero = refuse (docs/re/variant_network_safety.md).
 extern int mjolnir_mglo_validate(const unsigned char *data, size_t len);
 
-// Read the staged file and ask the validator whether the simulation can decode
-// it safely. A last line of defense for a `.mglo` that reached disk past the
-// launcher's install-time check (a sideloaded map, say). A file larger than the
-// buffer is already past the simulation's 0x5000-byte bound, so it is refused.
-static int mglo_file_ok(const char *path) {
-    FILE *f = NULL;
-    if (fopen_s(&f, path, "rb") != 0 || !f) {
-        return 0;
-    }
-    static unsigned char buf[0x8000];
-    size_t n = fread(buf, 1, sizeof buf, f);
-    int more = fgetc(f) != EOF;
-    fclose(f);
-    if (more) {
-        return 0;
-    }
-    return mjolnir_mglo_validate(buf, n) == 0;
-}
-
-// Install `native\variant.mglo` (staged next to this DLL by MJOLNIRLevelLoader
-// from its `variants\` folder) as `mjolnir.mglo` in the loader's directory, and
-// ask the simulation to read it at the next round reset.
-__declspec(dllexport) int mjolnir_megalo_variant(void *L) {
-    (void)L;
+// Install `length` bytes of variant as `mjolnir.mglo` in the loader's
+// directory and ask the simulation to read it at the next round reset; 1 on
+// success. The validator is the last line of defense for a `.mglo` that got
+// past the launcher's install-time check (a sideloaded map, say), so nothing
+// it refuses is staged. The simulation's own bound is 0x5000 bytes.
+static int install_variant_bytes(const unsigned char *data, size_t length) {
     ensure_init();
     uint8_t *sim = (uint8_t *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim) return 0;
-    char staged[MAX_PATH], dir[MAX_PATH], target[MAX_PATH];
-    strcpy_s(staged, sizeof staged, g_log);
-    char *slash = strrchr(staged, '\\');
-    if (slash) *(slash + 1) = 0;
-    strcat_s(staged, sizeof staged, "variant.mglo");
-    if (!mglo_file_ok(staged)) {
-        Log("megalo: %s failed variant validation; refusing to stage it (the default variant runs)",
-            staged);
+    if (mjolnir_mglo_validate(data, length) != 0) {
+        Log("megalo: the variant failed validation; refusing to stage it (the default variant runs)");
         return 0;
     }
+    char dir[MAX_PATH], target[MAX_PATH];
     if (!mglo_dir(sim, dir, sizeof dir)) {
         Log("megalo: no variant directory (LOCALAPPDATA unset); the default variant runs");
         return 0;
     }
     snprintf(target, sizeof target, "%s%s.mglo", dir, MGLO_NAME);
-    if (!CopyFileA(staged, target, FALSE)) {
-        Log("megalo: could not copy %s to %s (error %lu); the default variant runs", staged, target,
-            GetLastError());
+    FILE *out = NULL;
+    int written = fopen_s(&out, target, "wb") == 0 && out;
+    if (written) {
+        written = fwrite(data, 1, length, out) == length;
+        written = fclose(out) == 0 && written;
+    }
+    if (!written) {
+        Log("megalo: could not write %s; the default variant runs", target);
         return 0;
     }
     static const char name[] = MGLO_NAME;
@@ -1506,6 +1538,32 @@ __declspec(dllexport) int mjolnir_megalo_variant(void *L) {
     memcpy(buffer, name, sizeof(name));
     VirtualProtect(buffer, sizeof(name), old, &old);
     Log("megalo: %s installed; the next round reset loads it", target);
+    return 1;
+}
+
+// Install `native\variant.mglo` (staged next to this DLL by MJOLNIRLevelLoader
+// from its `variants\` folder): the route for a LevelLoader without
+// mjolnir_megalo_variant_hex.
+__declspec(dllexport) int mjolnir_megalo_variant(void *L) {
+    (void)L;
+    ensure_init();
+    char staged[MAX_PATH];
+    strcpy_s(staged, sizeof staged, g_log);
+    char *slash = strrchr(staged, '\\');
+    if (slash) *(slash + 1) = 0;
+    strcat_s(staged, sizeof staged, "variant.mglo");
+    FILE *f = NULL;
+    if (fopen_s(&f, staged, "rb") != 0 || !f) return 0;
+    static unsigned char buf[0x8000];
+    size_t n = fread(buf, 1, sizeof buf, f);
+    int more = fgetc(f) != EOF;
+    fclose(f);
+    // Past the buffer is past the simulation's 0x5000-byte bound: refused.
+    if (more) {
+        Log("megalo: %s is too large; refusing to stage it (the default variant runs)", staged);
+        return 0;
+    }
+    install_variant_bytes(buf, n);
     return 0;
 }
 
@@ -1687,4 +1745,81 @@ BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, LPVOID reserved) {
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN, (LPCWSTR)h, &pinned);
     }
     return TRUE;
+}
+
+// Lua: mjolnir_map_call(export, request) -> the reply, as the export would
+// have written it to its reply file. `export` is one of the request exports
+// above; nil for any other name (the caller then uses the files).
+__declspec(dllexport) int mjolnir_map_call(void *L) {
+    static const struct {
+        const char *name, *request;
+        int (*fn)(void *);
+    } calls[] = {
+        {"mjolnir_worlds_known", "world_request.txt", mjolnir_worlds_known},
+        {"mjolnir_mount_paks", "mount_request.txt", mjolnir_mount_paks},
+        {"mjolnir_unmount_paks", "unmount_request.txt", mjolnir_unmount_paks},
+        {"mjolnir_scenario_add", "scenario_request.txt", mjolnir_scenario_add},
+        {"mjolnir_scenario_place", "place_request.txt", mjolnir_scenario_place},
+    };
+    static char text[16384];
+    char name[64];
+    size_t length = 0;
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    int named = lc_take_string(&f, 1, name, sizeof name, NULL);
+    int have_text = lc_take_string(&f, 1, text, sizeof text, &length) && length < sizeof text;
+    int which = -1;
+    for (int i = 0; named && have_text && i < (int)(sizeof calls / sizeof calls[0]); i++)
+        if (strcmp(name, calls[i].name) == 0) which = i;
+    if (which < 0 || g_call.active) {
+        lc_push_nil(&f);
+        lc_end(&f);
+        return 1;
+    }
+    g_call.active = 1;
+    g_call.request = calls[which].request;
+    g_call.text = text;
+    g_call.length = length;
+    g_call.replied = 0;
+    g_call.reply_length = 0;
+    calls[which].fn(NULL);
+    g_call.active = 0;
+    if (g_call.replied)
+        lc_push_string(&f, g_call.reply, g_call.reply_length);
+    else
+        lc_push_text(&f, "error no reply");
+    lc_end(&f);
+    return 1;
+}
+
+static int hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+// Lua: mjolnir_megalo_variant_hex(hex) -> true once installed, false when
+// refused. As mjolnir_megalo_variant, with the variant as an argument instead
+// of native\variant.mglo read straight back. Hex, because a string read
+// through lua_channel.h ends at its first zero byte, and a variant has many:
+// raw bytes arrived cut short and every one failed validation (2026-11-25).
+// nil when this cannot take it (the caller then has the DLL read the file).
+__declspec(dllexport) int mjolnir_megalo_variant_hex(void *L) {
+    static char hex[0x10001];
+    static unsigned char buf[0x8000];
+    size_t length = 0;
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    int have = lc_take_string(&f, 1, hex, sizeof hex, &length);
+    int decoded = have && length < sizeof hex && length % 2 == 0 && length / 2 <= sizeof buf;
+    size_t n = decoded ? length / 2 : 0;
+    for (size_t i = 0; decoded && i < n; i++) {
+        int hi = hex_digit(hex[2 * i]), lo = hex_digit(hex[2 * i + 1]);
+        if (hi < 0 || lo < 0) decoded = 0;
+        else buf[i] = (unsigned char)(hi << 4 | lo);
+    }
+    if (decoded) lc_push_bool(&f, install_variant_bytes(buf, n)); else lc_push_nil(&f);
+    lc_end(&f);
+    return 1;
 }

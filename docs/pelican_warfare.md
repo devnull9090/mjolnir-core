@@ -35,10 +35,13 @@ fresh native acceptance evidence live under `out/pwr/world-v5`.
 Select map **PWR / Pelican Warfare** and mode **PELICAN WARFARE** in the
 MJOLNIR lobby, then start a private match. The installed preview starts with
 one player after a five-second warmup. Press **Space** to leave the Pelican
-and again to deploy the parachute; automatic exit and deployment are fallbacks.
-Stand on A, B or C on foot for eight seconds to capture a neutral site.
-Owned uncontested sites score once per second. Death returns you to your
-team base after five seconds; the target is 500 control points.
+and again to deploy the parachute. Exit from the Pelican is automatic at the end
+of its flight; the parachute is not. A player who never pulls it, or pulls it
+too late, meets the ground faster than 20 m/s and dies (`WARFARE_SPLAT_SINK`).
+Stand on A, B or C on foot for fifteen seconds to capture a neutral site.
+Owned uncontested sites score once per second. After a death you respawn at
+your base and board your team's waiting Pelican, which leaves with everyone
+aboard on the next minute of combat; the target is 500 control points.
 
 ## Rules and build
 
@@ -51,17 +54,21 @@ Warfare opts into a same-mode postgame rotation on its supported maps. With
 only PWR installed, no ballots replay PWR Warfare; LOBBY returns to manual
 map/mode selection. Other modes retain the existing mixed-map, mixed-mode vote.
 
-Defaults are two connected players, 30 seconds of warmup, 60 seconds of
+Defaults are two connected players, 60 seconds of warmup, 60 seconds of
 insertion, first to 500 control points, or 20 minutes of combat. The three
 neutral `koth_hill` markers use spawn sequences 0, 1 and 2, matching the
 three `koth_hills` entries in `level.json`. Living players on foot capture;
-vehicle occupants do not. One side alone takes a neutral site in eight
-seconds; changing an enemy site takes eight seconds to neutralize and
-eight more to capture. Extra teammates do not accelerate capture. Opposing
+vehicle occupants do not. One side alone takes a neutral site in fifteen
+seconds; changing an enemy site takes fifteen seconds to neutralize and
+fifteen more to capture (`--capture-seconds`, 8 before 2026-11-22).
+Covenant alone take a neutral site in thirty (`--covenant-capture-seconds`). Extra teammates do not accelerate capture. Opposing
 presence stops capture and scoring. An owned empty site continues to earn
 one point per second. Kills do not score. Each death respawns the player at
 their permanent Red or Blue home after five seconds, with unlimited lives
-and no suicide/betrayal delay. These are individual respawns, not waves.
+and no suicide/betrayal delay; the native adapter then puts them aboard the
+next reinforcement wave (see [waves and reinforcements](pelican_warfare_waves.md)).
+A wave leaves every `reinforcement.interval_seconds` (60) of combat and flies
+`flight_seconds` (30) of the insertion route, both from `layout.json`.
 
 CLI flags allow explicit development variants: `--minimum-players`,
 `--warmup-seconds`, `--insertion-seconds`, `--capture-seconds`,
@@ -132,7 +139,7 @@ pwsh -NoProfile -File levels/warfare/pwr/install_runtime.ps1 -Game $pwrGame -Sol
 ```
 
 `-SoloPreview` builds a one-player, five-second warmup variant for the private
-test. Omit that flag to restore the normal two-player, 30-second warmup.
+test. Omit that flag to restore the normal two-player, 60-second warmup.
 The user's current local installation uses `-SoloPreview` with the default
 500-point target, recorded in
 [`out/pwr/runtime-20261108-224928/install-receipt.json`](../out/pwr/runtime-20261108-224928/install-receipt.json).
@@ -175,9 +182,11 @@ Banshee occupied, does not end the match, and makes no game calls without
 
 ## Native bridge and presentation
 
-The loader requires level metadata `warfare: {protocol: 20568, layout_revision: 2}`
+The loader requires level metadata `warfare: {protocol: 20569, layout_revision: 3}`
 and opens `MJOLNIRLobby/native/mjolnir_lobby.dll` with a configuration
-containing `warfare-config 2`, `map PWR`, `layout 2` and `protocol 20568`.
+containing `warfare-config 2`, `map PWR`, `layout 3` and `protocol 20569`.
+That number is the map's layout protocol; the Megalo rules publish their own
+revision in slot 2 (20571), so a rules change needs no new map.
 Its four exported Lua entrypoints
 are `mjolnir_warfare_open`, `close`, `action` and `pump` (all with the
 `mjolnir_warfare_` prefix). Space sends only a jump/deploy request. The native
@@ -185,25 +194,45 @@ adapter validates the simulation build, scenario, engine, instance,
 Megalo protocol and the four baked flight endpoint positions before acting.
 The endpoint check rejects an old PWR scenario even if its JSON was updated.
 Movement remains on the owning simulation
-peer; the host controls the named transports. Late joins and subsequent
-respawns use the home bases rather than repeating insertion.
+peer; the host controls the named transports. Late joins and later
+respawns board the next reinforcement wave from the home base.
 
-Global number slots are phase 0, phase age in ticks 1, protocol magic 20568
-at 2, deployment duration / combat elapsed seconds 3, connected count 4, scratch 5–6, Red/Blue
+Global number slots are phase 0, phase age in ticks 1, rules magic 20571
+at 2, the clock 3, connected count before combat and the defeat clock from
+combat on 4, scratch 5–6, Red/Blue
 score 7–8 and A/B/C site states 9–11. Phases are warmup 0, insertion 1, combat 2
 and complete 3. A site state packs `owner + 4 × (red present + 2 × blue present)
 + 16 × (progress + 17)`: owner neutral 0, Red 1, Blue 2 in the low two bits, and
 capture progress in sixteenths toward Red (+16) or Blue (−16), counted against
 thresholds fixed when the variant is built (`SiteState` in `warfare.rs`). Steps,
 not ticks, keep the replicated value from changing every tick. A value under 16
-is an owner alone (older variants, or before combat). Slot 3 publishes the
-configured insertion duration in phases 0–1, then resets to zero and counts
-combat seconds in phase 2. Phase, age, magic, duration/clock,
-scores and owners have high replication priority, connected count low priority,
+is an owner alone (older variants, or before combat). Slot 3, the clock,
+counts the warmup down in whole seconds in phase 0 (-1 while fewer than the
+minimum players are connected), publishes the configured insertion duration
+in phase 1, then resets to zero and counts combat seconds in phase 2; the
+reinforcement schedule is derived from it, and the HUD shows it as MATCH TIME.
+Phase, age, magic, clock,
+scores, owners and slot 4 (the connected count, then the defeat clock) have high
+replication priority,
 and scratch remains local. Native code reads this state; Megalo owns it.
 An absent team's native score operand is -1 in the supported build; the
 published score mirror clamps that sentinel to zero without creating or
 changing the absent team's engine score.
+
+### The Covenant can win
+
+If the Covenant hold all three sites (owner 3) for `covenant_hold_seconds`
+(default 60; `mjolnir megalo write --covenant-hold-seconds`, 0 turns it off),
+the match ends and both teams lose. Slot 4 carries it from combat on: the full
+hold when combat starts, one less each combat second while every chosen site is
+the Covenant's, back to the full hold the second any site is not, and -1 when
+the rule is off. At 0 the host sets phase 3 and ends the round; the end trigger
+checks the three owners again, so a stray 0 cannot end a match. The HUD's line
+says THE COVENANT HOLD EVERY ZONE with the time left while it runs, OPERATION
+FAILED at the end, and the post-game title is THE COVENANT WIN
+(`Match.winnerTitle`, read by `Scoreboard.winner`). Rules revision 20571 began
+this: the HUD and DLL reject an older variant, so HUD, DLL and variant ship
+together.
 
 `levels/warfare/pwr/layout.json` generates `native/lobby/warfare_layout.h`.
 The native build regenerates it; the portable test runner rejects stale output.
@@ -214,12 +243,42 @@ Default automatic exit occurs at 54 of 60 seconds; explicit development
 durations scale the exit time without exceeding that speed cap. Descent
 has a 90-second timeout and accepts settled landings at any height inside
 the play volume. Slopes keep the canopy state until vertical movement settles.
+
+The parachute opens only when the player pulls it; nothing opens it for them.
+The descent stays protected from falling damage, and the host decides the
+landing at the first real ground contact:
+- if the descent controller's sink is above `WARFARE_SPLAT_SINK` (20 m/s), it
+  sends `WF_SPLAT`, a host-authority `(unit_kill (player_get N))`;
+- freefall reaches 55-63 m/s;
+- a canopy settles at 10.5-18.5 m/s, so an open canopy always lands.
+
+`test_warfare.c` covers the outcomes:
+- with no pull, the 550 m exit hits at about 53 m/s after 10.7 s, at every
+  tick rate;
+- a pull 0.4 s out still dies;
+- a pull 4 s out lands.
+- a joiner under canopy lands on the host (`test_remote_landing`).
+- On two PCs (2026-11-24), a joiner pulled at 3 s and landed under canopy on
+  its own screen. The host's copy stayed in freefall throughout and logged
+  the landing (stage 3 to 5) with no splat, and the joiner lived. A joiner
+  with no pull died on impact, from the engine, with its own HUD saying the
+  warning, the yell and the splat line.
+
+The splat is judged from the body's own last airborne sink, not the host's
+simulation of the descent. The host is told only of a joiner's cabin jump,
+never their parachute pull, so its controller copy stays in freefall; judged
+from that, every joiner died on landing (caught in review before release).
+
+Before 2026-11-24 the chute opened itself near 76 m; the user asked for the
+fall to be the player's responsibility. Bots are AI bipeds, not players, and
+never ride.
 These expansion changes require live validation independently of the smaller
 prototype's successful insertion tests recorded below.
 
 The loader publishes `MJOLNIRLobby/native/warfare_state.txt` every 500 ms;
-the HUD reads at the same interval. The `warfare-state 2` format includes
-layout revision and configured insertion duration. The HUD checks the complete format,
+the HUD reads at the same interval. The `warfare-state 3` format includes
+the reinforcement timing, layout revision and configured insertion duration.
+The HUD checks the complete format,
 ready/status flags, mirrored globals, exact uint64 instance text and current
 PWR world. Two advancing tick/time samples are required before accepting
 a file or a new instance. Live samples expire after two seconds without
@@ -230,12 +289,23 @@ winner come from accepted native scores, never summed player incidents.
 Individual control cells show a dash; kills and deaths remain visible.
 Final standings allow 1.5 seconds for the final publication to arrive.
 
-The status line gives warmup, boarding, Space-to-jump, exiting, Space-to-deploy,
-canopy, landing/active and failed-deployment information. During combat it
-gives way to three zone tiles under the score (`WBP_MJOLNIRWarfareZones`, chunk 958
-beside the tactical map, filled by `warfare_zones.lua`): owner colour, NEUTRAL /
-RED / BLUE / CAPTURING / NEUTRALIZING / CONTESTED, the capture bar, a pip for each
-team standing in the zone and a gold rim on the zone the local player stands in.
+The status line gives the warmup countdown, boarding, Space-to-jump, exiting,
+Space-to-deploy, canopy, landing/active and failed-deployment information, and
+for a waiting reinforcement rider the time to departure and whom they watch.
+During insertion every line ends with ZONES OPEN IN 0:23 (from the published
+insertion length and its tick count, `Warfare.insertionLeft`), and once a rider
+has landed the line is ZONES OPEN IN 0:23 / PREPARE TO CAPTURE A, B AND C. The
+last ten seconds of warmup, and of insertion, also count down large in the
+middle of the screen (`warfare_countdown.lua`), then DEPLOY or CAPTURE for two
+seconds. During combat it
+gives way to three slim zone bars stacked in the top left (`WBP_MJOLNIRWarfareZones`,
+chunk 958 beside the tactical map with its two hexagon badge textures from
+`tools/ue/draw_zone_badges.py`, filled by `warfare_zones.lua`). Each row is a
+hexagon badge with the zone's letter in the owner's colour (purple for the
+Covenant), then the state word (NEUTRAL / RED / BLUE / COVENANT / CAPTURING /
+NEUTRALIZING / UNDER ATTACK / OVERRUN / CLEARING / CONTESTED) with a pip for each
+team standing in the zone, over the capture bar. The badge's outline turns gold on
+the zone the local player stands in.
 A site changing hands puts "Red team captured zone B" (or "… neutralized zone B")
 in the kill feed on every client from its own snapshot. Three fixed holographic
 fields and A/B/C waypoints still mark the sites in the world. Contest and progress
@@ -250,6 +320,83 @@ Only native stage 4 displays it; landing, death, missing/stale state and map
 exit hide it. Native drop stages currently exist for owning local players,
 so remote canopy visibility needs a verified replicated stage channel before
 it can be claimed. The cosmetic asset is optional for gameplay.
+
+A loaded mesh is held only as a handle. Once no parachute uses it, the garbage
+collector frees it, so a dead handle is loaded again. Before that fix, a
+respawn's drop fell back to the legacy canopy (2026-11-24).
+
+### Voice (local testing only)
+
+`MJOLNIRHud/Scripts/warfare_voice.lua` gives Warfare two voices: Cortana talks
+the player through the match, and the announcer names the game, the zones and
+the result. Every line comes from a change between two accepted warfare
+snapshots, inside the existing HUD tick, with no loop of its own. Each machine
+decides from replicated state, so a joiner hears its own match:
+
+| When | Who | Line |
+|---|---|---|
+| warmup begins / 20 s left | announcer / Cortana | "Pelican Warfare!" / gear up |
+| insertion launches, 3 s in | Cortana | wheels up; the briefing (after the launch line) |
+| seated 11 s in an insertion Pelican | Cortana | "that's your stop", after the briefing (riders are put out when the flight ends) |
+| freefall below 320 m / 170 m | Cortana | "pretty close to the ground" / "Chief! Pull your chute!" |
+| out of the air, still falling faster than 20 m/s, under 30 m (the splat) | Cortana | "Well. I tried to warn you." / "That's going to leave a mark." / "I'll log that as a hard landing." |
+| combat begins | announcer | "Capture the zones!" |
+| 10 s before a Covenant wave | Cortana | the first always; later ones only while no Covenant stand in a zone (a wave at the cap is skipped) |
+| Covenant step into a zone | announcer / Cortana | "Zone X contested!" if it is ours, else "Contact!" after 20 s of quiet |
+| a zone changes hands | announcer / Cortana | secured, lost, the enemy took it, the Covenant took it, retaken |
+| the Covenant hold two / all three / 10 s left / broken | Cortana | escalating warnings (the all-zones line replaces that update's single-zone line) |
+| a reinforcement Pelican boards | Cortana | "Your ride's here" |
+| the end | announcer, Cortana | Victory / Defeat; "Not bad, Chief"; "We've lost the island" |
+
+Mechanics:
+
+- **One at a time.** One line plays at a time, through `SpawnSound2D` at the dialogue slider.
+- **Turns with the announcer.** The loader's announcer queue (`MJOLNIRLevelLoader/Scripts/announcer.lua`) and this voice share `MJOLNIR.voiceUntil`. A calm line waits for the other voice; the player's own fall does not.
+- **Urgency.** A more urgent line cuts a calmer one off (priority 3 is the player's own fall).
+- **Staleness.** A line that waits past its time-to-live is dropped.
+- **Baselines.** A new instance, or the first sample after the state went stale, only sets a baseline.
+
+The loader no longer announces Warfare at the first spawn. Its start event
+used to say "King of the Hill"; `startEvent` is now `warfare_game_start`,
+which has no `events.json` row.
+
+The waves are generated by local voice models (`tools/voice/README.md`):
+- they live under `/Game/MJOLNIR/Sounds/Warfare`;
+- they are cooked into `pakchunk950` by `unreal/MJOLNIRMaterials/Scripts/build_warfare_voice.py`;
+- `warfare_voice_lines.lua` lists them with their lengths.
+
+**They are not shipped.** Without the container, the first wave fails to load,
+the voice logs that once, and it stays silent for the session.
+
+Solo on PC 1 (2026-11-24), across several runs, the log shows these lines
+played on their triggers:
+- the title and warmup, the launch, the briefing and the call to jump
+  (after the briefing);
+- the two altitude warnings, and the splat line after a no-pull death;
+- zones open, secured, contested, lost and taken;
+- the first wave, a later wave's warning, and a landing on a zone nobody
+  holds;
+- two zones, all three (one line, not two), ten seconds, and the Covenant
+  win;
+- reinforcements boarding.
+
+The final build, without the voice container, logged once that the voice
+was off and stayed silent. Waiting showed the zones' overview and its line.
+
+The solo splats were the engine's own impact kills. A 53 m/s landing killed
+even with falling damage off, so `WF_SPLAT` itself has not fired in game.
+
+Not yet triggered in game:
+- a retake;
+- breaking the defeat clock;
+- an enemy capture;
+- victory or defeat by score, and "Not bad, Chief" (team against team
+  needs two PCs).
+
+Not yet checked:
+- a client's view;
+- the lines heard by ear for level and timing (the log shows what played,
+  not how it sounded).
 
 ## Validation and remaining runtime checks
 

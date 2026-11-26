@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "name": "bpf",
+  "title": "BPF Beach (generated pathfinding)",
+  "description": "Live gate for generated instance pathfinding: the BOT test map (Slayer on Silent Cartographer's stock BSP 8 with B40's squads) with the BSP's pathfinding regenerated from its static instances instead of Bungie's. BOT itself is the control.",
+  "canvas": {
+    "scenario": "B40",
+    "origin": [
+      0,
+      0,
+      0
+    ]
+  },
+  "multiplayer": true,
+  "variant": "slayer",
+  "modes": [
+    "slayer"
+  ],
+  "blam": {
+    "clear": {
+      "squads": false,
+      "bipeds": true,
+      "weapons": true,
+      "vehicles": true,
+      "equipment": true,
+      "scripts": true,
+      "blocks": [
+        "machines",
+        "terminals",
+        "controls",
+        "giants",
+        "actual cues",
+        "quick cues",
+        "zone set switch trigger volumes",
+        "scenario kill triggers",
+        "cutscene titles",
+        "cutscene camera points",
+        "cutscene spline points",
+        "cinematics"
+      ]
+    },
+    "player_starts": [
+      {
+        "pos": [
+          9609.9,
+          -10200.0,
+          14780.0
+        ],
+        "yaw": -110.0
+      },
+      {
+        "pos": [
+          9760.0,
+          -10750.0,
+          14780.0
+        ],
+        "yaw": -110.0
+      },
+      {
+        "pos": [
+          10220.0,
+          -10640.0,
+          14780.0
+        ],
+        "yaw": -110.0
+      },
+      {
+        "pos": [
+          10210.0,
+          -10220.0,
+          14780.0
+        ],
+        "yaw": -110.0
+      }
+    ],
+    "objects": [
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          9609.9,
+          -10200.0,
+          14780.0
+        ],
+        "rot": [
+          0,
+          -110.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          9760.0,
+          -10750.0,
+          14780.0
+        ],
+        "rot": [
+          0,
+          -110.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          10220.0,
+          -10640.0,
+          14780.0
+        ],
+        "rot": [
+          0,
+          -110.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      },
+      {
+        "tag": "objects\\multi\\spawning\\player_spawn",
+        "group": "scenery",
+        "pos": [
+          10210.0,
+          -10220.0,
+          14780.0
+        ],
+        "rot": [
+          0,
+          -110.0,
+          0
+        ],
+        "set": {
+          "multiplayer data.owner team": "neutral"
+        }
+      }
+    ],
+    "set": {
+      "type": "multiplayer",
+      "flags": "0x1"
+    },
+    "map_variant": true,
+    "active_bsps": [
+      8
+    ],
+    "pathfinding": {
+      "instances": "static"
+    }
+  }
+}

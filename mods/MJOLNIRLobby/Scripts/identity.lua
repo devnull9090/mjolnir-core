@@ -59,6 +59,15 @@ local function writeFile(path, text)
     return true
 end
 
+--- MJOLNIRHud reads the roster from this shared variable (hubnames.lua) and
+--- the file only without one; the file stays for tools.
+Identity.SHARED_KEY = "MJOLNIR.identities"
+local function publish(text)
+    writeFile(dir .. "\\identities.txt", text)
+    local modRef = rawget(_G, "ModRef")
+    if modRef then pcall(modRef.SetSharedVariable, modRef, Identity.SHARED_KEY, text) end
+end
+
 local function exists(path)
     local f = io.open(path, "rb")
     if not f then return false end
@@ -126,7 +135,7 @@ local function save()
             (tostring(p.name):gsub("[\t\r\n]", " ")), tostring(p.reports or 0) }, "\t")
     end
     table.sort(lines)
-    writeFile(dir .. "\\identities.txt", table.concat(lines, "\n") .. (#lines > 0 and "\n" or ""))
+    publish(table.concat(lines, "\n") .. (#lines > 0 and "\n" or ""))
     for _, p in pairs(roster) do fetchAvatar(p.id) end
 end
 
@@ -309,7 +318,7 @@ function Identity.init(deps)
     localName, presentNames = deps.localName, deps.presentNames
     isPublic, onBanned, worldContext = deps.isPublic, deps.onBanned, deps.worldContext
     Identity.onIds = deps.onIds
-    writeFile(dir .. "\\identities.txt", "")
+    publish("")
 
     -- A client proves itself to the host.
     Net.on("iam", function(f, sender)

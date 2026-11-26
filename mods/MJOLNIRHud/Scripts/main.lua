@@ -130,6 +130,7 @@ local ROW_YOU = { R = 1.0, G = 0.85, B = 0.35, A = 0.18 }
 local TEAM_COLORS = {
     Red = { R = 1, G = 0.32, B = 0.28, A = 1 },
     Blue = { R = 0.3, G = 0.65, B = 1, A = 1 },
+    Covenant = { R = 0.72, G = 0.36, B = 1, A = 1 },
     Unassigned = { R = 0.5, G = 0.66, B = 0.74, A = 1 },
 }
 -- The feed's colours (Scripts/feed.lua): names, the words of an event line,
@@ -159,11 +160,52 @@ end
 
 --- What the match marks in the world: the hill, the next flag, the Juggernaut, the flags.
 local warfareDll = (MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR) .. "\\MJOLNIRLobby\\native\\mjolnir_lobby.dll"
+local WarfareSnapshot = package and package.loadlib and package.loadlib(warfareDll, "mjolnir_warfare_snapshot") or nil
 -- Pelican Warfare jumps (filled in after the match helpers, below).
 local WarfareJump = {}
--- Pelican Warfare zones: the tiles under the score and the capture lines in
+-- Pelican Warfare zones: the zone bars in the top left and the capture lines in
 -- the feed (filled in with the tactical map, below).
 local WarfareSites = {}
+-- Pelican Warfare's voice (warfare_voice.lua): the waves' catalogue and the
+-- engine calls it plays them with. A line plays at the dialogue slider, as the
+-- loader's announcer does (MJOLNIRLevelLoader gameVolume).
+local VoiceSettings = nil
+local okVoiceLines, VoiceLines = pcall(dofile, MOD_DIR .. "\\Scripts\\warfare_voice_lines.lua")
+local VoiceIO = {
+    lines = okVoiceLines and type(VoiceLines) == "table" and VoiceLines or {},
+    load = function(path)
+        local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+        local wave = ksl:LoadAsset_Blocking(ksl:Conv_SoftObjPathToSoftObjRef(ksl:MakeSoftObjectPath(path)))
+        if wave and wave:IsValid() then return wave end
+        return nil
+    end,
+    -- SpawnSound2D rather than PlaySound2D: its component can be stopped
+    -- when a more urgent line cuts in.
+    spawn = function(wave, volume, pc)
+        return StaticFindObject("/Script/Engine.Default__GameplayStatics"):SpawnSound2D(pc, wave, volume, 1.0, 0.0, nil, false, true)
+    end,
+    stop = function(component) if component and component:IsValid() then component:Stop() end end,
+    volume = function()
+        local ok, v = pcall(function()
+            if not (VoiceSettings and VoiceSettings:IsValid()) then
+                VoiceSettings = StaticFindObject("/Script/Engine.Default__GameUserSettings"):GetGameUserSettings()
+            end
+            return VoiceSettings.VolumeMaster * VoiceSettings.VolumeVODialog
+        end)
+        if ok and type(v) == "number" and v == v then return math.max(0, math.min(1, v)) end
+        return 1
+    end,
+    log = function(text) Log(text) end,
+    -- Shared with MJOLNIRLevelLoader's announcer queue (announcer.lua): the
+    -- os.clock time until which a voice is speaking, so the two take turns.
+    floor = function()
+        local ok, v = pcall(function() return rawget(_G, "ModRef"):GetSharedVariable("MJOLNIR.voiceUntil") end)
+        return ok and tonumber(v) or 0
+    end,
+    setFloor = function(t)
+        pcall(function() rawget(_G, "ModRef"):SetSharedVariable("MJOLNIR.voiceUntil", tostring(t)) end)
+    end,
+}
 local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua"),
     Waypoint = dofile(MOD_DIR .. "\\Scripts\\waypoint.lua"),
@@ -175,13 +217,26 @@ local Markers = dofile(MOD_DIR .. "\\Scripts\\markers.lua").new({
     Grips = dofile(MOD_DIR .. "\\Scripts\\warfare_grips.lua"),
     WarfareInput = dofile(MOD_DIR .. "\\Scripts\\warfare_input.lua"),
     Instruments = dofile(MOD_DIR .. "\\Scripts\\warfare_instruments.lua"),
+    WarfareCountdown = dofile(MOD_DIR .. "\\Scripts\\warfare_countdown.lua"),
+    WarfareSpectate = dofile(MOD_DIR .. "\\Scripts\\warfare_spectate.lua"),
+    WarfareVoice = dofile(MOD_DIR .. "\\Scripts\\warfare_voice.lua"),
+    voiceIO = VoiceIO,
     flightControls = package.loadlib(warfareDll, "mjolnir_warfare_controls"),
-    pumpFlight = package.loadlib(warfareDll, "mjolnir_warfare_pump"),
+    -- With the snapshot export every read is fresh: nothing to pump.
+    pumpFlight = WarfareSnapshot and function() end or package.loadlib(warfareDll, "mjolnir_warfare_pump"),
     warfareJump = function(index) if WarfareJump.request then WarfareJump.request(index) end end,
     warfareJumped = function(index, team) if WarfareJump.jumped then WarfareJump.jumped(index, team) end end,
     warfareSite = function(i, owner, previous, site) if WarfareSites.changed then WarfareSites.changed(i, owner, previous, site) end end,
     flightBlocked = function() return Chat.inputActive() or (Tactical and Tactical.open) end,
+    -- The snapshot straight from the lobby DLL (lua_channel.h); the file only
+    -- for an older DLL. Opening the file right after the DLL rewrote it waited
+    -- ~5 ms on Windows Defender's scan, ~50 ms of each second at the HUD's
+    -- read rate (GTX 1080 Ti test PC, 2026-11-25).
     readWarfare = function()
+        if WarfareSnapshot then
+            local ok, text = pcall(WarfareSnapshot)
+            if ok and type(text) == "string" then return text end
+        end
         return readFile((MOD_DIR:match("^(.*)\\[^\\]*$") or MOD_DIR)
             .. "\\MJOLNIRLobby\\native\\warfare_state.txt")
     end,
@@ -254,7 +309,14 @@ local function loadClass(path)
     return nil
 end
 
+-- One widget made a HUD tick. A join's first tick made the kill feed, the
+-- scoreboard and the chat at once, ~45 ms of a 60 ms tick on PC 3
+-- (2026-11-25). Every caller asks again on a later tick when it gets nil.
+local WidgetBudget = { tick = 0, spent = -1 }
+
 local function createWidget(path, zOrder)
+    if WidgetBudget.spent == WidgetBudget.tick then return nil end
+    WidgetBudget.spent = WidgetBudget.tick
     local cls = loadClass(path)
     local pc = playerController()
     if not cls or not pc then return nil end
@@ -775,6 +837,14 @@ local function finishMatch(how)
     table.sort(parts)
     Log(how .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "no players"))
     Scoreboard.sample(Match, now(), true)
+    -- Pelican Warfare: the Covenant held every zone to the end (warfare.lua
+    -- covenantWon), so neither team won whatever the score.
+    local snapshot = Match.warfare and Match.warfare.snapshot
+    if Match.mode.family == "warfare" and snapshot and snapshot.phase == 3 and snapshot.globals
+        and snapshot.globals[5] == 0 and snapshot.sites and #snapshot.sites == 3
+        and snapshot.sites[1].owner == 3 and snapshot.sites[2].owner == 3 and snapshot.sites[3].owner == 3 then
+        Match.winnerTitle = "THE COVENANT WIN"
+    end
     Match.over = { at = now(), winner = Scoreboard.winner(Match) }
     -- The match's id, which the post-game screen's reports cite: the host's
     -- own record's, or the one the host told this client.
@@ -1650,7 +1720,13 @@ local function ensureWidgets()
     end
     if not (Board and Board:IsValid()) then
         Board = createWidget(BOARD_CLASS, 45)
-        if Board then setVisible(Board, false) end
+        -- A new board is filled from the model, as the feed is.
+        if Board then
+            setVisible(Board, false)
+            boardDirty = true
+        end
+        -- Made a tick after the feed (WidgetBudget): ask again next tick.
+        if not Board then nextWidgetTry = now() end
     end
     if Feed and Board then
         Log("kill feed and scoreboard up")
@@ -1869,6 +1945,7 @@ pcall(RegisterConsoleCommandHandler, "mjolnir_feed_demo", function(_, _, ar)
 end)
 
 local function tick()
+    WidgetBudget.tick = WidgetBudget.tick + 1
     local pc = playerController()
     local world = pc and pc:GetWorld()
     local code = world and scenarioOf(world)
@@ -2228,7 +2305,7 @@ do
     })
     Tactical.bind()
 
-    -- Pelican Warfare's zone tiles (Scripts/warfare_zones.lua) and a feed line
+    -- Pelican Warfare's zone bars (Scripts/warfare_zones.lua) and a feed line
     -- whenever a site changes hands. Every client reads its own snapshot, so
     -- nothing is relayed.
     local Hill = dofile(MOD_DIR .. "\\Scripts\\hill.lua")
@@ -2240,24 +2317,31 @@ do
             local pawn = pc.Pawn
             if pawn and pawn:IsValid() then at = pawn:K2_GetActorLocation() end
         end
-        tiles.tick(w and not Match.over and w.snapshot or nil, w and w.hills, at, HudHidden, now())
+        tiles.tick(w and not Match.over and w.snapshot or nil, w and (w.spots and w.spots() or w.hills), at, HudHidden, now())
     end
     WarfareSites.frame = tiles.frame
     function WarfareSites.changed(i, owner, previous, site)
         local letter = string.char(64 + i)
-        local function side(team) return team == 1 and "Red" or team == 2 and "Blue" or nil end
+        local function side(team) return team == 1 and "Red" or team == 2 and "Blue" or team == 3 and "Covenant" or nil end
         local taker, loser = side(owner), side(previous)
-        if taker then
+        if taker == "Covenant" then
+            local color = TEAM_COLORS.Covenant
+            feedPush({ glyph = "Flag", glyphColor = color, lead = "The Covenant", leadColor = color,
+                tail = "took zone " .. letter, tailColor = FEED.words, accent = color })
+        elseif taker then
             local color = TEAM_COLORS[taker]
             feedPush({ glyph = "Flag", glyphColor = color, lead = taker .. " team", leadColor = color,
                 tail = "captured zone " .. letter, tailColor = FEED.words, accent = color })
         elseif loser then
             -- Back to neutral: the team standing in it took the other's hold away.
             local by = site and (site.red and not site.blue and "Red" or site.blue and not site.red and "Blue") or nil
-            local color = TEAM_COLORS[by or loser]
+            -- With no team in it, Covenant standing there drained it.
+            local drained = not by and loser ~= "Covenant" and site and site.covenant
+            local color = drained and TEAM_COLORS.Covenant or TEAM_COLORS[by or loser]
+            local tail = by and ((loser == "Covenant" and "cleared zone " or "neutralized zone ") .. letter)
+                or (drained and "was neutralized by the Covenant" or "is neutral again")
             feedPush({ glyph = "Flag", glyphColor = TEAM_COLORS[loser], lead = by and (by .. " team") or ("Zone " .. letter),
-                leadColor = color, tail = by and ("neutralized zone " .. letter) or "is neutral again",
-                tailColor = FEED.words, accent = color })
+                leadColor = color, tail = tail, tailColor = FEED.words, accent = color })
         end
         Log("warfare: zone " .. letter .. " " .. tostring(loser or "neutral") .. " -> " .. tostring(taker or "neutral"))
     end

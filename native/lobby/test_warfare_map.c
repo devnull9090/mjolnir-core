@@ -105,12 +105,25 @@ static void test_pelican_and_capacity(void) {
 }
 static void test_invalid_mode_inputs(void) {
     fixture f;wmap_input in;wmap_snapshot out;setup(&f,&in);in.instance=0;wmap_build(&in,lookup,&f,&out);assert(!out.ready);
-    setup(&f,&in);in.owners[1]=3;wmap_build(&in,lookup,&f,&out);assert(!out.ready && out.count==0);
+    setup(&f,&in);in.owners[1]=4;wmap_build(&in,lookup,&f,&out);assert(!out.ready && out.count==0);
+    setup(&f,&in);in.owners[1]=3;wmap_build(&in,lookup,&f,&out);assert(out.ready); /* the Covenant hold B */
     setup(&f,&in);in.score[0]=-1;wmap_build(&in,lookup,&f,&out);assert(!out.ready && out.score[0]==0);
     setup(&f,&in);in.phase=4;wmap_build(&in,lookup,&f,&out);assert(!out.ready);
 }
+/* Moving zones: a site is drawn where this match put it; an unknown
+ * candidate falls back to the classic spot rather than to a guess. */
+static void test_capture_candidates(void) {
+    fixture f;wmap_input in;wmap_snapshot out;setup(&f,&in);
+    in.candidates[0]=2;in.candidates[1]=0;in.candidates[2]=99;
+    wmap_build(&in,lookup,&f,&out);assert(out.ready);
+    const wmap_marker *a=marker(&out,WM_CAPTURE,0),*b=marker(&out,WM_CAPTURE,1),*c=marker(&out,WM_CAPTURE,2);
+    assert(a && fabsf(a->x-warfare_candidates[0][2][0])<0.01f && fabsf(a->y-warfare_candidates[0][2][1])<0.01f);
+    assert(b && fabsf(b->x-warfare_candidates[1][0][0])<0.01f);
+    assert(c && fabsf(c->x-warfare_candidates[2][0][0])<0.01f);
+    assert(warfare_candidates[0][0][0]==warfare_layout_markers[7][0]); /* candidate 0 is the classic marker */
+}
 int main(void) {
     test_team_public_and_heading();test_no_viewpoint_leak();test_death_salts_finite_and_parent();
-    test_enemy_unknown_and_incomplete_chain();test_child_bounds_cycles_and_turrets();test_pelican_and_capacity();test_invalid_mode_inputs();
+    test_enemy_unknown_and_incomplete_chain();test_child_bounds_cycles_and_turrets();test_pelican_and_capacity();test_invalid_mode_inputs();test_capture_candidates();
     puts("warfare tactical map: team/privacy, seats, corpse/salt/finite guards, bounded chains/capacity, parent poses and public objectives PASS");return 0;
 }

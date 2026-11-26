@@ -1,0 +1,62 @@
+# Pelican Warfare's voice lines. voice<TAB>name<TAB>text[<TAB>delivery instruction]
+# The name is the HUD event (warfare_voice.lua) plus a variant letter; the wave
+# is <voice>_<name> (never ending in _<digits>: the game does not load those).
+# Cortana speaks to the player the way she does in the games: short tactical
+# calls ("Alert!", "Contact!"), "Chief", and a dry joke when it is earned.
+# The announcer only names the game, the zones and the result.
+#
+# Warmup and insertion
+ai	warmup_a	Twenty seconds, Chief. Check your gear and get to the Pelicans.
+ai	warmup_b	The Pelicans are fuelled and waiting. Twenty seconds to dust-off.
+ai	insertion_a	We're wheels up. When the light goes green, jump.
+ai	insertion_b	Pelicans are airborne. Hang on to something.
+ai	briefing_a	Three capture sites on this island: Alpha, Bravo and Charlie. Hold them, and the Covenant can't land.
+ai	briefing_b	The Covenant want this island. Take Alpha, Bravo and Charlie before they do.
+ai	jump_now_a	Chief, that's your stop. Out you go!	Urgent, speaking quickly.
+ai	jump_now_b	We're over the drop zone. Jump!	Urgent, speaking quickly.
+# The fall: the chute opens only when pulled, and the ground kills a player who
+# meets it faster than 20 m/s (native WARFARE_SPLAT_SINK). She warns, yells,
+# and has the last word.
+ai	altitude_warn_a	You're getting pretty close to the ground, Chief. Pull your chute!	Urgent, speaking quickly.
+ai	altitude_yell_a	Chief! Chief! Pull your chute!	Shouting urgently at the top of her voice, alarmed.
+ai	splat_a	Well. I tried to warn you.	Dry and wry, mildly exasperated.
+ai	splat_b	That's going to leave a mark.	Dry and wry, mildly exasperated.
+ai	splat_c	I'll log that as a hard landing.	Dry and wry, mildly exasperated.
+# Combat: the Covenant
+ai	first_wave_a	Alert! Covenant dropships on long-range sensors. Here they come.	Urgent and focused.
+ai	wave_inbound_a	The next wave is inbound. Get ready.	Urgent and focused.
+ai	wave_inbound_b	More Covenant dropships on approach. Brace yourselves.	Urgent and focused.
+ai	wave_inbound_c	Here they come again.	Urgent and focused.
+ai	covenant_landing_a	Contact! Covenant forces at Zone A.	Urgent and focused.
+ai	covenant_landing_b	Contact! Covenant forces at Zone B.	Urgent and focused.
+ai	covenant_landing_c	Contact! Covenant forces at Zone C.	Urgent and focused.
+ai	covenant_take_a	They've taken Zone A. Push them out before they dig in.	Urgent and focused.
+ai	covenant_take_b	They've taken Zone B. Push them out before they dig in.	Urgent and focused.
+ai	covenant_take_c	They've taken Zone C. Push them out before they dig in.	Urgent and focused.
+ai	covenant_two_a	That's two zones, Chief. Don't let them take the third.	Urgent and focused.
+ai	covenant_all_a	They hold every zone! Retake one, now, or we lose the island!	Urgent, alarmed, speaking quickly.
+ai	defeat_ten_a	Ten seconds, Chief! Take a zone back!	Shouting urgently at the top of her voice, alarmed.
+ai	covenant_broken_a	That's bought us some time. Keep pushing.
+ai	retaken_a	Nice work. That zone's ours again.
+ai	retaken_b	That's one back. Keep it that way.
+ai	reinforcements_a	Your ride's here, Chief. Get aboard.
+ai	reinforcements_b	Reinforcements are boarding. Get in.
+# The end
+ai	well_done_a	Not bad, Chief. Not bad at all.	Dry and wry, warm.
+ai	covenant_win_a	We've lost the island. Everyone out.	Grim and urgent.
+announcer	title_a	Pelican Warfare!
+announcer	zones_open_a	Capture the zones!
+announcer	zone_secured_a	Zone A secured.
+announcer	zone_secured_b	Zone B secured.
+announcer	zone_secured_c	Zone C secured.
+announcer	zone_lost_a	Zone A lost.
+announcer	zone_lost_b	Zone B lost.
+announcer	zone_lost_c	Zone C lost.
+announcer	zone_enemy_a	The enemy has taken Zone A.
+announcer	zone_enemy_b	The enemy has taken Zone B.
+announcer	zone_enemy_c	The enemy has taken Zone C.
+announcer	zone_contested_a	Zone A contested!
+announcer	zone_contested_b	Zone B contested!
+announcer	zone_contested_c	Zone C contested!
+announcer	victory_a	Victory!
+announcer	defeat_a	Defeat.

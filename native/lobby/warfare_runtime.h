@@ -1,10 +1,21 @@
 /* Native PWR adapter. Included after the established simulation/TLS helpers.
  * Megalo globals are READ ONLY here: phase, score and capture authority stays
- * in the host's native Megalo interpreter and its existing replication.
+ * in the host's native Megalo interpreter and its existing replication. The
+ * one write is an input the rules read: each chosen site marker's object
+ * number 6, the Covenant in its zone (warfare_contest).
  * Only owning peers apply biped movement. The host drives named transports.
  * No filesystem, allocation or UObject reflection occurs on a steady tick. */
+#include <stdarg.h>
 #include "warfare_core.h"
 #include "lua_channel.h"
+
+/* Megalo rules revision in global slot 2 (blam-megalo warfare.rs MAGIC).
+ * WARFARE_MAGIC (generated from layout.json) is the map's layout protocol,
+ * carried by the published map; the two moved apart at 20570, when slot 3
+ * began counting the warmup down. 20571: slot 4 is the connected players
+ * before combat and the Covenant's defeat clock from combat on (warfare.rs
+ * DEFEAT); `connected` in warfare_state.txt is that slot as it stands. */
+#define WARFARE_RULES_MAGIC 20571
 
 typedef struct {
     int ready, status, host, rate, tick, layout, insertion_seconds, globals[12];
@@ -33,6 +44,8 @@ static warfare_controls warfare_local_controls[2];
 static struct {
     unsigned char *base;
     int supported, last_tick, last_phase, map_ok, disabled, was_client, transport_created, hs_failures, duration_valid;
+    /* Ticks this world reached the warfare tick more than one at a time. */
+    int gapped_ticks;
     float insertion_seconds;
     uint64_t instance;
     warfare_player player[WARFARE_PLAYERS];
@@ -41,7 +54,27 @@ static struct {
     uint16_t admitted[WARFARE_PLAYERS];
     int seat[WARFARE_PLAYERS];
     uint32_t carrier[2];
+    /* Reinforcements: the combat clock's last value and the tick it took it
+     * (for a fraction of a second between replicated whole seconds); each
+     * team's transport seen parked at its flight start (every machine looks,
+     * so a client never waits to board a Pelican that is not there). */
+    int clock_seconds, clock_tick, parked[2];
+    /* Covenant waves (warfare_waves): looked for once a world; per site its
+     * place (marker order); the map's tiers, forks per tier and squads per
+     * fork; and the site each fork was last sent to (-1 free). */
+    int wave_probed, wave_off, wave_place[WARFARE_SITES];
+    int wave_tiers, wave_forks, wave_seats, wave_fork_site[WARFARE_WAVE_TIERS][WARFARE_WAVE_FORKS];
+    int wave_last_seconds, wave_last_target, wave_count;
+    /* The Covenant count last written to each site marker (-1 none yet). */
+    int contest[WARFARE_SITES];
+    /* A Spirit per site bringing its wave (warfare_spirits). */
+    struct { int stage, place, site, candidate, leg, shown, pilot, unloaded; float timer; float start[3], last[3]; int have_start; } spirit[WARFARE_SITES];
+    /* Each team's reinforcement Pelican on the way in from out of sight. */
+    int pelican_leg[2], pelican_shown[2];
+    float pelican_hold[2][3];
+    int pelican_hold_valid[2];
 } warfare;
+enum { WARFARE_SPIRIT_NONE, WARFARE_SPIRIT_FLY, WARFARE_SPIRIT_HOVER, WARFARE_SPIRIT_LEAVE, WARFARE_SPIRIT_PILOTED };
 
 static int warfare_build(void) {
     if (warfare.base) return warfare.supported;
@@ -126,6 +159,456 @@ static int warfare_hs(const char *line) {
                      line, value, type, warfare.hs_failures);
     }
     return ok;
+}
+
+/* A script expression's value, quietly: a name the map lacks is an answer
+ * here (no such squad), not a fault to report. */
+static int warfare_hs_value(const char *line, int *out) {
+    if (!hs_evaluate || GetCurrentThreadId() != sim_thread_id) return 0;
+    int value = -1, type = 0;
+    if (!hs_evaluate(0, "mjolnir_warfare", line, 1, 0, &value, &type)) return 0;
+    *out = value;
+    return 1;
+}
+
+/* The Covenant contest (docs/pelican_warfare_waves.md section 4). Megalo
+ * cannot see AI, so the host counts them: living bipeds no player owns and
+ * nothing carries, inside each chosen site's boundary, written to the site
+ * marker's object number 6 (blam-megalo warfare.rs COVENANT), which the
+ * capture and payout rules read. Written every pass, zeros included, so no
+ * count outlives its AI; `active` 0 writes zeros (a stand-down). */
+#define WARFARE_MEGALO_OBJECTS 0x3a0
+#define WARFARE_MEGALO_OBJECT_SIZE 0x94
+#define WARFARE_COVENANT_NUMBER 6
+static unsigned char *warfare_megalo_object(unsigned char *tls, uint32_t handle) {
+    unsigned char *table = *(unsigned char **)(tls + WARFARE_MEGALO_OBJECTS);
+    unsigned count = table ? *(unsigned *)(table + 0x44) : 0;
+    if (count > 512) return NULL;
+    for (unsigned i = 0; i < count; i++) {
+        unsigned char *e = fd_slot(table, i, WARFARE_MEGALO_OBJECT_SIZE, 512);
+        if (e && *(uint32_t *)(e + 0x38) == handle) return e;
+    }
+    return NULL;
+}
+
+/* The body's damage section: sections sit past the unit's own fields (0xdf8
+ * to 0xe34 on PWR's Spartans, Elites, Grunts and Jackals), so the only
+ * bound is the object's own datum size. */
+static int warfare_unit_alive(const unsigned char *object, unsigned datum_size) {
+    uint16_t offset = *(const uint16_t *)(object + 0x176), size = *(const uint16_t *)(object + 0x174);
+    if (size < 0x18 || offset < 0x100 || (unsigned)offset + 0x18 > datum_size) return 0;
+    if (*(const uint16_t *)(object + offset + 0x0e) == 0xffff) return 0;
+    float body = *(const float *)(object + offset + 0x10);
+    return isfinite(body) && body > 0;
+}
+
+static void warfare_contest(unsigned char *tls, unsigned char *engine, const warfare_snapshot *s, int active) {
+    int counts[WARFARE_SITES] = {0};
+    float centre[WARFARE_SITES][3];
+    int have[WARFARE_SITES] = {0};
+    for (int site = 0; site < WARFARE_SITES; site++) {
+        uint32_t handle = *(uint32_t *)(engine + 0x1ec + 4 * (2 + site)); /* global object 2 + site: the chosen marker */
+        unsigned char *marker = fd_object(tls, handle);
+        if (!marker) continue;
+        memcpy(centre[site], marker + 0x44, sizeof centre[site]);
+        have[site] = 1;
+    }
+    if (active) {
+        const float r = 20.0f / WARFARE_METRES_PER_WU, up = 4.0f / WARFARE_METRES_PER_WU, down = 1.0f / WARFARE_METRES_PER_WU;
+        unsigned char *table = *(unsigned char **)(tls + 0x20);
+        unsigned count = table ? *(unsigned *)(table + 0x44) : 0;
+        if (count > 4096) count = 0;
+        for (unsigned i = 0; i < count; i++) {
+            unsigned char *entry = fd_slot(table, i, 0x18, 4096);
+            if (!entry || *(uint16_t *)(entry + 4) != 0 || *(uint16_t *)(entry + 6) < 0xa1c) continue;
+            uint32_t handle = (uint32_t)*(uint16_t *)entry << 16 | i;
+            unsigned char *object = fd_object(tls, handle);
+            if (!object || *(uint32_t *)(object + 0x14) != WARFARE_NONE
+                || !warfare_unit_alive(object, *(uint16_t *)(entry + 6))) continue;
+            int player = 0;
+            for (int j = 0; j < WARFARE_PLAYERS && !player; j++)
+                player = s->sample[j].valid && (s->sample[j].unit & 0xffff) == i;
+            if (player) continue;
+            const float *p = (const float *)(object + 0x44);
+            for (int site = 0; site < WARFARE_SITES; site++) {
+                if (!have[site]) continue;
+                float dx = p[0] - centre[site][0], dy = p[1] - centre[site][1], dz = p[2] - centre[site][2];
+                if (dx * dx + dy * dy <= r * r && dz <= up && dz >= -down) counts[site]++;
+            }
+        }
+    }
+    for (int site = 0; site < WARFARE_SITES; site++) {
+        if (!have[site]) continue;
+        uint32_t handle = *(uint32_t *)(engine + 0x1ec + 4 * (2 + site));
+        unsigned char *m = warfare_megalo_object(tls, handle);
+        /* The right element: number 4 is the packed state the rules publish
+         * to this site's slot. Anything else, and nothing is written. */
+        if (!m || *(int32_t *)(m + 0x50 + 4 * 4) != s->globals[9 + site]) continue;
+        *(int32_t *)(m + 0x50 + 4 * WARFARE_COVENANT_NUMBER) = counts[site];
+        if (counts[site] != warfare.contest[site]) {
+            if (warfare.contest[site] >= 0 || counts[site] > 0)
+                fireteam_log("warfare: contest: site %c has %d Covenant in its zone", 'A' + site, counts[site]);
+            warfare.contest[site] = counts[site];
+        }
+    }
+}
+
+/* Spirits (docs/pelican_warfare_waves.md section 4): a map may place a
+ * Spirit for each capture spot, `pwr_spirit_<place>`, low at the box's edge
+ * where the route for that spot starts (plan_transport_routes.py). It is
+ * hidden (object_hide) until it has climbed to its first point, and again
+ * from that point on its way back out: the simulation removes an awake
+ * object beyond the box, so it cannot start behind the mountains.
+ * A wave then comes in it: the Spirit is created there, the wave's squads are
+ * loaded, and it flies the route to a hover over the spot, opens, unloads,
+ * and flies the route back out of sight, where it is removed. Flown like the
+ * Pelicans, by velocity, ten times a second. */
+static const warfare_path *warfare_spirit_path(int site, int candidate) {
+    if (site < 0 || site >= WARFARE_SITES || candidate < 0 || candidate >= WARFARE_MAX_CANDIDATES) return NULL;
+    const warfare_path *path = &warfare_spirit_paths[site][candidate];
+    return path->count > 0 ? path : NULL;
+}
+
+/* The Spirit vehicle nearest `near` (or any, when `near` is NULL). */
+static unsigned char *warfare_spirit_object(unsigned char *tls, const float *near_m, uint32_t *handle) {
+    unsigned char *table = *(unsigned char **)(tls + 0x20), *best = NULL;
+    unsigned count = table ? *(unsigned *)(table + 0x44) : 0;
+    float best_d = 1.0e30f;
+    if (handle) *handle = WARFARE_NONE;
+    if (count > 4096) return NULL;
+    for (unsigned i = 0; i < count; i++) {
+        unsigned char *entry = fd_slot(table, i, 0x18, 4096);
+        if (!entry || *(uint16_t *)(entry + 4) != 1) continue;
+        uint32_t id = (uint32_t)*(uint16_t *)entry << 16 | i;
+        unsigned char *object = fd_object(tls, id);
+        const char *name = object ? warfare_tag_name(*(const uint32_t *)object) : NULL;
+        if (!name || _stricmp(name, "objects\\vehicles\\covenant\\tuning_fork\\tuning_fork")) continue;
+        const float *p = (const float *)(object + 0x44);
+        float d = 0;
+        if (near_m) for (int k = 0; k < 3; k++) { float e = p[k] * WARFARE_METRES_PER_WU - near_m[k]; d += e * e; }
+        if (d < best_d) { best_d = d; best = object; if (handle) *handle = id; }
+    }
+    return best;
+}
+
+/* How many bipeds ride `vehicle` (a handle), its pilot included: every one
+ * whose parent it is. A Spirit's troops ride it until they jump. */
+static int warfare_riders(unsigned char *tls, uint32_t vehicle) {
+    unsigned char *table = *(unsigned char **)(tls + 0x20);
+    unsigned count = table ? *(unsigned *)(table + 0x44) : 0;
+    int riders = 0;
+    if (vehicle == WARFARE_NONE || count > 4096) return 0;
+    for (unsigned i = 0; i < count; i++) {
+        unsigned char *entry = fd_slot(table, i, 0x18, 4096);
+        if (!entry || *(uint16_t *)(entry + 4) != 0) continue; /* bipeds */
+        unsigned char *object = fd_object(tls, (uint32_t)*(uint16_t *)entry << 16 | i);
+        if (object && *(uint32_t *)(object + 0x14) == vehicle) riders++;
+    }
+    return riders;
+}
+
+/* A transport's pilot: a vehicle's engine sound, thrusters and moving parts
+ * follow its driver seat's power (its engine functions read the driver), so
+ * an empty seat flies silent and dark however the host moves it. The map's
+ * pilot squads (prepare_runtime.py: pilot_spirit_<site>, pilot_pelican_<team>)
+ * give it one: seated, braindead (the host keeps flying it by velocity),
+ * unkillable and disregarded by other AI. vehicle_load_magic and
+ * ai_vehicle_enter_immediate leave a driver seat empty; this does not. A map
+ * without the squad keeps flying its transports empty. */
+static int warfare_seat_pilot(const char *squad, const char *vehicle, const char *seat) {
+    char line[256];
+    int living = 0;
+    snprintf(line, sizeof line, "(ai_living_count %s)", squad);
+    if (!warfare_hs_value(line, &living)) return 0; /* no such squad on this map */
+    mjolnir_bots_enable(NULL); /* the ai_place gate, once */
+    snprintf(line, sizeof line, "(ai_erase %s)", squad); warfare_hs(line);
+    snprintf(line, sizeof line, "(ai_place %s)", squad);
+    if (!warfare_hs(line)) return 0;
+    snprintf(line, sizeof line, "(unit_enter_vehicle_immediate (ai_get_unit %s) %s \"%s\")", squad, vehicle, seat);
+    warfare_hs(line);
+    snprintf(line, sizeof line, "(ai_braindead %s true)", squad); warfare_hs(line);
+    snprintf(line, sizeof line, "(ai_cannot_die %s true)", squad); warfare_hs(line);
+    snprintf(line, sizeof line, "(object_cannot_take_damage (ai_actors %s))", squad); warfare_hs(line);
+    snprintf(line, sizeof line, "(ai_disregard (ai_actors %s) true)", squad); warfare_hs(line);
+    /* Blind and deaf: a Spirit's driver seat is also its gunner's, and an
+     * awake pilot (flying its way out) would otherwise fire at players. */
+    snprintf(line, sizeof line, "(ai_set_blind %s true)", squad); warfare_hs(line);
+    snprintf(line, sizeof line, "(ai_set_deaf %s true)", squad); warfare_hs(line);
+    fireteam_log("warfare: %s seated in %s (%s)", squad, vehicle, seat);
+    return 1;
+}
+
+static void warfare_spirit_velocity(int place, unsigned char *object, const float world[3]) {
+    float local[3];
+    if (!warfare_velocity_frame((const float *)(object + 0x50), (const float *)(object + 0x5c), world, local)) return;
+    char line[160];
+    snprintf(line, sizeof line, "(object_set_velocity pwr_spirit_%d %.5f %.5f %.5f)", place,
+             local[0] / WARFARE_METRES_PER_WU, local[1] / WARFARE_METRES_PER_WU, local[2] / WARFARE_METRES_PER_WU);
+    warfare_hs(line);
+}
+
+static void warfare_spirit_end(int site, const char *why) {
+    char line[96];
+    if (warfare.spirit[site].pilot) { snprintf(line, sizeof line, "(ai_erase pilot_spirit_%d)", site); warfare_hs(line); }
+    snprintf(line, sizeof line, "(object_destroy pwr_spirit_%d)", warfare.spirit[site].place);
+    warfare_hs(line);
+    fireteam_log("warfare: Spirit for site %c (koth_hill_%d) %s", 'A' + site, warfare.spirit[site].place, why);
+    memset(&warfare.spirit[site], 0, sizeof warfare.spirit[site]);
+}
+
+/* Every Spirit in flight, on the host, ten times a second. */
+static void warfare_spirits(unsigned char *tls, int rate) {
+    for (int site = 0; site < WARFARE_SITES; site++) {
+        if (warfare.spirit[site].stage == WARFARE_SPIRIT_NONE) continue;
+        const warfare_path *path = warfare_spirit_path(site, warfare.spirit[site].candidate);
+        warfare.spirit[site].timer += 0.1f;
+        uint32_t handle;
+        unsigned char *object = warfare_spirit_object(tls, warfare.spirit[site].have_start ? warfare.spirit[site].last : NULL, &handle);
+        if (!path || !object) {
+            if (warfare.spirit[site].timer > 3.0f) {
+                warfare_spirit_end(site, "lost");
+            }
+            continue;
+        }
+        float metres[3], v[3];
+        for (int k = 0; k < 3; k++) metres[k] = ((const float *)(object + 0x44))[k] * WARFARE_METRES_PER_WU;
+        if (!warfare.spirit[site].have_start) { memcpy(warfare.spirit[site].start, metres, sizeof metres); warfare.spirit[site].have_start = 1; }
+        memcpy(warfare.spirit[site].last, metres, sizeof metres);
+        int place = warfare.spirit[site].place;
+        char line[128];
+        switch (warfare.spirit[site].stage) {
+        case WARFARE_SPIRIT_FLY: {
+            int leg = warfare.spirit[site].leg;
+            if (leg >= 1 && !warfare.spirit[site].shown) {
+                snprintf(line, sizeof line, "(object_hide pwr_spirit_%d false)", place); warfare_hs(line);
+                warfare.spirit[site].shown = 1;
+            }
+            float speed = leg >= path->count - 1 ? WARFARE_SPIRIT_FINAL_SPEED * 2 : WARFARE_SPIRIT_SPEED;
+            int arrived = warfare_path_velocity(path, 0, warfare.spirit[site].start, &warfare.spirit[site].leg, metres, speed, v);
+            warfare_spirit_velocity(place, object, v);
+            if (arrived) {
+                /* Doors first; the troops jump once they are open
+                 * (WARFARE_SPIRIT_DOOR_SECONDS), not through them. */
+                snprintf(line, sizeof line, "(unit_open pwr_spirit_%d)", place); warfare_hs(line);
+                warfare.spirit[site].stage = WARFARE_SPIRIT_HOVER; warfare.spirit[site].timer = 0;
+                warfare.spirit[site].unloaded = 0;
+                fireteam_log("warfare: Spirit for site %c (koth_hill_%d) over its spot; doors opening", 'A' + site, place);
+            } else if (warfare.spirit[site].timer > 240.0f) warfare_spirit_end(site, "never arrived; removed");
+            break;
+        }
+        case WARFARE_SPIRIT_HOVER: {
+            int leg = path->count - 1;
+            warfare_path_velocity(path, 0, warfare.spirit[site].start, &leg, metres, WARFARE_SPIRIT_FINAL_SPEED, v);
+            warfare_spirit_velocity(place, object, v);
+            float timer = warfare.spirit[site].timer;
+            if (!warfare.spirit[site].unloaded) {
+                if (timer < WARFARE_SPIRIT_DOOR_SECONDS) break;
+                snprintf(line, sizeof line, "(vehicle_unload pwr_spirit_%d \"fork_p\")", place); warfare_hs(line);
+                warfare.spirit[site].unloaded = 1;
+                fireteam_log("warfare: Spirit for site %c: doors open, %d aboard; unloading", 'A' + site,
+                             warfare_riders(tls, handle) - (warfare.spirit[site].pilot ? 1 : 0));
+                break;
+            }
+            /* It stays until its troops are out (only the pilot rides), give
+             * or take a straggler: WARFARE_SPIRIT_UNLOAD_SECONDS at most. */
+            int aboard = warfare_riders(tls, handle) - (warfare.spirit[site].pilot ? 1 : 0);
+            int done = timer >= WARFARE_SPIRIT_DOOR_SECONDS + 3.0f && aboard <= 0;
+            if (done || timer > WARFARE_SPIRIT_DOOR_SECONDS + WARFARE_SPIRIT_UNLOAD_SECONDS) {
+                fireteam_log("warfare: Spirit for site %c: %s after %.1f s", 'A' + site,
+                             done ? "troops out" : "unload time up", timer);
+                snprintf(line, sizeof line, "(unit_close pwr_spirit_%d)", place); warfare_hs(line);
+                warfare.spirit[site].stage = WARFARE_SPIRIT_LEAVE; warfare.spirit[site].leg = 0; warfare.spirit[site].timer = 0;
+                /* Its pilot flies it out, as Bungie's dropships leave: the
+                 * map's command script cs_spirit_leave_<place> turns it in the
+                 * hover to face the way out and flies its route back
+                 * (prepare_runtime.py). Only a pilot turns a Spirit; the host's
+                 * velocity cannot. Without the script it backs out as before. */
+                if (warfare.spirit[site].pilot) {
+                    snprintf(line, sizeof line, "(ai_braindead pilot_spirit_%d false)", site); warfare_hs(line);
+                    snprintf(line, sizeof line, "(ai_force_active pilot_spirit_%d true)", site); warfare_hs(line);
+                    snprintf(line, sizeof line, "(cs_run_command_script pilot_spirit_%d cs_spirit_leave_%d)", site, place);
+                    int value = 0;
+                    if (warfare_hs_value(line, &value)) {
+                        warfare.spirit[site].stage = WARFARE_SPIRIT_PILOTED;
+                        fireteam_log("warfare: Spirit for site %c: its pilot flies it out", 'A' + site);
+                    } else {
+                        snprintf(line, sizeof line, "(ai_braindead pilot_spirit_%d true)", site); warfare_hs(line);
+                    }
+                }
+            }
+            break;
+        }
+        case WARFARE_SPIRIT_PILOTED: {
+            /* The pilot flies; the host only watches for it to be back where
+             * it came in (out of sight), then hides and removes it. */
+            if (warfare_within_xy(metres, warfare.spirit[site].start, 40.0f)) {
+                snprintf(line, sizeof line, "(object_hide pwr_spirit_%d true)", place); warfare_hs(line);
+                warfare.spirit[site].shown = 0;
+                warfare_spirit_end(site, "flown back out of sight by its pilot; removed");
+            } else if (warfare.spirit[site].timer > 120.0f) {
+                warfare_spirit_end(site, "its pilot never got it out; removed");
+            }
+            break;
+        }
+        case WARFARE_SPIRIT_LEAVE: {
+            int arrived = warfare_path_velocity(path, 1, warfare.spirit[site].start, &warfare.spirit[site].leg, metres, WARFARE_SPIRIT_SPEED, v);
+            if (warfare.spirit[site].leg >= path->count && warfare.spirit[site].shown) {
+                snprintf(line, sizeof line, "(object_hide pwr_spirit_%d true)", place); warfare_hs(line);
+                warfare.spirit[site].shown = 0;
+            }
+            warfare_spirit_velocity(place, object, v);
+            if (arrived) warfare_spirit_end(site, "back out of sight; removed");
+            else if (warfare.spirit[site].timer > 240.0f) warfare_spirit_end(site, "never left; removed");
+            break;
+        }
+        }
+        (void)rate;
+    }
+}
+
+/* A wave squad's name: wave_t<tier>_<fork>_<seat> (the bake's bots.waves.tiers). */
+static void warfare_wave_squad(char *out, size_t size, int tier, int fork, int k) {
+    snprintf(out, size, "wave_t%d_%d_%d", tier, fork, k);
+}
+
+/* How many of a squad's AI live, or -1 when the map has no such squad. */
+static int warfare_wave_living(int tier, int fork, int k) {
+    char name[64], line[128];
+    warfare_wave_squad(name, sizeof name, tier, fork, k);
+    snprintf(line, sizeof line, "(ai_living_count %s)", name);
+    int value = -1;
+    return warfare_hs_value(line, &value) ? value : -1;
+}
+
+/* Covenant waves, on the host in combat. The map bakes a pool of squads per
+ * tier, each pool `forks` Spirits' worth (one per seat): wave_t<tier>_<fork>_<k>.
+ * Once a world the host counts them; then on each wave time
+ * (warfare_wave_due) it takes the tier for the wave number
+ * (warfare_wave_tier: the waves get harder), picks the site
+ * (warfare_wave_target), places a free fork of that tier, sends its squads to
+ * the site's chosen spot (its task koth_hill_<place>), loads them into the
+ * site's Spirit and calls the tier's wave_vitality_t<tier>. Nothing runs
+ * between wave times but the due check. */
+static void warfare_waves(const warfare_snapshot *s) {
+    if (!s->host || s->globals[0] != 2 || warfare.wave_off) return;
+    int seconds = s->globals[3];
+    /* Without the evaluator every squad reads "missing": look again later
+     * rather than turning waves off for the match. */
+    if (!hs_evaluate || GetCurrentThreadId() != sim_thread_id) return;
+    if (!warfare.wave_probed) {
+        warfare.wave_probed = 1;
+        for (int site = 0; site < WARFARE_SITES; site++)
+            warfare.wave_place[site] = site + 3 * warfare_site_candidate(s->globals[9 + site]);
+        int t = 0, f = 0, k = 0;
+        while (t < WARFARE_WAVE_TIERS && warfare_wave_living(t, 0, 0) >= 0) t++;
+        if (t > 0) {
+            while (f < WARFARE_WAVE_FORKS && warfare_wave_living(0, f, 0) >= 0) f++;
+            while (k < WARFARE_WAVE_SQUADS && warfare_wave_living(0, 0, k) >= 0) k++;
+        }
+        warfare.wave_tiers = t; warfare.wave_forks = f; warfare.wave_seats = k;
+        for (int a = 0; a < WARFARE_WAVE_TIERS; a++)
+            for (int b = 0; b < WARFARE_WAVE_FORKS; b++) warfare.wave_fork_site[a][b] = -1;
+        fireteam_log("warfare: waves: %d tier(s) of %d fork(s) of %d squad(s); spots A koth_hill_%d, B koth_hill_%d, C koth_hill_%d%s",
+                     t, f, k, warfare.wave_place[0], warfare.wave_place[1], warfare.wave_place[2],
+                     t > 0 && f > 0 && k > 0 ? "" : "; this map has none, so no waves");
+        if (t <= 0 || f <= 0 || k <= 0) { warfare.wave_off = 1; return; }
+    }
+    if (teams_installed) {
+        /* The bots' team table puts red on the Covenant's side. */
+        fireteam_log("warfare: waves: the bots' team table is in force, so no Covenant waves this match");
+        warfare.wave_off = 1;
+        return;
+    }
+    int due = warfare_wave_due(warfare.wave_last_seconds, seconds);
+    warfare.wave_last_seconds = seconds;
+    if (!due) return;
+    int tier = warfare_wave_tier(warfare.wave_count + 1, warfare.wave_tiers);
+    /* Who lives where: a fork counts for the site it was sent to until its
+     * squads are all dead, then it is free again. */
+    int live[WARFARE_SITES] = {0}, free_squads[WARFARE_SITES] = {0}, owner[WARFARE_SITES], total = 0;
+    int free_fork = -1;
+    for (int t = 0; t < warfare.wave_tiers; t++) {
+        for (int f = 0; f < warfare.wave_forks; f++) {
+            int fork_live = 0;
+            for (int k = 0; k < warfare.wave_seats; k++) {
+                int n = warfare_wave_living(t, f, k);
+                if (n > 0) fork_live += n;
+            }
+            int site = warfare.wave_fork_site[t][f];
+            if (fork_live > 0 && site >= 0 && site < WARFARE_SITES) live[site] += fork_live;
+            total += fork_live;
+            if (fork_live == 0) warfare.wave_fork_site[t][f] = -1;
+            if (t == tier && fork_live == 0 && free_fork < 0) free_fork = f;
+        }
+    }
+    for (int site = 0; site < WARFARE_SITES; site++) {
+        owner[site] = warfare_site_owner(s->globals[9 + site]);
+        /* A site whose Spirit is still out waits for it. */
+        int spirit_free = warfare.spirit[site].stage == WARFARE_SPIRIT_NONE
+            && warfare_spirit_path(site, warfare.wave_place[site] / 3);
+        free_squads[site] = free_fork >= 0 && spirit_free ? warfare.wave_seats : 0;
+    }
+    int target = warfare_wave_target(live, free_squads, owner, warfare.wave_last_target);
+    int size = target >= 0 ? warfare_wave_size(total, free_squads[target]) : 0;
+    warfare.wave_count++;
+    if (size <= 0) {
+        fireteam_log("warfare: wave %d (tier %d) skipped at %d s: %d Covenant alive (cap %d), %s",
+                     warfare.wave_count, tier, seconds, total, WARFARE_WAVE_CAP,
+                     total >= WARFARE_WAVE_CAP ? "at the cap" : free_fork < 0 ? "no free fork in its tier"
+                     : target < 0 ? "no site's Spirit free" : "no room under the cap");
+        return;
+    }
+    mjolnir_bots_enable(NULL); /* the ai_place gate, once */
+    int place = warfare.wave_place[target], candidate = place / 3;
+    char line[192];
+    int spirit = 0, health = 0;
+    snprintf(line, sizeof line, "(object_get_health pwr_spirit_%d)", place);
+    if (warfare_hs_value(line, &health)) {
+        snprintf(line, sizeof line, "(object_create_anew pwr_spirit_%d)", place);
+        spirit = warfare_hs(line);
+        snprintf(line, sizeof line, "(object_hide pwr_spirit_%d true)", place); warfare_hs(line);
+        snprintf(line, sizeof line, "(object_cannot_take_damage pwr_spirit_%d)", place); warfare_hs(line);
+    }
+    if (!spirit) {
+        /* The pools stand away from every site: without its Spirit a wave
+         * would walk in from there. */
+        fireteam_log("warfare: wave %d skipped: no Spirit pwr_spirit_%d", warfare.wave_count, place);
+        return;
+    }
+    char squad[32], vehicle[32];
+    snprintf(squad, sizeof squad, "pilot_spirit_%d", target);
+    snprintf(vehicle, sizeof vehicle, "pwr_spirit_%d", place);
+    int pilot = warfare_seat_pilot(squad, vehicle, "fork_d");
+    int placed = 0;
+    for (int k = 0; k < warfare.wave_seats && placed < size; k++) {
+        char name[64];
+        warfare_wave_squad(name, sizeof name, tier, free_fork, k);
+        snprintf(line, sizeof line, "(ai_place %s)", name);
+        if (!warfare_hs(line)) continue;
+        snprintf(line, sizeof line, "(ai_set_task %s mjolnir_bots koth_hill_%d)", name, place); warfare_hs(line);
+        snprintf(line, sizeof line, "(vehicle_load_magic pwr_spirit_%d \"fork_p\" (ai_actors %s))", place, name); warfare_hs(line);
+        snprintf(line, sizeof line, "(ai_force_active %s true)", name); warfare_hs(line);
+        placed++;
+    }
+    /* The tier's vitality (the bake's wave_vitality_t<tier>; a Megalo match
+     * plays at Normal). Maximum only, so a hurt survivor is not healed. A tier
+     * without one has no script: the call fails and nothing changes. */
+    int tough = 0;
+    if (placed > 0) {
+        snprintf(line, sizeof line, "(wave_vitality_t%d)", tier);
+        tough = warfare_hs(line);
+    }
+    warfare.wave_fork_site[tier][free_fork] = target;
+    memset(&warfare.spirit[target], 0, sizeof warfare.spirit[target]);
+    warfare.spirit[target].stage = WARFARE_SPIRIT_FLY;
+    warfare.spirit[target].place = place;
+    warfare.spirit[target].site = target;
+    warfare.spirit[target].candidate = candidate;
+    warfare.spirit[target].pilot = pilot;
+    warfare.wave_last_target = target;
+    fireteam_log("warfare: wave %d (tier %d, fork %d) at %d s to site %c (koth_hill_%d): %d squad(s) placed in a Spirit%s, %d Covenant alive before",
+                 warfare.wave_count, tier, free_fork, seconds, 'A' + target, place, placed,
+                 tough ? " with the tier's vitality" : "", total);
 }
 
 static unsigned char *warfare_biped(unsigned char *tls, uint32_t handle) {
@@ -242,8 +725,40 @@ static warfare_inventory warfare_kits[WARFARE_PLAYERS];
 /* Cabin clearance is both: right after the host detaches a rider it still
  * places the biped, and a client's clearance alone snapped back five times in
  * two seconds until the host's state timed out (two copies, 2026-11-19). */
-#define WF_HOST_AUTHORITY (WF_BOARD | WF_EXIT | WF_CLEAR_CABIN | WF_PROTECT | WF_UNPROTECT | WF_LOWER_WEAPON | WF_RAISE_WEAPON)
-#define WF_OWNER_AUTHORITY (WF_VELOCITY | WF_HOME | WF_WARMUP | WF_CLEAR_CABIN)
+#define WF_HOST_AUTHORITY (WF_BOARD | WF_EXIT | WF_CLEAR_CABIN | WF_PROTECT | WF_UNPROTECT | WF_LOWER_WEAPON | WF_RAISE_WEAPON \
+                           | WF_WAKE | WF_SPLAT | WF_SHIELD | WF_UNSHIELD)
+#define WF_OWNER_AUTHORITY (WF_VELOCITY | WF_HOME | WF_WARMUP | WF_CLEAR_CABIN | WF_WAKE)
+
+/* A reinforcement rider's seat: their own (roster) seat unless a teammate
+ * riding now holds it; late joiners have none. The lowest free one otherwise. */
+static void warfare_reinforcement_seat(const warfare_snapshot *s, int i) {
+    int team = s->sample[i].team, held = 0;
+    if (team < 0 || team > 1) return;
+    for (int j = 0; j < WARFARE_PLAYERS; j++) {
+        if (j == i || !s->sample[j].valid || s->sample[j].team != team || warfare.seat[j] < 0 || warfare.seat[j] >= 10) continue;
+        int stage = warfare.player[j].stage;
+        if (stage == WF_BOARDING || stage == WF_SEATED || stage == WF_EXITING) held |= 1 << warfare.seat[j];
+    }
+    if (warfare.seat[i] >= 0 && warfare.seat[i] < 10 && !(held & (1 << warfare.seat[i]))) return;
+    warfare.seat[i] = -1;
+    for (int seat = 0; seat < 10; seat++) if (!(held & (1 << seat))) { warfare.seat[i] = seat; return; }
+}
+
+/* A joiner's seat in the insertion: the lowest of their team's ten not
+ * reserved for a teammate admitted already (roster or an earlier joiner).
+ * 0 when the Pelican is full. */
+static int warfare_insertion_seat(const warfare_snapshot *s, int i) {
+    int team = s->sample[i].team, held = 0;
+    if (team < 0 || team > 1) return 0;
+    for (int j = 0; j < WARFARE_PLAYERS; j++) {
+        if (j == i || !s->sample[j].present || s->sample[j].team != team) continue;
+        if (!warfare.admitted[j] || warfare.admitted[j] != s->sample[j].participant_salt) continue;
+        if (warfare.seat[j] >= 0 && warfare.seat[j] < 10) held |= 1 << warfare.seat[j];
+    }
+    for (int seat = 0; seat < 10; seat++)
+        if (!(held & (1 << seat))) { warfare.seat[i] = seat; return 1; }
+    return 0;
+}
 
 static void warfare_apply(unsigned char *tls, const warfare_sample all[WARFARE_PLAYERS], int i,
                           const warfare_output *requested, int host) {
@@ -276,8 +791,24 @@ static void warfare_apply(unsigned char *tls, const warfare_sample all[WARFARE_P
         fireteam_log("warfare: player %d carrier %08x cabin clearance %s", i,
                      warfare.player[i].carrier, cleared ? "verified" : "rejected");
     }
+    if (out->flags & WF_WAKE) {
+        snprintf(line, sizeof line, "(object_wake_physics (player_get %d))", hs_player); warfare_hs(line);
+    }
     if (out->flags & WF_UNPROTECT) {
         snprintf(line, sizeof line, "(unit_falling_damage_disable (player_get %d) false)", hs_player); warfare_hs(line);
+    }
+    if (out->flags & WF_SHIELD) {
+        snprintf(line, sizeof line, "(object_cannot_take_damage (player_get %d))", hs_player); warfare_hs(line);
+        fireteam_log("warfare: player %d waits at home for the Pelican (shielded)", i);
+    }
+    if (out->flags & WF_UNSHIELD) {
+        snprintf(line, sizeof line, "(object_can_take_damage (player_get %d))", hs_player); warfare_hs(line);
+        fireteam_log("warfare: player %d stops waiting (unshielded)", i);
+    }
+    if (out->flags & WF_SPLAT) {
+        /* No chute, or too late: the ground wins (warfare_core.h WARFARE_SPLAT_SINK). */
+        snprintf(line, sizeof line, "(unit_kill (player_get %d))", hs_player); warfare_hs(line);
+        fireteam_log("warfare: player %d hit the ground without a parachute", i);
     }
     if (out->flags & (WF_HOME | WF_WARMUP)) {
         const char *flag = out->flags & WF_WARMUP ? "pwr_warmup"
@@ -327,8 +858,22 @@ static void warfare_carriers(unsigned char *tls) {
         if (warfare_transport(object)) {
             const float *p = (const float *)(object + 0x44);
             float metres[3]; for (int k = 0; k < 3; k++) metres[k] = p[k] * WARFARE_METRES_PER_WU;
-            if (!warfare_inside(metres, warfare_scenario_min, warfare_scenario_max)) continue;
+            /* A reinforcement Pelican may wait out of sight beyond the box
+             * (warfare_pelican_paths): the world it may be in is wider. */
+            static const float reach_min[3] = {-4000.0f, -4000.0f, -50.0f}, reach_max[3] = {4000.0f, 4000.0f, 1500.0f};
+            if (!warfare_inside(metres, reach_min, reach_max)) continue;
             float red = warfare_route_distance2(0, metres), blue = warfare_route_distance2(1, metres);
+            if (warfare_pelican_paths[0].count > 0 || warfare_pelican_paths[1].count > 0) {
+                /* Nearer a team's staging column than either route: that team's. */
+                for (int t = 0; t < 2; t++) {
+                    const warfare_path *path = &warfare_pelican_paths[t];
+                    if (path->count <= 0) continue;
+                    float dx = metres[0] - path->point[0][0], dy = metres[1] - path->point[0][1];
+                    float d2 = dx * dx + dy * dy;
+                    if (t == 0 && d2 < red) red = d2;
+                    if (t == 1 && d2 < blue) blue = d2;
+                }
+            }
             int team = red < blue ? 0 : 1;
             float distance = team ? blue : red;
             if (distance < nearest[team]) { nearest[team] = distance; warfare.carrier[team] = handle; }
@@ -336,7 +881,140 @@ static void warfare_carriers(unsigned char *tls) {
     }
 }
 
-static void warfare_flight(unsigned char *tls, const warfare_snapshot *snapshot, int tick) {
+static unsigned char *warfare_carrier_position(unsigned char *tls, int team, float metres[3]) {
+    unsigned char *object = fd_object(tls, warfare.carrier[team]);
+    if (!object || !warfare_transport(object)) return NULL;
+    const float *p = (const float *)(object + 0x44);
+    for (int k = 0; k < 3; k++) metres[k] = p[k] * WARFARE_METRES_PER_WU;
+    return object;
+}
+
+static void warfare_set_velocity(int team, unsigned char *object, const float world[3]) {
+    float local[3];
+    if (!warfare_velocity_frame((const float *)(object + 0x50), (const float *)(object + 0x5c), world, local)) return;
+    char line[192];
+    snprintf(line, sizeof line, "(object_set_velocity pwr_pelican_%s %.5f %.5f %.5f)", team ? "blue" : "red",
+             local[0] / WARFARE_METRES_PER_WU, local[1] / WARFARE_METRES_PER_WU, local[2] / WARFARE_METRES_PER_WU);
+    warfare_hs(line);
+}
+
+/* A team's Pelican pilot (pilot_pelican_0 red, _1 blue), in the pilot's seat
+ * of the Pelican just made: its engines run and sound (warfare_seat_pilot). */
+static int warfare_pelican_piloted[2];
+static void warfare_pelican_pilot(int team) {
+    char squad[32], vehicle[32];
+    snprintf(squad, sizeof squad, "pilot_pelican_%d", team);
+    snprintf(vehicle, sizeof vehicle, "pwr_pelican_%s", team ? "blue" : "red");
+    warfare_pelican_piloted[team] = warfare_seat_pilot(squad, vehicle, "pelican_d");
+}
+
+/* A team's transport, made anew, protected, parked: at its flight start, or,
+ * when the layout gives it a route in (warfare_pelican_paths), where the map
+ * placed it, out of sight behind the mountains. */
+static void warfare_park(int team) {
+    const char *name = team ? "blue" : "red";
+    char line[128];
+    snprintf(line, sizeof line, "(object_create_anew pwr_pelican_%s)", name); warfare_hs(line);
+    if (warfare_pelican_paths[team].count <= 0) {
+        snprintf(line, sizeof line, "(object_teleport pwr_pelican_%s pwr_%s_flight_start)", name, name); warfare_hs(line);
+    } else {
+        /* Out of sight at the box's edge until it reaches its flight start. */
+        snprintf(line, sizeof line, "(object_hide pwr_pelican_%s true)", name); warfare_hs(line);
+    }
+    warfare.pelican_shown[team] = warfare_pelican_paths[team].count <= 0;
+    snprintf(line, sizeof line, "(object_cannot_take_damage pwr_pelican_%s)", name); warfare_hs(line);
+    warfare_pelican_pilot(team);
+    warfare.pelican_leg[team] = 0;
+    warfare.pelican_hold_valid[team] = 0;
+}
+
+/* Anyone of this team aboard this team's transport, or still leaving it. */
+static int warfare_team_aboard(const warfare_snapshot *snapshot, int team) {
+    for (int i = 0; i < WARFARE_PLAYERS; i++) {
+        const warfare_sample *p = &snapshot->sample[i];
+        if (!p->valid || p->team != team) continue;
+        if (p->parent_is_transport && p->parent == warfare.carrier[team]) return 1;
+        if (warfare.carrier[team] != WARFARE_NONE && warfare.player[i].carrier == warfare.carrier[team]
+            && !p->carrier_clear) return 1;
+    }
+    return 0;
+}
+
+/* Combat with reinforcement waves, on the host: each team's Pelican flies its
+ * wave's route, then, once empty, is made anew at its flight start and held
+ * there for the next wave's riders. The first one replaces the insertion's. */
+static void warfare_reinforcement_flights(unsigned char *tls, const warfare_snapshot *snapshot,
+                                          const warfare_sortie sorties[2]) {
+    int age = snapshot->globals[1], rate = snapshot->rate;
+    warfare_carriers(tls);
+    for (int team = 0; team < 2; team++) {
+        float metres[3], world[3];
+        unsigned char *object = warfare_carrier_position(tls, team, metres);
+        if (sorties[team].flying) {
+            if (!warfare.pelican_shown[team]) {
+                char show[96];
+                snprintf(show, sizeof show, "(object_hide pwr_pelican_%s false)", team ? "blue" : "red"); warfare_hs(show);
+                warfare.pelican_shown[team] = 1;
+            }
+            if (object && warfare_flight_velocity(team, sorties[team].age, sorties[team].duration, metres, world))
+                warfare_set_velocity(team, object, world);
+            continue;
+        }
+        if (object && warfare_pelican_paths[team].count > 0 && warfare_on_pelican_path(team, metres, 40.0f)) {
+            /* Out of sight until it is time to come in: hold where it was
+             * made, then fly the route to the flight start so it arrives as
+             * the wave leaves. */
+            int interval = WARFARE_REINFORCEMENT_INTERVAL, seconds = snapshot->globals[3];
+            float to_go = interval > 0 ? (float)(interval - (seconds % interval)) : 0;
+            const warfare_path *path = &warfare_pelican_paths[team];
+            if (!warfare.pelican_hold_valid[team]) {
+                memcpy(warfare.pelican_hold[team], metres, sizeof metres); warfare.pelican_hold_valid[team] = 1;
+                /* Made at its flight start: a map that places it there (today's
+                 * published PWR) has no staging point, and plays as before. */
+                if (warfare_at_flight_start(team, metres)) warfare.pelican_leg[team] = path->count;
+            }
+            /* At its flight start WARFARE_PELICAN_BOARDING_LEAD before the
+             * wave leaves: riders board only there (warfare_team_sorties). */
+            float need = warfare_path_seconds(path, warfare.pelican_hold[team], WARFARE_PELICAN_CLIMB_SPEED)
+                + WARFARE_PELICAN_BOARDING_LEAD;
+            if (warfare_at_flight_start(team, metres) && warfare.pelican_leg[team] >= path->count) {
+                if (!warfare.pelican_shown[team]) {
+                    char show[96];
+                    snprintf(show, sizeof show, "(object_hide pwr_pelican_%s false)", team ? "blue" : "red"); warfare_hs(show);
+                    warfare.pelican_shown[team] = 1;
+                }
+                if (warfare_hold_velocity(team, metres, world)) warfare_set_velocity(team, object, world);
+            } else if (to_go <= need || warfare.pelican_leg[team] > 0) {
+                if (warfare.pelican_leg[team] == 0) fireteam_log("warfare: %s Pelican coming in from out of sight (%.0f s to the wave)", team ? "blue" : "red", to_go);
+                if (warfare.pelican_leg[team] == 0) warfare.pelican_leg[team] = 1; /* started (leg index is 1-based here) */
+                int leg = warfare.pelican_leg[team] - 1;
+                int arrived = warfare_path_velocity(path, 0, warfare.pelican_hold[team], &leg, metres, WARFARE_PELICAN_CLIMB_SPEED, world);
+                warfare.pelican_leg[team] = arrived ? path->count : leg + 1;
+                warfare_set_velocity(team, object, world);
+            } else {
+                float stop[3];
+                for (int k = 0; k < 3; k++) stop[k] = fmaxf(-WARFARE_ROUTE_CORRECTION_LIMIT, fminf((warfare.pelican_hold[team][k] - metres[k]) * WARFARE_ROUTE_CORRECTION_GAIN, WARFARE_ROUTE_CORRECTION_LIMIT));
+                warfare_set_velocity(team, object, stop);
+            }
+            continue;
+        }
+        if (object && warfare_at_flight_start(team, metres)) {
+            if (warfare_hold_velocity(team, metres, world)) warfare_set_velocity(team, object, world);
+            continue;
+        }
+        if (object) {
+            float stop[3] = {0, 0, 0};
+            warfare_set_velocity(team, object, stop);
+            /* Insertion riders get the usual moment to leave before it goes. */
+            if (age < 32760 && (float)age < WARFARE_TRANSPORT_CLEANUP_SECONDS * (float)rate) continue;
+            if (warfare_team_aboard(snapshot, team)) continue;
+        }
+        warfare_park(team);
+        fireteam_log("warfare: %s reinforcement Pelican parked at its flight start", team ? "blue" : "red");
+    }
+}
+
+static void warfare_flight(unsigned char *tls, const warfare_snapshot *snapshot, int tick, const warfare_sortie sorties[2]) {
     int phase = snapshot->globals[0], age = snapshot->globals[1], rate = snapshot->rate;
     if (!snapshot->host) return;
     if (phase == 1 && warfare.last_phase != 1) {
@@ -346,24 +1024,25 @@ static void warfare_flight(unsigned char *tls, const warfare_snapshot *snapshot,
         warfare_hs("(object_teleport pwr_pelican_blue pwr_blue_flight_start)");
         warfare_hs("(object_cannot_take_damage pwr_pelican_red)");
         warfare_hs("(object_cannot_take_damage pwr_pelican_blue)");
+        warfare_pelican_pilot(0);
+        warfare_pelican_pilot(1);
         warfare.transport_created = 1;
         fireteam_log("warfare: insertion started; native physics transports requested");
     }
-    if (!warfare.transport_created || tick % (rate / 10 ? rate / 10 : 1)) return;
+    if (tick % (rate / 10 ? rate / 10 : 1)) return;
+    if (phase == 2 && WARFARE_REINFORCEMENT_INTERVAL > 0) {
+        warfare.transport_created = 1;
+        warfare_reinforcement_flights(tls, snapshot, sorties);
+        return;
+    }
+    if (!warfare.transport_created) return;
     if (phase == 1) {
         warfare_carriers(tls);
         for (int team = 0; team < 2; team++) {
-            unsigned char *object = fd_object(tls, warfare.carrier[team]);
-            if (!object || !warfare_transport(object)) continue;
-            const float *p = (const float *)(object + 0x44);
-            float metres[3], world[3], local[3];
-            for (int k = 0; k < 3; k++) metres[k] = p[k] * WARFARE_METRES_PER_WU;
-            if (!warfare_flight_velocity(team, (float)age / (float)rate, warfare.insertion_seconds, metres, world)
-                || !warfare_velocity_frame((const float *)(object + 0x50), (const float *)(object + 0x5c), world, local)) continue;
-            char line[192];
-            snprintf(line, sizeof line, "(object_set_velocity pwr_pelican_%s %.5f %.5f %.5f)", team ? "blue" : "red",
-                     local[0] / WARFARE_METRES_PER_WU, local[1] / WARFARE_METRES_PER_WU, local[2] / WARFARE_METRES_PER_WU);
-            warfare_hs(line);
+            float metres[3], world[3];
+            unsigned char *object = warfare_carrier_position(tls, team, metres);
+            if (object && warfare_flight_velocity(team, (float)age / (float)rate, warfare.insertion_seconds, metres, world))
+                warfare_set_velocity(team, object, world);
         }
     } else {
         warfare_hs("(object_set_velocity pwr_pelican_red 0 0 0)");
@@ -375,9 +1054,46 @@ static void warfare_flight(unsigned char *tls, const warfare_snapshot *snapshot,
             if (snapshot->sample[i].valid && (snapshot->sample[i].parent_is_transport
                 || (warfare.player[i].carrier != WARFARE_NONE && !snapshot->sample[i].carrier_clear))) occupied = 1;
         if (!occupied) {
+            if (warfare_pelican_piloted[0]) warfare_hs("(ai_erase pilot_pelican_0)");
+            if (warfare_pelican_piloted[1]) warfare_hs("(ai_erase pilot_pelican_1)");
+            warfare_pelican_piloted[0] = warfare_pelican_piloted[1] = 0;
             warfare_hs("(object_destroy pwr_pelican_red)"); warfare_hs("(object_destroy pwr_pelican_blue)");
             warfare.transport_created = 0;
         }
+    }
+}
+
+/* The flight a team's players may ride this tick. In combat the parked check
+ * is what every machine sees, refreshed ten times a second. */
+static void warfare_team_sorties(unsigned char *tls, const warfare_snapshot *s, int tick, warfare_sortie out[2]) {
+    memset(out, 0, sizeof(warfare_sortie) * 2);
+    int phase = s->globals[0];
+    if (phase == 1) {
+        for (int team = 0; team < 2; team++) {
+            out[team].active = out[team].boarding = out[team].flying = 1;
+            out[team].age = (float)s->globals[1] / (float)s->rate;
+            out[team].duration = warfare.insertion_seconds;
+        }
+        return;
+    }
+    if (phase != 2 || WARFARE_REINFORCEMENT_INTERVAL <= 0) return;
+    int seconds = s->globals[3];
+    if (seconds != warfare.clock_seconds) { warfare.clock_seconds = seconds; warfare.clock_tick = tick; }
+    float fraction = fminf(fmaxf((float)(tick - warfare.clock_tick) / (float)s->rate, 0), 0.999f);
+    if (!(tick % (s->rate / 10 ? s->rate / 10 : 1))) {
+        warfare_carriers(tls);
+        for (int team = 0; team < 2; team++) {
+            float metres[3];
+            /* Boarding only where the Pelican shows: at its flight start. On
+             * its way in from out of sight it is hidden, and a respawned
+             * rider seated then saw the mountains and no Pelican (2026-11-23). */
+            warfare.parked[team] = warfare_carrier_position(tls, team, metres) && warfare_at_flight_start(team, metres);
+        }
+    }
+    for (int team = 0; team < 2; team++) {
+        warfare_reinforcement_sortie((float)seconds + fraction, WARFARE_REINFORCEMENT_INTERVAL,
+                                     WARFARE_REINFORCEMENT_FLIGHT_SECONDS, &out[team]);
+        if (out[team].boarding && !warfare.parked[team]) out[team].boarding = 0;
     }
 }
 
@@ -403,9 +1119,17 @@ static void warfare_tick_inner(void) {
     LONG recheck = InterlockedExchange(&warfare_recheck, 0);
     if (instance != warfare.instance) {
         warfare.instance = instance; warfare.disabled = 0; warfare.last_tick = -1; warfare.last_phase = -1;
-        warfare.hs_failures = 0;
+        warfare.hs_failures = 0; warfare.gapped_ticks = 0;
         warfare.duration_valid = 0; warfare.insertion_seconds = WARFARE_INSERTION_SECONDS;
         warfare.transport_created = 0; warfare.was_client = g[0x11] == 4;
+        warfare.clock_seconds = -1; warfare.clock_tick = 0; warfare.parked[0] = warfare.parked[1] = 0;
+        warfare.wave_probed = warfare.wave_off = warfare.wave_count = 0;
+        warfare.wave_last_seconds = -1; warfare.wave_last_target = -1;
+        for (int site = 0; site < WARFARE_SITES; site++) warfare.contest[site] = -1;
+        memset(warfare.spirit, 0, sizeof warfare.spirit);
+        warfare.pelican_leg[0] = warfare.pelican_leg[1] = 0;
+        warfare.pelican_hold_valid[0] = warfare.pelican_hold_valid[1] = 0;
+        warfare.pelican_shown[0] = warfare.pelican_shown[1] = 1;
         warfare.map_ok = warfare_enabled ? warfare_map() : 0;
         memset(warfare.previous_valid, 0, sizeof warfare.previous_valid);
         memset(warfare.admitted, 0, sizeof warfare.admitted);
@@ -426,20 +1150,24 @@ static void warfare_tick_inner(void) {
     /* Catch up short gaps in simulation updates, while rejecting velocity
      * observations that straddle a discontinuity or a pause. */
     float dt = fminf(0.1f, (float)(tick_delta > 0 ? tick_delta : 1) / (float)rate);
-    if (tick_delta != 1) memset(warfare.previous_valid, 0, sizeof warfare.previous_valid);
+    /* A client's simulation runs its ticks in bursts: a velocity across a
+     * few ticks is still a velocity (dt carries them). Longer gaps, and
+     * time going backwards, are discontinuities. */
+    if (tick_delta < 1 || (float)tick_delta / (float)rate > 0.1f) memset(warfare.previous_valid, 0, sizeof warfare.previous_valid);
+    if (tick_delta > 1) warfare.gapped_ticks++;
     s.instance = instance; s.rate = rate; s.tick = tick; s.sampled_ms = GetTickCount64(); s.host = g[0x11] != 4;
     memcpy(s.globals, engine + 0x234, sizeof s.globals);
-    /* Slot3 is the configured deployment duration before combat; the VM
-     * resets it to zero on phase2 and then uses it for combat elapsed time. */
-    if (s.globals[2] == WARFARE_MAGIC && s.globals[0] <= 1 && s.globals[3] > 0 && s.globals[3] <= 32767) {
+    /* Slot3 is the clock: warmup seconds left (-1 waiting) in phase0, the
+     * configured deployment duration in phase1, combat seconds in phase2. */
+    if (s.globals[2] == WARFARE_RULES_MAGIC && s.globals[0] == 1 && s.globals[3] > 0 && s.globals[3] <= 32767) {
         warfare.insertion_seconds = (float)s.globals[3]; warfare.duration_valid = 1;
     }
     s.insertion_seconds = (int)warfare.insertion_seconds;
     warfare_samples(tls, dt, s.host, s.sample);
     if (!s.host) warfare.was_client = 1;
     if (warfare.was_client && s.host) warfare.disabled = 1; /* explicit rehost required */
-    int valid_mode = s.globals[2] == WARFARE_MAGIC && s.globals[0] >= 0 && s.globals[0] <= 3
-        && s.globals[1] >= 0 && s.globals[1] <= 32767 && (warfare.duration_valid || s.globals[0] >= 2);
+    int valid_mode = s.globals[2] == WARFARE_RULES_MAGIC && s.globals[0] >= 0 && s.globals[0] <= 3
+        && s.globals[1] >= 0 && s.globals[1] <= 32767 && (warfare.duration_valid || s.globals[0] != 1);
     if (!warfare_enabled || warfare.disabled || !valid_mode) {
         for (int i = 0; i < WARFARE_PLAYERS; i++) {
             warfare_output out; warfare_stop(&warfare.player[i], &s.sample[i], &out);
@@ -447,14 +1175,22 @@ static void warfare_tick_inner(void) {
         }
         if (warfare.transport_created) {
             warfare_snapshot stopping = s; stopping.globals[0] = 3; stopping.globals[1] = 0;
-            warfare_flight(tls, &stopping, tick);
+            warfare_sortie none[2]; memset(none, 0, sizeof none);
+            warfare_flight(tls, &stopping, tick, none);
+        }
+        if (s.host) {
+            int written = 0;
+            for (int site = 0; site < WARFARE_SITES; site++) written |= warfare.contest[site] > 0;
+            if (written) warfare_contest(tls, engine, &s, 0);
         }
         s.status = warfare.disabled ? -4 : valid_mode ? 0 : -3;
         warfare_publish(&s); return;
     }
     s.ready = 1; s.status = 2;
     if (s.globals[0] == 0) warfare_lock_roster(s.sample, warfare.admitted, warfare.seat);
-    warfare_flight(tls, &s, tick);
+    warfare_sortie sorties[2];
+    warfare_team_sorties(tls, &s, tick, sorties);
+    warfare_flight(tls, &s, tick, sorties);
     LONG action = InterlockedExchange(&warfare_action, 0);
     warfare_controls controls[2];
     AcquireSRWLockExclusive(&warfare_controls_lock);
@@ -469,8 +1205,33 @@ static void warfare_tick_inner(void) {
          * unit for an existing participant still uses that participant's
          * reserved seat; disconnected slot reuse cannot steal it. */
         int player_phase = s.globals[0];
-        if (player_phase == 1 && (!s.sample[i].participant_salt || warfare.admitted[i] != s.sample[i].participant_salt))
-            player_phase = 2;
+        warfare_sortie none, *sortie = &none;
+        memset(&none, 0, sizeof none);
+        if (s.sample[i].team >= 0 && s.sample[i].team < 2) sortie = &sorties[s.sample[i].team];
+        /* Not admitted at roster lock: a joiner in the insertion's first half
+         * rides it, in a free seat of their team's Pelican (the host picks
+         * the seat and seats them; the joiner's own machine follows once it
+         * sees itself aboard). Later, or with no seat free, they wait at home
+         * for the first reinforcement wave. */
+        if (player_phase == 1 && s.sample[i].participant_salt && warfare.admitted[i] != s.sample[i].participant_salt
+            && s.sample[i].valid && s.sample[i].team >= 0 && s.sample[i].team < 2) {
+            int join = 0;
+            if (s.host) {
+                float age = (float)s.globals[1] / (float)rate;
+                join = age < warfare.insertion_seconds * WARFARE_JOIN_INSERTION_FRACTION
+                    && warfare_insertion_seat(&s, i);
+            } else {
+                join = s.sample[i].parent_is_transport;
+            }
+            if (join) {
+                warfare.admitted[i] = s.sample[i].participant_salt;
+                fireteam_log("warfare: player %d joined during the insertion; rides it%s", i,
+                             s.host ? "" : " (seated by the host)");
+            }
+        }
+        if (player_phase == 1 && (!s.sample[i].participant_salt || warfare.admitted[i] != s.sample[i].participant_salt)) {
+            player_phase = 2; sortie = &none;
+        }
         warfare_sample *sample = &s.sample[i];
         int jump = action && sample->local_user == 0;
         if (sample->remote) {
@@ -490,17 +1251,22 @@ static void warfare_tick_inner(void) {
                 }
             }
         }
-        warfare_step(&warfare.player[i], sample, player_phase, (float)s.globals[1] / (float)rate,
-                     warfare.insertion_seconds, dt, jump, &out);
+        warfare_step(&warfare.player[i], sample, player_phase, sortie, dt, jump, &out);
+        if ((out.flags & WF_BOARD) && player_phase == 2) warfare_reinforcement_seat(&s, i);
         warfare_apply(tls, s.sample, i, &out, s.host);
         s.stage[i] = warfare.player[i].stage;
         s.steering[i] = warfare.player[i].steering;
         s.braking[i] = warfare.player[i].braking;
-        if (before != s.stage[i]) fireteam_log("warfare: player %d local %d state %d -> %d support=%d clear=%d velocity_valid=%d parent=%08x", i,
+        if (before != s.stage[i]) fireteam_log("warfare: player %d local %d state %d -> %d support=%d clear=%d velocity_valid=%d vz=%.2f parent=%08x gapped_ticks=%d", i,
             s.sample[i].local_user, before, s.stage[i], s.sample[i].support_world, s.sample[i].carrier_clear,
-            s.sample[i].velocity_valid, s.sample[i].parent);
+            s.sample[i].velocity_valid, s.sample[i].velocity[2], s.sample[i].parent, warfare.gapped_ticks);
     }
     warfare_tactical_tick(tls, &s);
+    warfare_waves(&s);
+    if (s.host && !(tick % (rate / 10 ? rate / 10 : 1))) {
+        warfare_contest(tls, engine, &s, s.globals[0] == 2 && !teams_installed);
+        if (s.globals[0] == 2) warfare_spirits(tls, rate);
+    }
     warfare.last_phase = s.globals[0]; warfare_publish(&s);
 }
 
@@ -522,7 +1288,7 @@ static int warfare_keep_playing(void) {
     __try {
         unsigned char *g = sim_game_globals(), *e = sim_tls_slot(0x38);
         return g && g[1] && !g[0] && g[0x10] == 3 && *(uint64_t *)(g + 0x18) == warfare.instance
-            && e && *(int *)(e + 0x846c) == 2 && *(int *)(e + 0x234 + 2 * 4) == WARFARE_MAGIC
+            && e && *(int *)(e + 0x846c) == 2 && *(int *)(e + 0x234 + 2 * 4) == WARFARE_RULES_MAGIC
             && *(int *)(e + 0x234) >= 0 && *(int *)(e + 0x234) < 3;
     } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
@@ -530,9 +1296,8 @@ static int warfare_keep_playing(void) {
 __declspec(dllexport) int mjolnir_warfare_open(void *L) {
     (void)L;
     if (!dir[0]) find_dir();
-    char path[MAX_PATH], header[64], map[64], revision[64], protocol[64], expected_revision[64], expected_protocol[64];
-    snprintf(path, sizeof path, "%swarfare_config.txt", dir);
-    FILE *file = fopen(path, "r");
+    char header[64], map[64], revision[64], protocol[64], expected_revision[64], expected_protocol[64];
+    FILE *file = open_request("warfare_config.txt");
     int valid = file && fgets(header, sizeof header, file) && fgets(map, sizeof map, file)
         && fgets(revision, sizeof revision, file) && fgets(protocol, sizeof protocol, file);
     if (file) fclose(file);
@@ -578,7 +1343,9 @@ __declspec(dllexport) int mjolnir_warfare_remote_jump(void *L) {
     if (index >= 0 && index < WARFARE_PLAYERS) {
         AcquireSRWLockShared(&warfare_snapshot_lock);
         const warfare_sample *p = &warfare_published.sample[index];
-        queued = warfare_published.ready && warfare_published.host && warfare_published.globals[0] == 1
+        /* Insertion, or a reinforcement wave in combat (jump, or decline while parked). */
+        queued = warfare_published.ready && warfare_published.host
+            && (warfare_published.globals[0] == 1 || warfare_published.globals[0] == 2)
             && p->valid && p->remote && warfare_published.stage[index] == WF_SEATED;
         unit = p->unit;
         ReleaseSRWLockShared(&warfare_snapshot_lock);
@@ -635,34 +1402,71 @@ __declspec(dllexport) int mjolnir_warfare_map_pump(void *L) {
     (void)L; if (!dir[0]) find_dir();
     warfare_tactical_pump(dir); return 0;
 }
-__declspec(dllexport) int mjolnir_warfare_pump(void *L) {
-    (void)L; if (!dir[0]) find_dir();
+/* The HUD's snapshot, as text (Scripts/warfare.lua Warfare.parse). */
+typedef struct { char *at; size_t cap, len; } wf_text;
+static void wf_put(wf_text *o, const char *format, ...) {
+    if (o->len >= o->cap) return;
+    va_list args; va_start(args, format);
+    int n = vsnprintf(o->at + o->len, o->cap - o->len, format, args);
+    va_end(args);
+    if (n < 0) { o->len = o->cap; return; }
+    o->len += (size_t)n;
+}
+static size_t warfare_state_text(char *buffer, size_t cap) {
     warfare_snapshot s;
     AcquireSRWLockShared(&warfare_snapshot_lock); s = warfare_published;
     ReleaseSRWLockShared(&warfare_snapshot_lock);
-    char path[MAX_PATH]; snprintf(path, sizeof path, "%swarfare_state.txt", dir);
-    FILE *file = fopen(path, "w"); if (!file) return 0;
-    fprintf(file, "warfare-state 2\nready %d\nstatus %d\nhost %d\ninstance %llu\ntick %d\nsampled_ms %llu\nlayout %d\ninsertion_seconds %d\nphase %d\nelapsed_ticks %d\nrate %d\nconnected %d\nscore %d %d\nowner %d %d %d\nglobals",
+    wf_text o = { buffer, cap, 0 };
+    wf_put(&o, "warfare-state 3\nreinforcement %d %d\n", WARFARE_REINFORCEMENT_INTERVAL,
+            (int)WARFARE_REINFORCEMENT_FLIGHT_SECONDS);
+    wf_put(&o, "ready %d\nstatus %d\nhost %d\ninstance %llu\ntick %d\nsampled_ms %llu\nlayout %d\ninsertion_seconds %d\nphase %d\nelapsed_ticks %d\nrate %d\nconnected %d\nscore %d %d\nowner %d %d %d\nglobals",
             s.ready, s.status, s.host, (unsigned long long)s.instance, s.tick, (unsigned long long)s.sampled_ms, s.layout,
             s.insertion_seconds, s.globals[0], s.globals[1], s.rate,
             s.globals[4], s.globals[7], s.globals[8], s.globals[9] & 3, s.globals[10] & 3, s.globals[11] & 3);
     /* Slots 9-11 pack each site's owner (low two bits), who is present and its
        stepped capture progress (blam-megalo warfare.rs SiteState); `owner` above is
        just the owner, the raw packed values stay in `globals` for the HUD. */
-    for (int n = 0; n < 12; n++) fprintf(file, " %d", s.globals[n]);
-    fputc('\n', file);
+    for (int n = 0; n < 12; n++) wf_put(&o, " %d", s.globals[n]);
+    wf_put(&o, "\n");
     for (int i = 0; i < WARFARE_PLAYERS; i++) {
         const warfare_sample *p = &s.sample[i]; if (!p->valid) continue;
-        fprintf(file, "player %d %d %d %d %.3f %.3f %.3f %u\n", i, p->team, s.stage[i], p->local_user,
+        wf_put(&o, "player %d %d %d %d %.3f %.3f %.3f %u\n", i, p->team, s.stage[i], p->local_user,
                 p->position[0], p->position[1], p->position[2], p->unit);
-        fprintf(file, "ordinal %d %d\n", i, warfare_hs_rank(s.sample, i));
+        wf_put(&o, "ordinal %d %d\n", i, warfare_hs_rank(s.sample, i));
         if (p->local_user >= 0 && p->velocity_valid && warfare_finite_sample(p)
             && (s.stage[i] == WF_FALLING || s.stage[i] == WF_CANOPY)) {
-            fprintf(file, "flight %d %.3f %.3f %.3f %d %.3f\n", i,
+            wf_put(&o, "flight %d %.3f %.3f %.3f %d %.3f\n", i,
                     p->velocity[0], p->velocity[1], p->velocity[2], s.braking[i], s.steering[i]);
             float clearance = p->position[2] - warfare_terrain(p->position[0], p->position[1], 0);
-            fprintf(file, "clearance %d %.2f\n", i, fmaxf(0, clearance));
+            wf_put(&o, "clearance %d %.2f\n", i, fmaxf(0, clearance));
         }
     }
+    if (o.len >= cap) return 0; /* cut short: no half snapshot */
+    return o.len;
+}
+#define WARFARE_STATE_CAP 16384
+/* warfare_state.txt beside this DLL: the 2 Hz pump (MJOLNIRLevelLoader
+ * Scripts/warfare.lua), for tools and older HUDs. */
+__declspec(dllexport) int mjolnir_warfare_pump(void *L) {
+    (void)L; if (!dir[0]) find_dir();
+    static char text[WARFARE_STATE_CAP];
+    size_t len = warfare_state_text(text, sizeof text);
+    if (!len) return 0;
+    char path[MAX_PATH]; snprintf(path, sizeof path, "%swarfare_state.txt", dir);
+    FILE *file = fopen(path, "w"); if (!file) return 0;
+    fwrite(text, 1, len, file);
     fclose(file); return 0;
+}
+/* The same text returned to Lua (lua_channel.h), for the HUD. Reading the file
+ * cost ~5 ms a read on a PC with Windows Defender's real-time scan, which
+ * scans a file opened right after it changed: 50 ms of every second of game
+ * thread at the HUD's 8-9 reads a second (GTX 1080 Ti test PC, 2026-11-25). */
+__declspec(dllexport) int mjolnir_warfare_snapshot(void *L) {
+    lc_frame f;
+    if (!lc_begin(&f, L)) return 0;
+    static char text[WARFARE_STATE_CAP];
+    size_t len = warfare_state_text(text, sizeof text);
+    if (len) lc_push_string(&f, text, len); else lc_push_nil(&f);
+    lc_end(&f);
+    return 1;
 }

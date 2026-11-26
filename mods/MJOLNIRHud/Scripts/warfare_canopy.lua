@@ -32,8 +32,12 @@ function Canopy.new(bipedAt, grips)
         return hit
     end
 
+    -- A mesh that is not installed stays a miss (false) for the session. A
+    -- loaded one is only a handle: once no parachute uses it the garbage
+    -- collector frees it, and a respawn's drop then fell back to the legacy
+    -- canopy (2026-11-24), so a dead handle is loaded again.
     local function get(path)
-        if assets[path] == nil then
+        if assets[path] == nil or (assets[path] and not valid(assets[path])) then
             local ok, obj = pcall(load, path)
             assets[path] = ok and valid(obj) and obj or false
         end

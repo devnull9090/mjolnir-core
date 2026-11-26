@@ -94,6 +94,7 @@ local COLOURS = {
     contested = { para = { 0.95, 0.4, 1 }, perp = { 0.6, 0.1, 1 } }, -- violet
     Red = { para = { 1, 0.3, 0.25 }, perp = { 1, 0.08, 0.05 } },
     Blue = { para = { 0.35, 0.6, 1 }, perp = { 0.1, 0.3, 1 } },
+    Covenant = { para = { 0.72, 0.32, 1 }, perp = { 0.45, 0.05, 0.85 } }, -- Pelican Warfare: held by the Covenant
 }
 
 --- The hills in a level file's text, in rotation order; or another list of
@@ -328,6 +329,9 @@ end
 
 --- The world's drawing and the HUD's line for one marker. `name` names its
 --- material instances.
+--- How long a wall's draw may hold one tick, in seconds (field.draw).
+Hill.DRAW_BUDGET_S = 0.006
+
 function Hill.field(name)
     local self = { parts = {} }
 
@@ -438,11 +442,33 @@ function Hill.field(name)
                 vector(mid, "FieldProfile", WALL_CM, WALL_SINK_CM, BEACON_CM, 0)
             end
         end
-        local panels = Hill.panels(spot)
-        local ground = {}
-        for i, panel in ipairs(panels) do ground[i] = groundAt(world, panel.cx, panel.cy, spot.z) end
-        ground = Hill.smooth(Hill.smooth(ground))
-        for i, panel in ipairs(panels) do
+        -- A wall is drawn over as many ticks as it takes, DRAW_BUDGET_S of
+        -- it a tick: a Pelican Warfare zone's first draw (a ground trace,
+        -- then a spawn and four calls, for each of its panels) held a HUD
+        -- tick ~30 ms on PC 3, seconds into a joined match (2026-11-25). A
+        -- draw of another key or spot starts over.
+        local id = string.format("%s|%.0f|%.0f|%.0f|%.0f", tostring(key), spot.x, spot.y, spot.z, spot.r or 0)
+        local job = self.job
+        if not job or job.id ~= id then
+            job = { id = id, panels = Hill.panels(spot), ground = {}, traced = 0, placed = 0 }
+            self.job = job
+        end
+        local stop = os.clock() + Hill.DRAW_BUDGET_S
+        local panels = job.panels
+        while job.traced < #panels do
+            job.traced = job.traced + 1
+            local panel = panels[job.traced]
+            job.ground[job.traced] = groundAt(world, panel.cx, panel.cy, spot.z)
+            if os.clock() >= stop then return end
+        end
+        if not job.smoothed then
+            job.ground, job.smoothed = Hill.smooth(Hill.smooth(job.ground)), true
+        end
+        local ground = job.ground
+        while job.placed < #panels do
+            job.placed = job.placed + 1
+            local i = job.placed
+            local panel = panels[i]
             local actor = self.parts[i]
             if not (actor and actor:IsValid()) then
                 actor = spawnPart(world, plane, self.mid)
@@ -458,7 +484,9 @@ function Hill.field(name)
             local length = math.sqrt(panel.width ^ 2 + (to - from) ^ 2)
             actor:SetActorScale3D({ X = WALL_CM / 100, Y = length / 100, Z = 1 })
             showPart(actor, true)
+            if os.clock() >= stop and job.placed < #panels then return end
         end
+        self.job = nil
         for i = #panels + 1, #self.parts do showPart(self.parts[i], false) end
         if not (self.beacon and self.beacon:IsValid()) then
             self.beacon = spawnPart(world, cylinder, self.beaconMid)

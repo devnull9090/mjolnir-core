@@ -6,10 +6,16 @@ use blam_megalo::warfare::*;
 
 struct World {
     globals: [i32; 12],
-    points: [[i32; 5]; 3],
+    /// Each marker's object numbers, spawn sequence and whether it still exists.
+    points: Vec<[i32; 8]>,
+    seqs: Vec<i32>,
+    alive: Vec<bool>,
+    /// Global objects 2..4: each site's chosen marker (-1 none).
+    chosen: [i32; 3],
+    rng: u32,
     score: [i32; 2],
     connected: [bool; 2],
-    alive: [bool; 2],
+    alive_player: [bool; 2],
     seated: [bool; 2],
     at: [Option<usize>; 2],
     current_player: usize,
@@ -23,10 +29,15 @@ impl World {
     fn new() -> Self {
         Self {
             globals: [0; 12],
-            points: [[0; 5]; 3],
+            points: vec![[0; 8]; 3],
+            seqs: vec![0, 1, 2],
+            alive: vec![true; 3],
+            // A classic map: one marker per site, already chosen.
+            chosen: [0, 1, 2],
+            rng: 12345,
             score: [0; 2],
             connected: [true; 2],
-            alive: [true; 2],
+            alive_player: [true; 2],
             seated: [false; 2],
             at: [None; 2],
             current_player: 0,
@@ -36,12 +47,22 @@ impl World {
             ended: false,
         }
     }
+    /// A map with these marker spawn sequences, nothing chosen yet.
+    fn with_markers(seqs: &[i32]) -> Self {
+        let mut w = World::new();
+        w.points = vec![[0; 8]; seqs.len()];
+        w.seqs = seqs.to_vec();
+        w.alive = vec![true; seqs.len()];
+        w.chosen = [-1; 3];
+        w
+    }
     fn object(&self, o: Object) -> i32 {
         match o {
             Object::Ref(object::NONE) => -1,
             Object::Ref(object::CURRENT) => self.current_object as i32,
             Object::Ref(1) => self.saved_object,
             Object::Ref(2) => self.vehicle,
+            Object::Ref(k @ 3..=5) => self.chosen[(k - 3) as usize],
             Object::PlayerBiped(player::CURRENT) => 100 + self.current_player as i32,
             _ => panic!("unsupported test object {o:?}"),
         }
@@ -50,10 +71,10 @@ impl World {
         match v {
             Var::Number(Number::Constant(x)) => i32::from(*x),
             Var::Number(Number::GlobalNumber(i)) => self.globals[*i as usize],
-            Var::Number(Number::ObjectNumber { index, .. }) => {
-                self.points[self.saved_object as usize][*index as usize]
+            Var::Number(Number::ObjectNumber { object, index }) => {
+                self.points[self.object(Object::Ref(*object)) as usize][*index as usize]
             }
-            Var::Number(Number::SpawnSequence(_)) => self.current_object as i32,
+            Var::Number(Number::SpawnSequence(o)) => self.seqs[self.object(Object::Ref(*o)) as usize],
             Var::Number(Number::TeamScore(i)) => self.score[*i as usize],
             Var::Number(Number::ScoreToWin) => i32::from(variant.score_to_win),
             Var::Object(o) => self.object(*o),
@@ -84,10 +105,12 @@ impl World {
     fn set(&mut self, a: &Var, x: i32) {
         match a {
             Var::Number(Number::GlobalNumber(i)) => self.globals[*i as usize] = x,
-            Var::Number(Number::ObjectNumber { index, .. }) => {
-                self.points[self.saved_object as usize][*index as usize] = x
+            Var::Number(Number::ObjectNumber { object, index }) => {
+                let at = self.object(Object::Ref(*object)) as usize;
+                self.points[at][*index as usize] = x
             }
             Var::Object(Object::Ref(1)) => self.saved_object = x,
+            Var::Object(Object::Ref(k @ 3..=5)) => self.chosen[(*k - 3) as usize] = x,
             _ => panic!("unsupported test assignment {a:?}"),
         }
     }
@@ -104,7 +127,7 @@ impl World {
             }
             Action::GetHealth { out, .. } => self.set(
                 &Var::Number(out.clone()),
-                if self.alive[self.current_player] {
+                if self.alive_player[self.current_player] {
                     100
                 } else {
                     0
@@ -130,6 +153,13 @@ impl World {
                 );
             }
             Action::ApplyPlayerTraits { .. } => (),
+            Action::RandomNumber { cap, out } => {
+                self.rng = self.rng.wrapping_mul(0x19660d).wrapping_add(0x3c6ef35f);
+                let cap = self.value(&Var::Number(cap.clone()), v);
+                let x = (((self.rng >> 16) as i32) * cap) >> 16;
+                self.set(&Var::Number(out.clone()), x);
+            }
+            Action::DeleteObject(Object::Ref(object::CURRENT)) => self.alive[self.current_object] = false,
             Action::EndRound => self.ended = true,
             _ => panic!("unsupported test action {a:?}"),
         }
@@ -163,9 +193,11 @@ impl World {
                 }
             }
             TriggerKind::EachObjectWithLabel(_) => {
-                for p in 0..3 {
-                    self.current_object = p;
-                    self.body(t, v);
+                for p in 0..self.seqs.len() {
+                    if self.alive[p] {
+                        self.current_object = p;
+                        self.body(t, v);
+                    }
                 }
             }
             _ => panic!("unsupported test trigger"),
@@ -234,7 +266,7 @@ fn deployment_waits_for_players_then_enables_control_and_respawns() {
     w.at[0] = Some(0);
     w.ticks(100, &v);
     assert_eq!(w.globals[PHASE as usize], 0);
-    assert_eq!(w.globals[DEPLOYMENT_SECONDS as usize], 1, "custom insertion duration is replicated while waiting");
+    assert_eq!(w.globals[CLOCK as usize], i32::from(WAITING), "the clock says it is waiting for players");
     assert_eq!(w.score, [0, 0]);
     w.connected[1] = true;
     w.ticks(10, &v);
@@ -288,10 +320,10 @@ fn mounted_capture_variant_counts_a_living_driver() {
     world.globals[PHASE as usize] = 2;
     world.at[0] = Some(1);
     world.seated[0] = true;
-    world.alive[0] = false;
+    world.alive_player[0] = false;
     world.ticks(10, &rules);
     assert_eq!(world.points[1][0], 0);
-    world.alive[0] = true;
+    world.alive_player[0] = true;
     world.ticks(10, &rules);
     assert_eq!(world.points[1][0], 1);
 }
@@ -302,10 +334,10 @@ fn dead_players_cannot_capture_and_score_or_clock_ends_the_round() {
     let mut w = World::new();
     w.globals[PHASE as usize] = 2;
     w.at[0] = Some(1);
-    w.alive[0] = false;
+    w.alive_player[0] = false;
     w.ticks(20, &v);
     assert_eq!(w.points[1][1], 0);
-    w.alive[0] = true;
+    w.alive_player[0] = true;
     w.seated[0] = true;
     w.ticks(20, &v);
     assert_eq!(
@@ -338,7 +370,8 @@ fn published_site_state_carries_owner_presence_and_stepped_progress() {
     w.globals[PHASE as usize] = 2;
     w.ticks(1, &v);
     let empty = SiteState::decode(w.globals[FIRST_OWNER as usize]);
-    assert_eq!(empty, SiteState { owner: 0, red_present: false, blue_present: false, progress: Some(0) });
+    assert_eq!(empty, SiteState { candidate: 0, owner: 0, red_present: false, blue_present: false, progress: Some(0),
+                                  covenant_present: false, covenant_progress: 0 });
     // Red alone: progress climbs in steps toward red; full at capture.
     w.at[0] = Some(0);
     w.ticks(20, &v);
@@ -366,4 +399,332 @@ fn published_site_state_carries_owner_presence_and_stepped_progress() {
     assert_eq!((taken.owner, taken.progress), (2, Some(-(PROGRESS_STEPS as i32))));
     // Other sites stay neutral and empty.
     assert_eq!(SiteState::decode(w.globals[FIRST_OWNER as usize + 1]).progress, Some(0));
+}
+
+#[test]
+fn warmup_counts_down_whole_seconds_and_restarts_when_a_player_leaves() {
+    let v = Variant::warfare(Warfare {
+        tick_rate: 10,
+        warmup_seconds: 3,
+        insertion_seconds: 7,
+        ..Warfare::default()
+    })
+    .unwrap();
+    let mut w = World::new();
+    w.connected[1] = false;
+    w.ticks(5, &v);
+    assert_eq!(w.globals[MAGIC_SLOT as usize], i32::from(MAGIC));
+    assert_eq!(w.globals[CLOCK as usize], i32::from(WAITING));
+    w.connected[1] = true;
+    w.ticks(1, &v);
+    assert_eq!(w.globals[CLOCK as usize], 3, "the full warmup shows as soon as the count is met");
+    w.ticks(9, &v);
+    assert_eq!(w.globals[CLOCK as usize], 2, "one second after ten ticks");
+    w.ticks(5, &v);
+    assert_eq!(w.globals[CLOCK as usize], 2);
+    w.connected[1] = false;
+    w.ticks(1, &v);
+    assert_eq!(w.globals[CLOCK as usize], i32::from(WAITING), "a leaver stops the countdown");
+    w.connected[1] = true;
+    w.ticks(1, &v);
+    assert_eq!(w.globals[CLOCK as usize], 3, "and it starts again from the top");
+    w.ticks(29, &v);
+    assert_eq!(w.globals[PHASE as usize], 1, "three seconds of warmup is thirty ticks");
+    assert_eq!(w.globals[DEPLOYMENT_SECONDS as usize], 7, "insertion publishes its duration");
+    w.ticks(68, &v);
+    assert_eq!(w.globals[PHASE as usize], 1, "insertion's tick count starts on the launch tick");
+    w.ticks(1, &v);
+    assert_eq!(w.globals[PHASE as usize], 2);
+    assert_eq!(w.globals[ACTIVE_SECONDS as usize], 0);
+}
+
+#[test]
+fn each_site_picks_one_candidate_at_launch_and_the_rest_are_removed() {
+    let v = Variant::warfare(Warfare {
+        tick_rate: 10,
+        warmup_seconds: 1,
+        insertion_seconds: 1,
+        capture_seconds: 1,
+        ..Warfare::default()
+    })
+    .unwrap();
+    // Site 0 has three candidates (0, 3, 6), site 1 two (1, 4), site 2 one (2).
+    let seqs = [0, 1, 2, 3, 4, 6];
+    // A mirrored map: site 2 has the same candidates as site 0 and follows it.
+    for seed in 0..40u32 {
+        let mut w = World::with_markers(&[0, 1, 2, 3, 5, 6, 8]);
+        w.rng = seed.wrapping_mul(2654435761);
+        w.ticks(10, &v);
+        let (a, c) = (w.seqs[w.chosen[0] as usize], w.seqs[w.chosen[2] as usize]);
+        assert_eq!(c, a + 2, "C takes A's candidate: A seq {a}, C seq {c}");
+    }
+    let mut picks = std::collections::BTreeSet::new();
+    for seed in 0..40u32 {
+        let mut w = World::with_markers(&seqs);
+        w.rng = seed.wrapping_mul(2654435761);
+        w.ticks(10, &v);
+        assert_eq!(w.globals[PHASE as usize], 1, "launched");
+        let chosen = w.chosen;
+        assert!(chosen.iter().all(|&c| c >= 0), "every site has a marker: {chosen:?}");
+        for (site, &c) in chosen.iter().enumerate() {
+            assert_eq!(w.seqs[c as usize] % SITES as i32, site as i32, "the pick belongs to its site");
+        }
+        assert_eq!(w.seqs[chosen[2] as usize], 2, "a single candidate is always used");
+        picks.insert(w.seqs[chosen[0] as usize]);
+        // The pick is announced during insertion: candidate index, neutral, no progress.
+        w.ticks(1, &v);
+        for site in 0..3 {
+            let state = SiteState::decode(w.globals[FIRST_OWNER as usize + site]);
+            assert_eq!(state.candidate, w.seqs[chosen[site] as usize] / SITES as i32);
+            assert_eq!((state.owner, state.progress), (0, None));
+        }
+        // Unchosen markers are gone; the chosen remain.
+        for (i, alive) in w.alive.iter().enumerate() {
+            assert_eq!(*alive, chosen.contains(&(i as i32)), "marker {i} seq {}", w.seqs[i]);
+        }
+    }
+    assert!(picks.len() >= 2, "different warmups give different sites: {picks:?}");
+}
+
+#[test]
+fn only_the_chosen_marker_captures_and_publishes_its_candidate() {
+    let v = variant();
+    // Site 0: candidates 0 and 3; marker 3 (seq 3, candidate 1) is chosen.
+    let mut w = World::with_markers(&[0, 1, 2, 3]);
+    w.chosen = [3, 1, 2];
+    w.alive[0] = false;
+    w.globals[PHASE as usize] = 2;
+    w.at[0] = Some(3);
+    w.ticks(10, &v);
+    assert_eq!(w.points[3][0], 1, "red took the chosen marker");
+    let a = SiteState::decode(w.globals[FIRST_OWNER as usize]);
+    assert_eq!((a.candidate, a.owner, a.red_present), (1, 1, true));
+    assert_eq!(w.score, [1, 0]);
+    // Standing on the removed classic spot does nothing.
+    let mut w = World::with_markers(&[0, 1, 2, 3]);
+    w.chosen = [3, 1, 2];
+    w.globals[PHASE as usize] = 2;
+    w.at[0] = Some(0);
+    w.ticks(20, &v);
+    assert_eq!(w.points[0][0], 0);
+    assert_eq!(SiteState::decode(w.globals[FIRST_OWNER as usize]).owner, 0);
+}
+
+#[test]
+fn covenant_in_a_zone_contest_it_and_without_them_capture_runs_as_before() {
+    let v = Variant::warfare(Warfare {
+        tick_rate: 10,
+        capture_seconds: 4,
+        ..Warfare::default()
+    })
+    .unwrap();
+    let mut w = World::new();
+    w.globals[PHASE as usize] = 2;
+    // No writer: number 6 stays 0, and red takes the site in 40 ticks.
+    w.at[0] = Some(0);
+    w.ticks(41, &v);
+    assert_eq!(SiteState::decode(w.globals[FIRST_OWNER as usize]).owner, 1);
+    let score = w.score[0];
+    w.ticks(20, &v);
+    assert!(w.score[0] > score, "an owned site pays");
+    // Covenant step in: no payout, and blue alone cannot push it back.
+    w.points[0][COVENANT as usize] = 2;
+    let score = w.score[0];
+    w.ticks(20, &v);
+    assert_eq!(w.score[0], score, "Covenant in the zone stop the payout");
+    w.at[0] = None;
+    w.at[1] = Some(0);
+    w.ticks(30, &v);
+    let held = SiteState::decode(w.globals[FIRST_OWNER as usize]);
+    assert_eq!((held.owner, held.progress), (1, Some(PROGRESS_STEPS as i32)), "no progress while contested");
+    // They are gone: blue pushes it back.
+    w.points[0][COVENANT as usize] = 0;
+    w.ticks(30, &v);
+    assert!(SiteState::decode(w.globals[FIRST_OWNER as usize]).progress.unwrap() < PROGRESS_STEPS as i32);
+    // A neutral site with Covenant on it cannot be taken either.
+    w.points[1][COVENANT as usize] = 1;
+    w.at[1] = Some(1);
+    w.ticks(60, &v);
+    assert_eq!(SiteState::decode(w.globals[FIRST_OWNER as usize + 1]).progress, Some(0));
+}
+
+fn covenant_variant() -> Variant {
+    Variant::warfare(Warfare {
+        tick_rate: 10,
+        capture_seconds: 4,
+        covenant_capture_seconds: 6,
+        ..Warfare::default()
+    })
+    .unwrap()
+}
+
+fn site(w: &World, i: usize) -> SiteState {
+    SiteState::decode(w.globals[FIRST_OWNER as usize + i])
+}
+
+#[test]
+fn covenant_alone_drain_a_team_site_take_it_and_it_pays_nobody() {
+    let v = covenant_variant();
+    let mut w = World::new();
+    w.globals[PHASE as usize] = 2;
+    w.at[0] = Some(0);
+    w.ticks(41, &v);
+    assert_eq!(site(&w, 0).owner, 1, "red holds A");
+    w.at[0] = None;
+    // A wave lands on the empty red site: red's 40 ticks drain to neutral first.
+    w.points[0][COVENANT as usize] = 3;
+    w.ticks(20, &v);
+    let draining = site(&w, 0);
+    assert!(draining.covenant_present && draining.owner == 1, "{draining:?}");
+    assert_eq!(draining.progress, Some(PROGRESS_STEPS as i32 / 2));
+    w.ticks(21, &v);
+    let neutral = site(&w, 0);
+    assert_eq!(neutral.owner, 0, "drained to neutral: {neutral:?}");
+    // Then 60 ticks of their own; numbers 1 and 7 never both run.
+    let score = w.score;
+    for _ in 0..61 {
+        w.ticks(1, &v);
+        assert!(w.points[0][1] == 0 || w.points[0][COVENANT_PROGRESS as usize] == 0, "{:?}", w.points[0]);
+    }
+    let held = site(&w, 0);
+    assert_eq!((held.owner, held.covenant_progress), (OWNER_COVENANT, PROGRESS_STEPS as i32), "{held:?}");
+    w.ticks(30, &v);
+    assert_eq!(w.score, score, "a Covenant site pays nobody");
+    // They are killed: the site stays theirs, and still pays nobody.
+    w.points[0][COVENANT as usize] = 0;
+    w.ticks(30, &v);
+    let empty = site(&w, 0);
+    assert!(!empty.covenant_present && empty.owner == OWNER_COVENANT, "{empty:?}");
+    assert_eq!(w.score, score);
+    // Blue clears it: 60 ticks back to neutral, then 40 to blue.
+    w.at[1] = Some(0);
+    w.ticks(10, &v);
+    assert_eq!(site(&w, 0).owner, 0, "losing progress releases the site");
+    w.ticks(50, &v);
+    let cleared = site(&w, 0);
+    assert_eq!((cleared.owner, cleared.covenant_progress, cleared.progress), (0, 0, Some(0)), "{cleared:?}");
+    w.ticks(41, &v);
+    assert_eq!(site(&w, 0).owner, 2, "blue takes it after clearing");
+    w.ticks(20, &v);
+    assert!(w.score[1] > score[1], "and it pays blue");
+}
+
+#[test]
+fn covenant_and_players_together_freeze_a_covenant_site() {
+    let v = covenant_variant();
+    let mut w = World::new();
+    w.globals[PHASE as usize] = 2;
+    w.points[1][COVENANT as usize] = 2;
+    w.ticks(61, &v);
+    assert_eq!(site(&w, 1).owner, OWNER_COVENANT);
+    w.at[0] = Some(1);
+    w.ticks(40, &v);
+    let frozen = site(&w, 1);
+    assert_eq!((frozen.owner, frozen.covenant_progress), (OWNER_COVENANT, PROGRESS_STEPS as i32), "{frozen:?}");
+    assert!(frozen.red_present && frozen.covenant_present);
+    // A Covenant half-way through a neutral site, then gone: red pushes it back first.
+    let mut w = World::new();
+    w.globals[PHASE as usize] = 2;
+    w.points[2][COVENANT as usize] = 1;
+    w.ticks(30, &v);
+    w.points[2][COVENANT as usize] = 0;
+    w.at[0] = Some(2);
+    w.ticks(29, &v);
+    assert!(w.points[2][COVENANT_PROGRESS as usize] > 0 && w.points[2][1] == 0, "{:?}", w.points[2]);
+    w.ticks(2, &v);
+    w.ticks(41, &v);
+    assert_eq!(site(&w, 2).owner, 1);
+}
+
+#[test]
+fn without_covenant_every_published_value_is_the_old_packing() {
+    let v = covenant_variant();
+    let mut w = World::new();
+    w.globals[PHASE as usize] = 2;
+    let steps = |p: i32| -> i32 {
+        // The pre-Covenant formula: steps of the teams' progress toward red (+) or blue (-).
+        let capture = 40;
+        (1..=PROGRESS_STEPS as i32)
+            .filter(|s| {
+                let t = ((s * capture + PROGRESS_STEPS as i32 - 1) / PROGRESS_STEPS as i32).max(1);
+                p >= t || p <= -t
+            })
+            .count() as i32
+            * p.signum()
+    };
+    let script: [(Option<usize>, Option<usize>, usize); 5] =
+        [(Some(0), None, 45), (Some(0), Some(0), 10), (None, Some(0), 90), (None, None, 20), (Some(1), Some(2), 50)];
+    for (red, blue, n) in script {
+        w.at = [red, blue];
+        for _ in 0..n {
+            w.ticks(1, &v);
+            for i in 0..3 {
+                let p = w.points[i];
+                let old = p[0] + 4 * (p[2] + 2 * p[3]) + 16 * (steps(p[1]) + PROGRESS_STEPS as i32 + 1);
+                assert_eq!(w.globals[FIRST_OWNER as usize + i], old, "site {i} {p:?}");
+            }
+        }
+    }
+}
+
+fn hold_variant(hold: u16) -> Variant {
+    Variant::warfare(Warfare { tick_rate: 10, covenant_capture_seconds: 1, covenant_hold_seconds: hold, ..Warfare::default() })
+        .unwrap()
+}
+
+/// Into combat the way a match gets there: through the insertion.
+fn in_combat(v: &Variant) -> World {
+    let mut w = World::new();
+    w.globals[PHASE as usize] = 1;
+    w.globals[PHASE_TICKS as usize] = 32000;
+    w.ticks(1, v);
+    assert_eq!(w.globals[PHASE as usize], 2);
+    w
+}
+
+#[test]
+fn covenant_holding_all_three_sites_count_down_and_win() {
+    let v = hold_variant(5);
+    let mut w = in_combat(&v);
+    assert_eq!(w.globals[DEFEAT as usize], 5, "combat starts with the full hold");
+    // Covenant take A and B: the clock does not move.
+    w.points[0][COVENANT as usize] = 1;
+    w.points[1][COVENANT as usize] = 1;
+    w.ticks(30, &v);
+    assert_eq!((site(&w, 0).owner, site(&w, 1).owner), (OWNER_COVENANT, OWNER_COVENANT));
+    assert_eq!(w.globals[DEFEAT as usize], 5);
+    // And C: it runs down a second at a time.
+    w.points[2][COVENANT as usize] = 1;
+    w.ticks(20, &v);
+    assert_eq!(site(&w, 2).owner, OWNER_COVENANT);
+    let left = w.globals[DEFEAT as usize];
+    assert!((1..5).contains(&left), "counting: {left}");
+    // Red clears C: back to full, and it stays there.
+    w.points[2][COVENANT as usize] = 0;
+    w.at[0] = Some(2);
+    w.ticks(10, &v);
+    assert_ne!(site(&w, 2).owner, OWNER_COVENANT);
+    w.ticks(10, &v);
+    assert_eq!(w.globals[DEFEAT as usize], 5, "a site not theirs resets the hold");
+    assert!(!w.ended);
+    // Red leaves; the Covenant take C again and hold it all five seconds.
+    w.at[0] = None;
+    w.points[2][COVENANT as usize] = 1;
+    w.ticks(200, &v);
+    assert!(w.ended, "the Covenant win");
+    assert_eq!((w.globals[PHASE as usize], w.globals[DEFEAT as usize]), (3, 0));
+}
+
+#[test]
+fn without_the_hold_rule_the_covenant_never_end_a_match() {
+    let v = hold_variant(0);
+    let mut w = in_combat(&v);
+    assert_eq!(w.globals[DEFEAT as usize], DEFEAT_OFF as i32);
+    for site in 0..3 {
+        w.points[site][COVENANT as usize] = 1;
+    }
+    w.ticks(300, &v);
+    assert_eq!(site(&w, 2).owner, OWNER_COVENANT);
+    assert!(!w.ended);
+    assert_eq!(w.globals[DEFEAT as usize], DEFEAT_OFF as i32);
 }

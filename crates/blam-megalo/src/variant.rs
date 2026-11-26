@@ -320,6 +320,9 @@ pub enum Action {
     /// Type 66: the distance between two objects, in feet (a world unit is
     /// ten).
     GetDistance { a: Object, b: Object, out: Number },
+    /// Type 25 (`0x3997f7`): a random number in `[0, cap)` into `out`; the
+    /// host's LCG, so only meaningful in host-run triggers.
+    RandomNumber { cap: Number, out: Number },
     /// Type 96 (`0x41f350`): a random object of the label, never `exclude`,
     /// into `out`; none when the label has no other object.
     GetRandomObject {
@@ -1348,6 +1351,11 @@ fn write_action(w: &mut BitWriter, a: &Action) -> Result<(), Error> {
             write_object(w, *to)?;
             write_number(w, out)
         }
+        Action::RandomNumber { cap, out } => {
+            put(w, 25, 7)?;
+            write_number(w, cap)?;
+            write_number(w, out)
+        }
         Action::GetRandomObject {
             exclude,
             out,
@@ -2036,6 +2044,10 @@ fn read_action(r: &mut BitReader) -> Result<Action, Error> {
                 b,
                 out: read_number(r)?,
             }
+        }
+        25 => {
+            let cap = read_number(r)?;
+            Action::RandomNumber { cap, out: read_number(r)? }
         }
         96 => {
             let exclude = read_object(r)?;

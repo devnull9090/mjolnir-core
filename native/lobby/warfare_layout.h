@@ -4,7 +4,7 @@
 #define MJOLNIR_WARFARE_LAYOUT_H
 #define WARFARE_MAGIC 20569
 #define WARFARE_LAYOUT_REVISION 3
-#define WARFARE_LAYOUT_SHA256 "97cea925cada8e9f527bfd0eb550e96f983060b4f4b8ad1bc19cc1a1b64f415b"
+#define WARFARE_LAYOUT_SHA256 "40677664a1a711fb11aad60717de4ab920169a91f4b534b9d0ead5301b436662"
 #define WARFARE_METRES_PER_WU 3.048f
 #define WARFARE_INSERTION_SECONDS 60.0f
 #define WARFARE_FORCED_EXIT_SECONDS 54.0f
@@ -13,6 +13,9 @@
 #define WARFARE_ROUTE_CORRECTION_GAIN 0.5f
 #define WARFARE_ROUTE_CORRECTION_LIMIT 3.0f
 #define WARFARE_TRANSPORT_CLEANUP_SECONDS 5.0f
+/* Reinforcement waves: one leaves every interval of combat (0 = none). */
+#define WARFARE_REINFORCEMENT_INTERVAL 60
+#define WARFARE_REINFORCEMENT_FLIGHT_SECONDS 30.0f
 #define WARFARE_POSITION_SANITY_M 2000.0f
 static const float warfare_play_min[3] = {-950.0f, -950.0f, -20.0f};
 static const float warfare_play_max[3] = {950.0f, 950.0f, 650.0f};
@@ -22,6 +25,29 @@ typedef struct { float start[3], end[3]; } warfare_route;
 static const warfare_route warfare_routes[2] = {
     {{-850.0f, -180.0f, 550.0f}, {850.0f, -180.0f, 550.0f}},
     {{850.0f, 180.0f, 550.0f}, {-850.0f, 180.0f, 550.0f}},
+};
+/* Moving zones: candidate 0 is the classic capture marker; the rest come
+ * from capture_candidates_m (marker spawn sequence site + 3 * candidate). */
+#define WARFARE_MAX_CANDIDATES 6
+static const int warfare_candidate_counts[3] = {4, 3, 4};
+static const float warfare_candidates[3][WARFARE_MAX_CANDIDATES][3] = {
+    {{-232.0f, -156.0f, 111.034342f}, {-120.0f, -60.0f, 112.856f}, {-170.0f, 260.0f, 116.481f}, {-330.0f, 370.0f, 115.665f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}},
+    {{0.0f, 510.0f, 130.42744f}, {5.0f, 215.0f, 116.481f}, {5.0f, -560.0f, 104.165f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}},
+    {{240.0f, -170.0f, 113.464621f}, {130.0f, -60.0f, 113.466f}, {180.0f, 260.0f, 120.856f}, {340.0f, 370.0f, 125.098f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}},
+};
+/* Transports out of sight: the points each flies through after its
+ * start, from transport_routes_m. A Pelican's end at its flight start,
+ * a Spirit's at its hover over the spot. Count 0: no route. */
+#define WARFARE_ROUTE_POINTS 6
+typedef struct { int count; float point[WARFARE_ROUTE_POINTS][3]; } warfare_path;
+static const warfare_path warfare_pelican_paths[2] = {
+    {2, {{-977.2f, -206.9f, 550.0f}, {-850.0f, -180.0f, 550.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}},
+    {2, {{977.2f, 206.9f, 550.0f}, {850.0f, 180.0f, 550.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}},
+};
+static const warfare_path warfare_spirit_paths[3][WARFARE_MAX_CANDIDATES] = {
+    {{5, {{-978.9f, -658.2f, 176.0f}, {-978.9f, -658.2f, 176.0f}, {-331.6f, -223.0f, 171.5f}, {-238.2f, -160.2f, 170.0f}, {-232.0f, -156.0f, 118.0f}, {0.0f, 0.0f, 0.0f}}}, {4, {{-978.7f, -489.3f, 175.0f}, {-907.1f, -453.5f, 175.0f}, {-127.2f, -63.6f, 172.0f}, {-120.0f, -60.0f, 120.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}}, {6, {{-640.6f, 979.8f, 251.9f}, {-640.6f, 979.8f, 251.9f}, {-523.0f, 799.8f, 250.0f}, {-519.0f, 793.9f, 249.7f}, {-173.9f, 266.0f, 175.0f}, {-170.0f, 260.0f, 123.0f}}}, {6, {{-829.2f, 929.7f, 332.7f}, {-779.3f, 873.7f, 332.7f}, {-696.1f, 780.4f, 324.7f}, {-467.3f, 523.9f, 240.2f}, {-334.2f, 374.7f, 174.3f}, {-330.0f, 370.0f, 122.2f}}}, {0, {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}}, {0, {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}}},
+    {{4, {{0.0f, 980.0f, 189.7f}, {0.0f, 980.0f, 189.7f}, {0.0f, 513.9f, 189.0f}, {0.0f, 510.0f, 137.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}}, {6, {{22.7f, 974.8f, 189.9f}, {22.7f, 974.8f, 189.9f}, {9.3f, 398.6f, 189.0f}, {8.5f, 367.0f, 188.1f}, {5.1f, 221.3f, 175.0f}, {5.0f, 215.0f, 123.0f}}}, {3, {{8.7f, -980.0f, 163.1f}, {5.0f, -560.0f, 111.1f}, {5.0f, -560.0f, 111.1f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}}, {0, {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}}, {0, {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}}, {0, {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}}},
+    {{4, {{974.4f, -690.2f, 189.4f}, {974.4f, -690.2f, 189.4f}, {246.1f, -174.3f, 172.0f}, {240.0f, -170.0f, 120.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}}, {4, {{974.4f, -449.7f, 172.9f}, {298.9f, -137.9f, 172.9f}, {137.0f, -63.2f, 172.0f}, {130.0f, -60.0f, 120.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}}, {4, {{675.2f, 975.3f, 339.9f}, {625.7f, 903.8f, 339.9f}, {184.1f, 266.0f, 180.0f}, {180.0f, 260.0f, 128.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}}, {6, {{894.8f, 973.8f, 420.7f}, {871.7f, 948.6f, 420.7f}, {862.4f, 938.6f, 419.9f}, {802.3f, 873.2f, 401.4f}, {344.6f, 375.0f, 184.0f}, {340.0f, 370.0f, 132.0f}}}, {0, {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}}, {0, {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}}},
 };
 #define WARFARE_LAYOUT_MARKERS 10
 #define WARFARE_LAYOUT_MARKER_MASK ((1u << WARFARE_LAYOUT_MARKERS) - 1u)

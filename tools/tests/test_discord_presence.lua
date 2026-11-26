@@ -204,10 +204,64 @@ local publisherEnv = setmetatable({
         return { write = function(self) return self end, close = function() return true end }
     end },
     ExecuteInGameThreadWithDelay = function(_, fn) callbacks[#callbacks + 1] = fn end,
-    package = { loadlib = function() return function() nativeCalls = nativeCalls + 1 end end },
+    -- A DLL without mjolnir_discord_set: the file route.
+    package = { loadlib = function(_, name)
+        if name == "mjolnir_discord_set" then return nil end
+        return function() nativeCalls = nativeCalls + 1 end
+    end },
 }, { __index = _G })
 local publisher = assert(loadfile("mods/MJOLNIRLobby/Scripts/presence.lua", "t", publisherEnv))()
 publisher.init({ modDir = "fake", json = Json, log = function() end })
 callbacks[1]()
 eq(nativeCalls, 0, "failed write lets native heartbeat expire")
 print("Discord presence: failed publisher writes do not refresh stale activity")
+
+-- With mjolnir_discord_set the activity goes to the DLL as an argument: no
+-- activity file, no file-reading update, and the assets file is read once a
+-- while, not each second. The session goes to MJOLNIRHud in memory.
+do
+    local opened, handed, updates, shared = {}, {}, 0, {}
+    local clock = 0
+    local memoryCallbacks = {}
+    local memoryEnv = setmetatable({
+        io = { open = function(path, mode)
+            opened[#opened + 1] = path .. " " .. mode
+            if mode == "rb" then return nil end
+            return { write = function(self) return self end, close = function() return true end }
+        end },
+        os = setmetatable({ clock = function() return clock end }, { __index = os }),
+        ModRef = { SetSharedVariable = function(_, key, value) shared[key] = value end,
+            GetSharedVariable = function(_, key) return shared[key] end },
+        ExecuteInGameThreadWithDelay = function(_, fn) memoryCallbacks[#memoryCallbacks + 1] = fn end,
+        package = { loadlib = function(_, name)
+            if name == "mjolnir_discord_set" then return function(raw) handed[#handed + 1] = raw; return true end end
+            return function() updates = updates + 1 end
+        end },
+    }, { __index = _G })
+    memoryEnv._G = memoryEnv  -- the mods look ModRef up with rawget(_G, ...)
+    local memory = assert(loadfile("mods/MJOLNIRLobby/Scripts/presence.lua", "t", memoryEnv))()
+    memory.init({ modDir = "fake", json = Json, log = function() end })
+    assert(type(shared[memory.SESSION_KEY]) == "string" and #shared[memory.SESSION_KEY] > 0, "session shared")
+    local function run() local fn = table.remove(memoryCallbacks, 1); fn() end
+    local before = #opened
+    run()
+    eq(#handed, 1, "activity handed as an argument")
+    assert(handed[1]:sub(1, 1) == "{" or handed[1] == "null", "activity is JSON")
+    eq(updates, 0, "no file-reading update")
+    local assetsReads, activityWrites = 0, 0
+    for i = before + 1, #opened do
+        if opened[i]:find("discord_assets.json", 1, true) then assetsReads = assetsReads + 1 end
+        if opened[i]:find("discord_activity.json", 1, true) then activityWrites = activityWrites + 1 end
+    end
+    eq(activityWrites, 0, "no activity file")
+    eq(assetsReads, 1, "assets read on the first publish")
+    for _ = 1, 5 do clock = clock + 1; run() end
+    local later = 0
+    for _, o in ipairs(opened) do if o:find("discord_assets.json", 1, true) then later = later + 1 end end
+    eq(later, 1, "assets not read again within 30 s")
+    clock = clock + 30; run()
+    later = 0
+    for _, o in ipairs(opened) do if o:find("discord_assets.json", 1, true) then later = later + 1 end end
+    eq(later, 2, "assets read again after 30 s")
+    print("Discord presence: activity and session in memory; assets read every 30 s")
+end

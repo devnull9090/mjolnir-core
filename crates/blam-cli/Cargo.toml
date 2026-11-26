@@ -38,3 +38,4 @@ semver = "1"
 # `map pack` writes the hub's `.mjolnir` archive (a zip): deflate only, so
 # the shipped CLI does not take on the other codecs' dependencies.
 zip = { version = "2", default-features = false, features = ["deflate-miniz"] }
+exr = "1"

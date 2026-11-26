@@ -119,10 +119,18 @@ const AGENT_FILES = [
   [path.join(REPO, "tools", "mcp", "game", "input.ps1"), "input.ps1"],
   [path.join(REPO, "tools", "mcp", "game", "capture.ps1"), "capture.ps1"],
   [path.join(REPO, "tools", "remote", "launcher.ps1"), "launcher.ps1"],
+  // A start-up stall's dump (hangwatch.ps1, started by POST /launch): hangs\ beside the agent.
+  [path.join(REPO, "tools", "remote", "hangwatch.ps1"), "hangwatch.ps1"],
+  [path.join(REPO, "tools", "remote", "hangdump.ps1"), "hangdump.ps1"],
   [path.join(REPO, "tools", "remote", "register-agent-task.ps1"), "register-agent-task.ps1"],
   // The bridge mod beside the agent, so `install-bridge` has something to install.
   [path.join(REPO, "mods", "MJOLNIRBridge", "Scripts", "main.lua"), "MJOLNIRBridge/Scripts/main.lua"],
   [path.join(REPO, "mods", "MJOLNIRBridge", "mod.json"), "MJOLNIRBridge/mod.json"],
+  // Its named pipe (native/bridge/build.ps1), when built: without it the
+  // bridge answers through files.
+  ...[path.join(REPO, "mods", "MJOLNIRBridge", "native", "mjolnir_bridge.dll")]
+    .filter((dll) => fs.existsSync(dll))
+    .map((dll) => [dll, "MJOLNIRBridge/native/mjolnir_bridge.dll"]),
 ];
 // The MJOLNIR CLI beside the agent, for `objects` and `teleport` (agent 11).
 // Big, so deploy-agent sends it only when PC 2's copy differs in size.

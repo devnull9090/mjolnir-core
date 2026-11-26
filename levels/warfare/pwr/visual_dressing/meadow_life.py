@@ -145,21 +145,29 @@ def road_margin(site, xy):
 
 ROAD_ATLAS = ROOT / "out/pwr/base-approaches/roads/road-network.png"
 _ATLAS = None
+_ASPHALT_GAP = None
 
 
 def visual_margin(site, xy):
     """Metres from the visible driving surface. Asphalt keeps its true edge (road geometry); on a dirt
     track the graded shoulder looks like bare ground, so the edge is the rut band, 4 m either side of
     the centreline (road atlas: red = road footprint, green = asphalt, blue = lateral offset +-16 m)."""
-    global _ATLAS
+    global _ATLAS, _ASPHALT_GAP
     if _ATLAS is None:
         from PIL import Image
+        from scipy.ndimage import distance_transform_edt
         with Image.open(ROAD_ATLAS) as img:
             _ATLAS = np.asarray(img.convert("RGBA"), dtype=float) / 255
+        # Metres to the atlas's asphalt. The approach roads (stage_sweep_roads.py and its kin) are
+        # painted as asphalt in the atlas but are not in the terrain geometry's road list, so
+        # road_margin alone took them for meadow and the field and the plants grew across them
+        # (the blue base's approach, shot 8 of 2026-11-22).
+        _ASPHALT_GAP = distance_transform_edt(_ATLAS[:, :, 1] <= 0.5) * (2000 / len(_ATLAS))
     n = len(_ATLAS)
     coords = [(1000 - xy[:, 1]) * n / 2000 - 0.5, (xy[:, 0] + 1000) * n / 2000 - 0.5]
     red, green, blue = (map_coordinates(_ATLAS[:, :, c], coords, order=1, mode="nearest", prefilter=False) for c in range(3))
-    geometric = road_margin(site, xy)
+    asphalt = map_coordinates(_ASPHALT_GAP, coords, order=1, mode="nearest", prefilter=False)
+    geometric = np.minimum(road_margin(site, xy), asphalt)
     dirt = (red > 0.3) & (green < 0.5 * red)
     return np.where(dirt, np.abs((blue - 0.5) * 32) - 4.0, geometric)
 
@@ -387,6 +395,20 @@ def finalize(out):
                 rows[mesh] = (kind, a[keep].tolist())
             else:
                 del rows[mesh]
+    # And nothing on a road, by the same margins candidates() keeps, measured again here so a set
+    # prepared before visual_margin knew the approach roads' asphalt can be finalized without
+    # re-running its PCG pass (rows are UE cm: site x = x / 100, site y = -y / 100).
+    site = Site()
+    removed["on_road"] = 0
+    for mesh, (kind, data) in list(rows.items()):
+        a = np.asarray(data, float)
+        clear = 7.0 if kind in ("log", "stump") else (2.5 if KINDS[kind][5] else 0.3)
+        keep = visual_margin(site, np.column_stack((a[:, 0] / 100, -a[:, 1] / 100))) > clear
+        removed["on_road"] += int((~keep).sum())
+        if keep.any():
+            rows[mesh] = (kind, a[keep].tolist())
+        else:
+            del rows[mesh]
     cli = str(ROOT / "target/release/mjolnir.exe")
     entries = []
     for mesh, (kind, data) in sorted(rows.items()):

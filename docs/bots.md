@@ -287,7 +287,8 @@ kinds has `bot_<k>` squads only, which every kind falls back to.
 
 Every kind plays a character of MJOLNIR's own at each difficulty level
 (`tools/level/build_bot_characters.sh`): `mjolnir_bot_<kind>_<level>` for
-spartan, elite, grunt and jackal, and normal, heroic and legendary, each with
+spartan, elite, grunt and jackal, and normal, heroic and legendary (and, for
+the Covenant kinds, Warfare's wave-only veteran and ace), each with
 `mjolnir_bot_generic_<level>` as its parent. A map bakes a squad set per kind
 and level (`spartan_legendary_<k>`; 180 squads on Blood Gulch) and the host's
 BOT DIFFICULTY (default LEGENDARY) or `/bots 6 elites heroic` picks one. A
@@ -324,6 +325,72 @@ map baked before levels has `<kind>_<k>` squads, which a bot falls back to.
 Every machine in the match needs the characters' containers,
 `pakchunk995-MJOLNIRBOT-<kind>-<level>_P` (15). They ship in the CE runtime
 pack from 1.16.0, which every map with bots requires.
+
+## Places to hold
+
+A game type with zones (King's hills, Pelican Warfare's capture sites) wants
+bots that go to a zone and stay in it. `blam.bots.objectives` names Megalo
+labels, and every placed object with one of them and a cylinder or sphere
+boundary becomes a place to hold:
+
+- **an area** of the bots' zone, after the grid's, named after it;
+- **firing positions** inside its boundary, kept 1 wu in from the rim but
+  never more than a quarter of the radius (an AI stops short of its position:
+  one stopped 0.3 wu outside a hill from a position on the rim). Grids from 3
+  wu down to 0.5 wu are tried, coarsest first, until one gives 32; at most 64
+  are kept. A place with fewer than 8 on the main ground is not held, and the
+  bake says so;
+- **a task** `<label>_<spawn order>` over that one area. `(ai_set_task <squad>
+  mjolnir_bots koth_hill_4)` sends a squad there, and it stays.
+
+The grid and its sixteen roaming tasks are as before, and `bots.json`'s
+`areas` and `tasks` still list only the grid, so MJOLNIRHud's roaming bots
+never wander onto a hill by being sent to `area_<k>`. The places follow under
+`holds` (name, area, centre and radius in Unreal cm). A zone's tasks name at
+most 32 areas, so grid areas and places together must fit; a level without
+`objectives` bakes byte-identical to before.
+
+The rule reads the label, not the boundary: across the converted maps, objects
+with a boundary are also flag returns, Oddball spawns, race flags and
+teleporters (5,620 of them unlabelled).
+
+**Blood Gulch** (offline): Halo 1 hills are small, 2.3 wu across with 0.5 wu
+below their marker. With the first rule (a 1.5 wu grid, 1 wu inset) none of
+the ten was held, with 0 to 3 positions each. With the grid going down to 0.5
+wu and the inset capped at a quarter of the radius, all ten are held with 8 to
+39. Without `objectives` its bake is byte-identical to before.
+
+**Pelican Warfare**, 2026-11-22 **[live]**, with `"objectives": ["koth_hill"]`:
+all 11 capture spots held (26 to 46 positions each, 456 in all, 1,727 in the
+zone). Solo, six Elites sent to hills: five walked there (55 to 355 wu, one
+onto the north pad's structure, one across the river) and stayed for the rest
+of the five minutes; the sixth stopped 0.3 wu outside its hill, which led to
+the 1 wu inset. Then with two players (PC 1 hosting, PC 3 joining), seven
+Elites under live Warfare rules: six reached their hills and held them on both
+PCs; one stood at (-18, -20) wu touching no BSP surface, its height wobbling,
+and never moved (no placed object stands within 8 wu of it).
+
+Those runs used a 1.5 wu grid for every place. Under the final rule, ten of
+the eleven come out the same; `koth_hill_5`, on uneven ground, goes from 26
+positions to 64 from a 1 wu grid.
+
+### Waves
+
+`blam.bots.waves` gives every labelled place squads that come to hold it:
+`squads` single-actor squads named `wave_<place>_<k>` (for example
+`wave_koth_hill_4_0`), of the kinds `kinds` names in turn (entries of
+`bots.types`), standing on the main ground in a ring `distance` wu outside
+its boundary, spread round it and facing it, where nothing else stands within
+2.5 wu above the ground (a rock lying on Pelican Warfare's terrain had two
+squads standing on it with no sector, or inside it, never moving). Their **first task is the
+place's**, baked in, so `ai_place` alone sends them: nothing has to follow
+with an order. Their team is the kind's, or `covenant`. A labelled object
+that is not held keeps its squads under `wave_unheld_<j>_<k>`, which no
+director asks for. Without `waves` nothing changes.
+
+Pelican Warfare's director (`warfare_waves` in
+`native/lobby/warfare_runtime.h`) places them; see
+[pelican_warfare_waves.md](pelican_warfare_waves.md#4-covenant-waves).
 
 ## Identity: which actor is which bot
 

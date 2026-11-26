@@ -125,6 +125,10 @@ pub struct BakeArgs {
     pub file: PathBuf,
     #[command(flatten)]
     pub src: Source,
+    /// A second Paks directory for tags the first lacks: the CE runtime's bot
+    /// characters (`bots.waves.vitality`) when `--paks` is a bare game copy.
+    #[arg(long, value_name = "PAKS")]
+    pub extra_paks: Option<PathBuf>,
     /// Directory to write the container into.
     #[arg(long, default_value = ".")]
     pub out_dir: PathBuf,
@@ -148,6 +152,11 @@ pub struct BakeArgs {
     /// Repeatable.
     #[arg(long = "bsp", value_name = "INDEX=PAYLOAD")]
     pub bsps: Vec<String>,
+    /// The payload of the level's structure BSP, read to generate AI
+    /// pathfinding (`blam.pathfinding`) and not written anywhere: for a level
+    /// that plays on a canvas BSP as it ships.
+    #[arg(long = "pathfinding-bsp", value_name = "PAYLOAD")]
+    pub pathfinding_bsp: Option<PathBuf>,
     /// With `--standalone`: a cooked world package (`.umap`, plus a `.ubulk`
     /// beside it when it has one) to ship as the map's own Unreal world,
     /// renamed from the canvas mission's path to the codename's (same-length
@@ -303,6 +312,10 @@ pub struct Canvas {
 pub struct WarfareMetadata {
     pub protocol: u16,
     pub layout_revision: u16,
+    /// Moving zones: extra capture spots per site, Unreal cm (the HUD's fields;
+    /// the simulation reads `koth_hill` markers with spawn order site + 3 * k).
+    #[serde(default)]
+    pub capture_candidates: Option<Vec<Vec<[f64; 3]>>>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -326,6 +339,13 @@ pub struct BlamSection {
     /// a `clear` of "cutscene flags".
     #[serde(default)]
     pub cutscene_flags: Vec<CutsceneFlag>,
+    /// Script point sets (`scripting data`'s `point sets`), for a level's
+    /// command scripts (`cs_fly_to ps_name/p0`). They replace the canvas's
+    /// own: each is a clone of the canvas set with the most points (so its
+    /// points keep their shipped `p0`, `p1` ... ids), renamed and moved, as
+    /// flying points (no sector). Written before the clears, which keep them.
+    #[serde(default)]
+    pub point_sets: Vec<PointSet>,
     /// Names a script can call objects by. A placement claims one with its
     /// `name`; a name no placement claims stays in the block and the engine
     /// refuses any script that uses it. Kept by a `clear` of "object names".
@@ -400,6 +420,13 @@ pub struct BlamSection {
     /// and AI pathfinding generated from the kept BSP's collision.
     #[serde(default)]
     pub bots: Option<Bots>,
+    /// Generate AI pathfinding for the level's BSP from its instanced
+    /// geometry (docs/engine_ai_pathfinding.md), replacing what the canvas
+    /// scenario carries for that BSP. For ground that lives in instances: a
+    /// campaign BSP, or a converted terrain. Needs the BSP's payload
+    /// (`--bsp` or `--pathfinding-bsp`).
+    #[serde(default)]
+    pub pathfinding: Option<InstancePathfinding>,
     /// An `.hsc` file (relative to the level file) compiled into the scenario
     /// next to the startup script `clear.scripts` writes. Its names (objects,
     /// device groups, trigger volumes, flags) resolve against the scenario
@@ -407,6 +434,402 @@ pub struct BlamSection {
     /// Needs `clear.scripts`.
     #[serde(default)]
     pub script: Option<PathBuf>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstancePathfinding {
+    /// Which instances get sectors. `static`: those whose `pathfinding
+    /// policy` in the BSP is already static, the only ones the simulation
+    /// reads. `ground`: every instance that carries walkable ground (after
+    /// `min_ground` has dropped what is too small to matter); the bake sets
+    /// their policy to static in the BSP's payload, so this needs `--bsp`.
+    pub instances: PathfindingInstances,
+    /// How far a sector's points may lie from its plane, wu.
+    #[serde(default = "default_plane_tolerance")]
+    pub plane_tolerance: f32,
+    /// How far a sector's corner may lie inside its convex hull, wu.
+    #[serde(default)]
+    pub dent: f32,
+    /// How far the border between two sectors may move when it is
+    /// straightened, wu.
+    #[serde(default)]
+    pub border: f32,
+    /// The most corners a sector may have, straight runs not counted.
+    #[serde(default = "default_max_corners")]
+    pub max_corners: usize,
+    /// Connected ground smaller than this (wu^2 in plan) gets no sectors.
+    #[serde(default)]
+    pub min_ground: f32,
+    /// Floor that shares edges with less than this much floor (wu^2) is left
+    /// out before anything else: a rock's facets, say.
+    #[serde(default)]
+    pub min_island: f32,
+    /// A floor with another piece of ground less than this (wu) above it is
+    /// cut away there: the upper one is the ground. Both then end on one
+    /// line, where a seam joins them. 0: floors are never cut, and a
+    /// structure standing on the terrain stays a piece of its own.
+    #[serde(default)]
+    pub headroom: f32,
+    /// How far apart in height two floors' edges may be for a seam to join
+    /// them, wu: how far a pad may stand above the ground it lies on.
+    #[serde(default = "default_seam_step")]
+    pub seam_step: f32,
+    /// Water too deep to walk in, from the level's baked Fluid Flux states.
+    #[serde(default)]
+    pub water: Option<PathfindingWater>,
+}
+
+/// Standing and running water an AI must not walk into, from the level's
+/// baked Fluid Flux states ([flux_water.md](../../../docs/flux_water.md)).
+/// The simulation has no water: a river bed is ordinary collision.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PathfindingWater {
+    /// Each baked state's `state.json`, relative to the level file. Its
+    /// `height.exr` and `velocity.exr` (and `ground.exr`, when the state
+    /// has one) lie beside it.
+    pub states: Vec<String>,
+    /// Floor further than this under the water's surface (wu) gets no
+    /// sectors. About 0.5 is knee to waist deep.
+    pub max_depth: f32,
+}
+
+/// One baked Fluid Flux state: per texel, the water's surface and its bed,
+/// in Unreal centimetres, or no water.
+struct WaterState {
+    centre: [f64; 2],
+    cell: f64,
+    res: [usize; 2],
+    /// Surface z, cm; NaN where the texel is dry.
+    surface: Vec<f32>,
+    /// Bed z, cm, when the state carries the ground it was baked on.
+    bed: Option<Vec<f32>>,
+}
+
+impl WaterState {
+    fn load(state: &Path) -> Result<WaterState> {
+        let text = std::fs::read_to_string(state).with_context(|| format!("cannot read {}", state.display()))?;
+        let v: serde_json::Value = serde_json::from_str(&text).with_context(|| format!("{}", state.display()))?;
+        let num = |x: &serde_json::Value| x.as_f64().context("a number");
+        let three = |k: &str| -> Result<[f64; 3]> {
+            let a = v[k].as_array().with_context(|| format!("{}: no {k}", state.display()))?;
+            Ok([num(&a[0])?, num(&a[1])?, num(&a[2])?])
+        };
+        // A state with no schema is the first format: no ground, no origin.
+        if !v["schema"].is_null() && v["schema"].as_str() != Some("mjolnir-flux-state-v2") {
+            bail!("{}: schema {} is not one this reads (mjolnir-flux-state-v2, or none)", state.display(), v["schema"]);
+        }
+        let centre = three("centre")?;
+        let origin = if v["origin"].is_null() { [0.0; 3] } else { three("origin")? };
+        if origin != [0.0; 3] {
+            bail!("{}: a state with a canvas origin other than zero is not read yet", state.display());
+        }
+        let cell = num(&v["cell"])?;
+        let capture = num(&v["capture"])?;
+        let res = v["res"].as_array().context("res")?;
+        let res = [num(&res[0])? as usize, num(&res[1])? as usize];
+        // One channel of a texture, row by row.
+        let channel = |name: &str, pick: usize| -> Result<Vec<f32>> {
+            let file = Path::new(v[name].as_str().with_context(|| format!("{}: no {name}", state.display()))?)
+                .file_name()
+                .context("a file name")?
+                .to_owned();
+            let path = state.with_file_name(file);
+            let image = exr::prelude::read_first_rgba_layer_from_file(
+                &path,
+                |size, _| (size.width(), vec![0f32; size.width() * size.height()]),
+                move |(width, pixels): &mut (usize, Vec<f32>), at, (r, g, b, a): (f32, f32, f32, f32)| {
+                    pixels[at.y() * *width + at.x()] = [r, g, b, a][pick];
+                },
+            )
+            .with_context(|| format!("cannot read {}", path.display()))?;
+            let (width, pixels) = image.layer_data.channel_data.pixels;
+            if width != res[0] || pixels.len() != res[0] * res[1] {
+                bail!("{}: {} texels, the state says {} x {}", path.display(), pixels.len(), res[0], res[1]);
+            }
+            Ok(pixels)
+        };
+        // Height's red is the surface above the capture plane's zero;
+        // velocity's blue is the depth; ground's red is the bed under the
+        // domain's centre height. All centimetres (tools/level/audit_flux_state.py).
+        let (height, depth) = (channel("height", 0)?, channel("velocity", 2)?);
+        let surface = height.iter().zip(&depth).map(|(&h, &d)| if d > 1.0 { h + capture as f32 } else { f32::NAN }).collect();
+        let bed = if v["ground"].is_null() { None } else { Some(channel("ground", 0)?.iter().map(|&g| centre[2] as f32 - g).collect()) };
+        Ok(WaterState { centre: [centre[0], centre[1]], cell, res, surface, bed })
+    }
+
+    /// The texel over a point given in simulation world units.
+    fn texel(&self, x: f32, y: f32) -> Option<usize> {
+        // Unreal centimetres: 304.8 to the world unit, y the other way.
+        let col = (x as f64 * 304.8 - self.centre[0]) / self.cell + self.res[0] as f64 / 2.0;
+        let row = (-(y as f64) * 304.8 - self.centre[1]) / self.cell + self.res[1] as f64 / 2.0;
+        (col >= 0.0 && row >= 0.0 && (col as usize) < self.res[0] && (row as usize) < self.res[1])
+            .then(|| row as usize * self.res[0] + col as usize)
+    }
+}
+
+struct Water {
+    states: Vec<WaterState>,
+    max_depth: f32,
+}
+
+impl Water {
+    fn load(cfg: &PathfindingWater, level_dir: &Path) -> Result<Water> {
+        let states = cfg.states.iter().map(|s| WaterState::load(&level_dir.join(s))).collect::<Result<Vec<_>>>()?;
+        Ok(Water { states, max_depth: cfg.max_depth })
+    }
+
+    /// How far under water a point is, wu: the deepest any state says.
+    fn depth(&self, p: [f32; 3]) -> Option<f32> {
+        self.states
+            .iter()
+            .filter_map(|s| s.texel(p[0], p[1]).map(|t| s.surface[t]).filter(|z| !z.is_nan()))
+            .map(|surface| surface / 304.8 - p[2])
+            .reduce(f32::max)
+    }
+
+    /// How far a point is from the bed the state was baked on, wu: a check
+    /// that the state and the collision are the same place.
+    fn off_bed(&self, p: [f32; 3]) -> Option<f32> {
+        self.states
+            .iter()
+            .filter_map(|s| {
+                let bed = s.bed.as_ref()?;
+                s.texel(p[0], p[1]).filter(|&t| !s.surface[t].is_nan()).map(|t| (bed[t] / 304.8 - p[2]).abs())
+            })
+            .reduce(f32::min)
+    }
+}
+
+
+fn default_seam_step() -> f32 {
+    blam_sbsp::pathfinding::STEP_HEIGHT
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PathfindingInstances {
+    Static,
+    Ground,
+}
+
+/// Pathfinding generated for a BSP's instanced geometry
+/// ([`generate_ground`]), before it is written into the scenario.
+struct Ground {
+    instances: Vec<blam_sbsp::navmesh::Instance>,
+    polygons: usize,
+    /// Floors cut where another piece of ground lies closely over them, and
+    /// surfaces that are no ground themselves and name the sector beneath.
+    cut: usize,
+    beneath: usize,
+    /// Floors left out as under water, their plan area, and how far their
+    /// middles lie from the bed the water was baked on (median, wu).
+    drowned: (usize, f64, Option<f32>),
+    /// Each connected piece of ground that got sectors, largest first: its
+    /// plan area (wu^2), its middle, and how many sectors.
+    pieces: Vec<(f64, [f64; 2], usize)>,
+    mesh: blam_sbsp::navmesh::Mesh,
+    pf: blam_sbsp::pathfinding::Pathfinding,
+    /// For each instance that gets a pathfinding object, one ref per
+    /// collision surface of its definition: a sector, or -1.
+    refs: BTreeMap<usize, Vec<i32>>,
+}
+
+/// Generate sectors over a BSP payload's instanced geometry
+/// (docs/engine_ai_pathfinding.md).
+fn generate_ground(cfg: &InstancePathfinding, sbsp: &[u8], level_dir: &Path) -> Result<Ground> {
+    use blam_sbsp::navmesh::{self, Options, POLICY_STATIC};
+    use blam_sbsp::pathfinding;
+    // An instance that copies the shell is not ground of its own.
+    let copies = pathfinding::shell_collision(sbsp)
+        .and_then(|shell| pathfinding::shell_copies(sbsp, &shell))
+        .unwrap_or_default();
+    let (instances, polygons) = navmesh::instance_polygons(sbsp, &|i, inst| {
+        (cfg.instances == PathfindingInstances::Ground || inst.policy == POLICY_STATIC)
+            && !copies.get(i).copied().unwrap_or(false)
+    })
+    .map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+    let options = Options {
+        plane_tolerance: cfg.plane_tolerance,
+        max_ring: cfg.max_corners,
+        dent: cfg.dent,
+        border: cfg.border,
+        min_island_area: cfg.min_island,
+        seam_step: cfg.seam_step,
+        ..Options::default()
+    };
+    // Floor too deep under water is no ground. A polygon is judged at its
+    // middle: a bridge deck over a river is above the surface there.
+    let water = cfg.water.as_ref().map(|w| Water::load(w, level_dir)).transpose()?;
+    let middle = |p: &navmesh::Polygon| {
+        let n = p.ring.len().max(1) as f32;
+        [0, 1, 2].map(|k| p.ring.iter().map(|v| v[k]).sum::<f32>() / n)
+    };
+    let dry = |_: usize, p: &navmesh::Polygon| water.as_ref().is_none_or(|w| w.depth(middle(p)).is_none_or(|d| d <= w.max_depth));
+    // Where one piece of ground lies closely over another, the lower one
+    // gives way, so the pieces meet on a line and join.
+    let raw = polygons;
+    let (polygons, cut) = if cfg.headroom > 0.0 {
+        let piece = navmesh::ground_pieces(&raw, &dry, &options).map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+        navmesh::cut_covered(&raw, &piece, cfg.headroom)
+    } else {
+        (raw.clone(), navmesh::Cut { source: (0..raw.len() as u32).collect(), touched: vec![false; raw.len()], ..Default::default() })
+    };
+    let (mesh, pf) = navmesh::generate(&polygons, &dry, &options, cfg.min_ground)
+        .map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+    let mut by_piece: BTreeMap<usize, (f64, [f64; 2], usize)> = BTreeMap::new();
+    for (sector, &surface) in pf.sector_surface.iter().enumerate() {
+        let ring = blam_sbsp::unpack16::polygon(&mesh.collision, surface);
+        let n = ring.len();
+        let area = (0..n).map(|k| (ring[k][0] * ring[(k + 1) % n][1] - ring[(k + 1) % n][0] * ring[k][1]) as f64).sum::<f64>().abs() / 2.0;
+        let e = by_piece.entry(pf.component[sector]).or_insert((0.0, [0.0; 2], 0));
+        e.0 += area;
+        for k in 0..2 {
+            e.1[k] += area * ring.iter().map(|v| v[k] as f64).sum::<f64>() / n as f64;
+        }
+        e.2 += 1;
+    }
+    let mut pieces: Vec<(f64, [f64; 2], usize)> =
+        by_piece.into_values().map(|(a, c, n)| (a, [c[0] / a.max(1e-9), c[1] / a.max(1e-9)], n)).collect();
+    pieces.sort_by(|x, y| y.0.total_cmp(&x.0));
+    let mut drowned = (0usize, 0f64, None);
+    if let Some(w) = &water {
+        let mut off: Vec<f32> = Vec::new();
+        for p in raw.iter().filter(|p| p.ring.len() >= 3 && !dry(0, p)) {
+            let (a, b, c) = (p.ring[0], p.ring[1], p.ring[2]);
+            let up = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            let n = p.ring.len();
+            let twice: f32 = (0..n).map(|k| p.ring[k][0] * p.ring[(k + 1) % n][1] - p.ring[(k + 1) % n][0] * p.ring[k][1]).sum();
+            if up > 0.0 {
+                drowned.0 += 1;
+                drowned.1 += twice.abs() as f64 / 2.0;
+                off.extend(w.off_bed(middle(p)));
+            }
+        }
+        off.sort_by(f32::total_cmp);
+        drowned.2 = off.get(off.len() / 2).copied();
+    }
+    pf.check_rings().map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+    pf.check_hints().map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+    let mut refs: BTreeMap<usize, Vec<i32>> = BTreeMap::new();
+    if cfg.instances == PathfindingInstances::Static {
+        // Every static instance is read, sectors or not.
+        for p in &polygons {
+            refs.entry(p.object as usize).or_insert_with(|| vec![-1; instances[p.object as usize].surfaces]);
+        }
+    }
+    // A surface names the sector of the largest piece of it that is ground.
+    let plan = |ring: &[[f32; 3]]| -> f64 {
+        let mut twice = 0f64;
+        for k in 0..ring.len() {
+            let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
+            twice += a[0] as f64 * b[1] as f64 - b[0] as f64 * a[1] as f64;
+        }
+        twice.abs() / 2.0
+    };
+    let mut largest: Vec<f64> = vec![-1.0; raw.len()];
+    for (n, p) in polygons.iter().enumerate() {
+        if let Some(sector) = mesh.surface_of[n].and_then(|s| pf.surface_sector[s as usize]) {
+            let (i, source, area) = (p.object as usize, cut.source[n] as usize, plan(&p.ring));
+            if area > largest[source] {
+                largest[source] = area;
+                refs.entry(i).or_insert_with(|| vec![-1; instances[i].surfaces])[p.surface as usize] = sector as i32;
+            }
+        }
+    }
+    // An instance we make static loses the simulation's own fallback for a
+    // surface with no sector, a ray 4 wu down to whatever ground is there.
+    // Give it back: a surface an AI could stand on that is no ground itself
+    // (a trim strip, a facet too small to count) names the sector under its
+    // middle, within those 4 wu, or failing that the nearest one beside it.
+    let mut beneath = 0;
+    if cfg.instances == PathfindingInstances::Ground {
+        const CELL: f32 = 8.0;
+        let mut grid: std::collections::HashMap<(i32, i32), Vec<usize>> = Default::default();
+        for (sector, &surface) in pf.sector_surface.iter().enumerate() {
+            let ring = blam_sbsp::unpack16::polygon(&mesh.collision, surface);
+            let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+            for v in &ring {
+                for k in 0..2 {
+                    lo[k] = lo[k].min(v[k]);
+                    hi[k] = hi[k].max(v[k]);
+                }
+            }
+            for x in (lo[0] / CELL).floor() as i32..=(hi[0] / CELL).floor() as i32 {
+                for y in (lo[1] / CELL).floor() as i32..=(hi[1] / CELL).floor() as i32 {
+                    grid.entry((x, y)).or_default().push(sector);
+                }
+            }
+        }
+        for p in &raw {
+            let Some(r) = refs.get_mut(&(p.object as usize)) else { continue };
+            if r[p.surface as usize] >= 0 || p.ring.len() < 3 {
+                continue;
+            }
+            let n = p.ring.len() as f32;
+            let m = [0, 1, 2].map(|k| p.ring.iter().map(|v| v[k]).sum::<f32>() / n);
+            let (a, b, c) = (p.ring[0], p.ring[1], p.ring[2]);
+            let (u, v) = ([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]);
+            let normal = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+            let len = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+            if len < 1e-9 || normal[2] / len < 0.3 {
+                continue;
+            }
+            let mut best: Option<(usize, f32)> = None;
+            for &sector in grid.get(&((m[0] / CELL).floor() as i32, (m[1] / CELL).floor() as i32)).into_iter().flatten() {
+                if let Some(z) = pathfinding::Pathfinding::surface_z(&mesh.collision, pf.sector_surface[sector], m[0], m[1]) {
+                    if z <= m[2] + 0.25 && m[2] - z < 4.0 && best.is_none_or(|(_, bz)| z > bz) {
+                        best = Some((sector, z));
+                    }
+                }
+            }
+            // Nothing under it (a facet of a steep bank, a bed too deep):
+            // the nearest ground beside it, within 3 wu in plan and 2 wu in
+            // height, so a unit that slid there can find its way out.
+            if best.is_none() {
+                let (cx, cy) = ((m[0] / CELL).floor() as i32, (m[1] / CELL).floor() as i32);
+                let mut nearest: Option<(usize, f32)> = None;
+                for x in cx - 1..=cx + 1 {
+                    for y in cy - 1..=cy + 1 {
+                        for &sector in grid.get(&(x, y)).into_iter().flatten() {
+                            let ring = blam_sbsp::unpack16::polygon(&mesh.collision, pf.sector_surface[sector]);
+                            for k in 0..ring.len() {
+                                let (a, b) = (ring[k], ring[(k + 1) % ring.len()]);
+                                let d = [b[0] - a[0], b[1] - a[1]];
+                                let t = (((m[0] - a[0]) * d[0] + (m[1] - a[1]) * d[1]) / (d[0] * d[0] + d[1] * d[1]).max(1e-9)).clamp(0.0, 1.0);
+                                let q = [a[0] + d[0] * t, a[1] + d[1] * t, a[2] + (b[2] - a[2]) * t];
+                                let far = ((q[0] - m[0]).powi(2) + (q[1] - m[1]).powi(2)).sqrt();
+                                if far < 3.0 && (q[2] - m[2]).abs() < 2.0 && nearest.is_none_or(|(_, n)| far < n) {
+                                    nearest = Some((sector, far));
+                                }
+                            }
+                        }
+                    }
+                }
+                best = nearest;
+            }
+            if let Some((sector, _)) = best {
+                r[p.surface as usize] = sector as i32;
+                beneath += 1;
+            }
+        }
+    }
+    if refs.is_empty() {
+        bail!(match cfg.instances {
+            PathfindingInstances::Static => "pathfinding: no instance of the BSP has a static pathfinding policy",
+            PathfindingInstances::Ground => "pathfinding: no instance of the BSP carries walkable ground",
+        });
+    }
+    Ok(Ground { instances, polygons: raw.len(), cut: cut.cut, beneath, drowned, pieces, mesh, pf, refs })
+}
+
+fn default_plane_tolerance() -> f32 {
+    0.2
+}
+
+fn default_max_corners() -> usize {
+    16
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -439,11 +862,241 @@ pub struct Bots {
     pub zone: usize,
     #[serde(default)]
     pub objective: usize,
+    /// Megalo labels whose objects are places to hold (`koth_hill`): each
+    /// such object with a boundary gets a zone area of its own, firing
+    /// positions inside its boundary, and a task named after it,
+    /// `<label>_<spawn order>`, that a squad is sent to with `ai_set_task`.
+    #[serde(default)]
+    pub objectives: Vec<String>,
+    /// Squads that come to a place to hold in waves: for every labelled
+    /// object `objectives` picks, `squads` single-actor squads
+    /// `wave_<place>_<k>`, standing on the ground just outside its boundary,
+    /// with that place's task as their first. A game type's director places
+    /// them (`ai_place`) and they go and hold it.
+    #[serde(default)]
+    pub waves: Option<BotWaves>,
     /// The kinds of bot the map offers, each with `count` squads of its own
     /// named `<name>_<k>`: MJOLNIRHud places the kind the host chose. Without
     /// any, one kind `bot` from the donor squad and `weapon`.
     #[serde(default)]
     pub types: Vec<BotType>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BotWaves {
+    /// Squads per place, `wave_<place>_0` .. `wave_<place>_<squads - 1>`.
+    /// With `transport`, its troop seats instead.
+    #[serde(default)]
+    pub squads: usize,
+    /// The vehicle that brings a place's wave, whose troop seats set
+    /// `squads`: one single-actor squad per seat, so a full wave fills it.
+    #[serde(default)]
+    pub transport: Option<WaveTransport>,
+    /// `"legendary"`: the bake adds a script per place,
+    /// `wave_vitality_<place>`, that raises each of its wave squads' units to
+    /// the legendary body and shield vitality of its character's tag. A
+    /// Megalo match plays at Normal, so AI otherwise take their normal
+    /// vitality (an Elite 75 and 75, legendary 100 and 135). It sets the
+    /// maximum only: a unit at full stays full, a hurt one is not healed. A
+    /// game type's director calls it after placing the place's wave.
+    #[serde(default)]
+    pub vitality: Option<String>,
+    /// The kind of bot each squad is (cycled): names of `bots.types`.
+    #[serde(default)]
+    pub kinds: Vec<String>,
+    /// How far outside a place's boundary its wave squads stand, wu.
+    #[serde(default = "default_wave_distance")]
+    pub distance: f32,
+    /// Waves that get harder: instead of squads per place, a pool per tier
+    /// of `forks` transports' worth, `wave_t<tier>_<fork>_<k>` (`squads` per
+    /// fork). A game type's director picks the tier, sends a fork's squads to
+    /// the place it attacks (`ai_set_task`) and calls `wave_vitality_t<tier>`.
+    /// `kinds` and `vitality` above are then unused.
+    #[serde(default)]
+    pub tiers: Vec<WaveTier>,
+    /// How many of a tier's transports may be out at once (one per site).
+    #[serde(default = "default_wave_forks")]
+    pub forks: usize,
+}
+
+fn default_wave_distance() -> f32 {
+    6.0
+}
+
+fn default_wave_forks() -> usize {
+    3
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WaveTier {
+    /// The kind of bot each seat is (cycled): names of `bots.types`.
+    pub kinds: Vec<String>,
+    /// `"legendary"`: the tier's script raises each unit's maximum vitality to
+    /// its character's legendary values (times `scale`). Unset: as placed.
+    #[serde(default)]
+    pub vitality: Option<String>,
+    /// A multiple of `vitality`'s values.
+    #[serde(default = "default_tier_scale")]
+    pub scale: f32,
+}
+
+fn default_tier_scale() -> f32 {
+    1.0
+}
+
+impl BotWaves {
+    /// Every wave squad the bake makes: per place, or the tiers' pools.
+    fn total(&self, places: usize) -> usize {
+        if self.tiers.is_empty() {
+            self.squads * places
+        } else {
+            self.tiers.len() * self.forks * self.squads
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WaveTransport {
+    /// The vehicle tag (`objects\vehicles\covenant\tuning_fork\tuning_fork`).
+    pub vehicle: String,
+    /// The label its troop seats start with, the one a runtime loads and
+    /// unloads by (`fork_p`). Its seats so labelled whose AI seat type is
+    /// passenger are the troop seats (cargo seats share the prefix).
+    pub seats: String,
+}
+
+/// A character tag's legendary (body, shield) vitality.
+fn character_legendary_vitality(indices: &[&index::Index], oodle: &[PathBuf], character: &str) -> Result<(f32, f32)> {
+    let want = format!("/{}-character", character.replace('\\', "/").to_lowercase());
+    let mut file = None;
+    for idx in indices {
+        let by_group = idx.by_group();
+        if let Some(entry) = by_group
+            .get("character")
+            .and_then(|v| v.iter().find(|e| e.path.to_lowercase().replace('\\', "/").contains(&want)).copied())
+        {
+            file = Some(idx.read(entry, None, oodle)?);
+            break;
+        }
+    }
+    let file = file.with_context(|| format!("bots.waves.vitality: no character tag {character} (the CE runtime's bot characters: --extra-paks)"))?;
+    let v = read_many(
+        &file,
+        &[
+            "vitality properties[0].legendary body vitality".to_string(),
+            "vitality properties[0].legendary shield vitality".to_string(),
+        ],
+    )?;
+    match (&v[0], &v[1]) {
+        (Some(Scalar::Real(body)), Some(Scalar::Real(shield))) if *body > 0.0 => Ok((*body, *shield)),
+        _ => bail!("bots.waves.vitality: {character} has no legendary vitality of its own"),
+    }
+}
+
+/// The `wave_vitality_<place>` scripts (`BotWaves::vitality`).
+fn wave_vitality_scripts(indices: &[&index::Index], oodle: &[PathBuf], bots: &Bots, places: &[String]) -> Result<String> {
+    let character_of = |kind: &String| -> Result<&str> {
+        bots.types
+            .iter()
+            .find(|t| &t.name == kind)
+            .and_then(|t| t.character.as_deref())
+            .with_context(|| format!("bots.waves.vitality: bot type {kind:?} names no character"))
+    };
+    // Tiers: a script per tier with vitality, over its whole pool.
+    if let Some(w) = bots.waves.as_ref().filter(|w| !w.tiers.is_empty() && w.squads > 0) {
+        let mut out = String::from("\n; bots.waves.tiers: each tier's legendary vitality, from its characters\n");
+        let mut said = Vec::new();
+        for (t, tier) in w.tiers.iter().enumerate() {
+            match tier.vitality.as_deref() {
+                None => continue,
+                Some("legendary") => {}
+                Some(other) => bail!("bots.waves.tiers[{t}].vitality: {other:?}; only \"legendary\" is known"),
+            }
+            let mut kinds = Vec::new();
+            for kind in &tier.kinds {
+                let (b, sh) = character_legendary_vitality(indices, oodle, character_of(kind)?)?;
+                kinds.push((b * tier.scale, sh * tier.scale));
+            }
+            out.push_str(&format!("(script static void wave_vitality_t{t}\n"));
+            for f in 0..w.forks {
+                for k in 0..w.squads {
+                    let (body, shield) = kinds[k % kinds.len()];
+                    out.push_str(&format!("  (units_set_maximum_vitality (ai_actors wave_t{t}_{f}_{k}) {body} {shield})\n"));
+                }
+            }
+            out.push_str(")\n");
+            said.push(format!("t{t} x{}", tier.scale));
+        }
+        if !said.is_empty() {
+            println!("  bots    wave vitality: {}", said.join(", "));
+        }
+        return Ok(out);
+    }
+    let Some(w) = bots.waves.as_ref().filter(|w| w.vitality.is_some() && w.squads > 0) else {
+        return Ok(String::new());
+    };
+    if w.vitality.as_deref() != Some("legendary") {
+        bail!("bots.waves.vitality: only \"legendary\" is known");
+    }
+    let mut kinds = Vec::new();
+    for kind in &w.kinds {
+        let character = bots
+            .types
+            .iter()
+            .find(|t| &t.name == kind)
+            .and_then(|t| t.character.as_deref())
+            .with_context(|| format!("bots.waves.vitality: bot type {kind:?} names no character"))?;
+        kinds.push(character_legendary_vitality(indices, oodle, character)?);
+    }
+    let mut out = String::from("\n; bots.waves.vitality: each wave squad's legendary vitality, from its character\n");
+    for place in places {
+        out.push_str(&format!("(script static void wave_vitality_{place}\n"));
+        for k in 0..w.squads {
+            let (body, shield) = kinds[k % kinds.len()];
+            out.push_str(&format!("  (units_set_maximum_vitality (ai_actors wave_{place}_{k}) {body} {shield})\n"));
+        }
+        out.push_str(")\n");
+    }
+    println!(
+        "  bots    wave vitality: {} script(s), legendary {}",
+        places.len(),
+        kinds.iter().map(|(b, s)| format!("{b}/{s}")).collect::<Vec<_>>().join(", ")
+    );
+    Ok(out)
+}
+
+/// How many troop seats `t.vehicle` has: seats labelled `t.seats...` with AI
+/// seat type passenger, read from its tag.
+fn transport_troop_seats(idx: &index::Index, oodle: &[PathBuf], t: &WaveTransport) -> Result<usize> {
+    let want = t.vehicle.replace('\\', "/").to_lowercase();
+    let by_group = idx.by_group();
+    let entry = by_group
+        .get("vehicle")
+        .and_then(|v| v.iter().find(|e| e.path.to_lowercase().replace('\\', "/").contains(&format!("{want}-vehicle"))).copied())
+        .with_context(|| format!("bots.waves.transport: no vehicle tag {}", t.vehicle))?;
+    let file = idx.read(entry, None, oodle)?;
+    let mut paths = Vec::new();
+    for k in 0..64 {
+        paths.push(format!("unit.seats[{k}].label"));
+        paths.push(format!("unit.seats[{k}].ai seat type"));
+    }
+    let values = read_many(&file, &paths)?;
+    let mut seats = 0;
+    for pair in values.chunks(2) {
+        let (Some(label), Some(kind)) = (&pair[0], &pair[1]) else { break };
+        let label = label.display();
+        if label.trim_matches('"').starts_with(&t.seats) && kind.display().to_lowercase().contains("passenger") {
+            seats += 1;
+        }
+    }
+    if seats == 0 {
+        let seen: Vec<String> = values.iter().take(6).map(|v| v.as_ref().map_or("-".into(), |s| s.display())).collect();
+        bail!("bots.waves.transport: {} has no passenger seats labelled {}* (read {})", t.vehicle, t.seats, seen.join(", "));
+    }
+    Ok(seats)
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -467,14 +1120,19 @@ pub struct BotType {
     /// character fights players only on a team that is not theirs.
     #[serde(default)]
     pub team: Option<String>,
+    /// A kind for `waves` alone: no `<name>_<k>` squads of its own (a map's
+    /// squads are few, 512 on a scenario).
+    #[serde(default)]
+    pub wave_only: bool,
 }
 
 impl Bots {
+    /// The kinds with squads of their own.
     fn kinds(&self) -> Vec<BotType> {
         if self.types.is_empty() {
-            vec![BotType { name: "bot".into(), character: None, weapon: None, weapons: Vec::new(), team: None }]
+            vec![BotType { name: "bot".into(), character: None, weapon: None, weapons: Vec::new(), team: None, wave_only: false }]
         } else {
-            self.types.clone()
+            self.types.iter().filter(|t| !t.wave_only).cloned().collect()
         }
     }
 }
@@ -486,6 +1144,69 @@ fn default_bot_spacing() -> f64 {
 fn default_bot_areas() -> usize {
     16
 }
+
+/// A bot kind as the bake resolved it: name, character palette entry,
+/// weapon palette entries, team.
+type ResolvedKind = (String, Option<usize>, Vec<usize>, Option<String>);
+
+/// A place for bots to hold: a placed object whose Megalo label is one of
+/// `bots.objectives`, with its boundary.
+#[derive(Debug, Clone)]
+pub struct BotObjective {
+    /// The task's and area's name, `<label>_<spawn order>`.
+    pub name: String,
+    /// Where it stands, relative to the canvas origin, Unreal cm.
+    pub pos: [f64; 3],
+    /// Its boundary: a cylinder `radius` across, from `down` under to `up`
+    /// over its position, wu.
+    pub radius: f32,
+    pub up: f32,
+    pub down: f32,
+}
+
+/// The objects of the level a bot can hold: those whose Megalo label is one
+/// of `labels` and whose boundary is a cylinder or a sphere, in the level's
+/// order. Two with the same spawn order take a running suffix.
+fn bot_objectives(objects: &[ObjectPlacement], labels: &[String]) -> Result<Vec<BotObjective>> {
+    let mut out: Vec<BotObjective> = Vec::new();
+    for o in objects {
+        let field = |k: &str| o.set.get(&format!("multiplayer data.{k}")).map(String::as_str);
+        let Some(label) = field("megalo label").filter(|l| labels.iter().any(|w| w == l)) else { continue };
+        let shape = field("boundary shape").unwrap_or("none");
+        if shape != "cylinder" && shape != "sphere" {
+            println!("  note    bots: a {label} object with a {shape} boundary is not held: only cylinders and spheres are read");
+            continue;
+        }
+        let num = |k: &str| -> Result<f32> {
+            let v = field(k).with_context(|| format!("bots: a {label} object has no {k}"))?;
+            v.parse::<f32>().with_context(|| format!("bots: {label} {k} = {v}"))
+        };
+        let radius = num("boundary width or radius")?;
+        let (up, down) = if shape == "sphere" { (radius, radius) } else { (num("boundary positive height")?, num("boundary negative height")?) };
+        let order = field("spawn order").unwrap_or("0");
+        let mut name = format!("{label}_{order}");
+        let mut k = 1;
+        while out.iter().any(|x| x.name == name) {
+            name = format!("{label}_{order}_{k}");
+            k += 1;
+        }
+        out.push(BotObjective { name, pos: o.pos, radius, up, down });
+    }
+    Ok(out)
+}
+
+/// The grids a place's firing positions are tried on, coarsest first, wu: the
+/// first that gives `BOT_HOLD_WANT` is kept. A Halo 1 hill is 2.3 wu across,
+/// a Pelican Warfare capture site 6.6.
+const BOT_HOLD_SPACING: [f32; 7] = [3.0, 2.5, 2.0, 1.5, 1.0, 0.75, 0.5];
+/// Enough positions to stand a few squads in; at most `BOT_HOLD_MAX`, to
+/// leave the zone's 2048 to the rest of the map.
+const BOT_HOLD_WANT: usize = 32;
+const BOT_HOLD_MAX: usize = 64;
+/// How far inside a place's boundary its firing positions stay, wu, and at
+/// most a quarter of its radius: an AI stops short of its position, and one
+/// stopped 0.3 wu outside a Pelican Warfare hill from a position on its rim.
+const BOT_HOLD_INSET: f32 = 1.0;
 
 /// The area tasks the bots' objective always has, `area_0` .. `area_15`:
 /// MJOLNIRHud sends a roaming bot to a random one of them (`Bots.AREAS` in
@@ -613,6 +1334,15 @@ pub struct CutsceneFlag {
     pub pitch: f64,
     #[serde(default)]
     pub name: Option<String>,
+}
+
+/// A named point set: positions in Unreal centimetres from the canvas origin,
+/// like every other position, named `p0`, `p1` ... in order.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PointSet {
+    pub name: String,
+    pub points: Vec<[f64; 3]>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1213,6 +1943,9 @@ fn set_fixed_string(file: &mut [u8], path: &str, text: &str) -> Result<()> {
 struct BotIndices {
     squad: usize,
     count: usize,
+    /// Wave squads, after every kind's: `waves` per labelled place, in the
+    /// level's order of those objects.
+    waves: usize,
     zone: usize,
     objective: usize,
     hint: usize,
@@ -1306,6 +2039,9 @@ struct Baker {
     /// Each zone area's extent, `[x0, y0, x1, y1]` in Unreal cm, for the same
     /// file.
     bot_areas: Vec<[f64; 4]>,
+    /// The places to hold: name (= task), zone area, centre (Unreal cm,
+    /// absolute) and radius (cm).
+    bot_objectives: Vec<(String, usize, [f64; 3], f64)>,
     /// Each `blam.object_names` entry's final index, by folded name.
     object_index: std::collections::BTreeMap<String, usize>,
     /// Each `blam.device_groups` entry's final index.
@@ -1859,6 +2595,76 @@ impl Baker {
         Ok(())
     }
 
+    /// Replace the scenario's point sets with `sets` (see
+    /// `BlamSection::point_sets`). `bsp` is the structure BSP's final index.
+    fn point_sets(&mut self, sets: &[PointSet], bsp: usize) -> Result<()> {
+        if sets.is_empty() {
+            return Ok(());
+        }
+        const SETS: &str = "scripting data[0].point sets";
+        if block_count(&self.file, "scripting data")? == 0 {
+            bail!("blam.point_sets: the canvas has no scripting data to clone point sets from");
+        }
+        // The donor: the set with the longest run of points named `p0`, `p1`
+        // ... in order, so every point a set needs is one of its own, with its
+        // shipped `pN` id. The engine finds a point by that name: B40's
+        // banshee path has 28 points, but after `p4` they are `pa0`,
+        // `pa0_turn` ..., and a script naming its `p5` was dropped at load.
+        let count = block_count_at(&self.file, SETS)?;
+        let mut donor = None;
+        let mut most = 0;
+        for j in 0..count {
+            let n = block_count_at(&self.file, &format!("{SETS}[{j}].points"))?;
+            let paths: Vec<String> = (0..n).map(|k| format!("{SETS}[{j}].points[{k}].name")).collect();
+            let ids = read_many(&self.file, &paths)?;
+            let run = ids
+                .iter()
+                .enumerate()
+                .take_while(|(k, id)| matches!(id, Some(Scalar::Text(t)) if *t == format!("p{k}")))
+                .count();
+            if run > most {
+                most = run;
+                donor = Some(j);
+            }
+        }
+        let donor = donor.context("blam.point_sets: the canvas has no point set with points to clone")?;
+        for s in sets {
+            if s.points.is_empty() || s.points.len() > most {
+                bail!("point set {:?} has {} point(s); 1 to {most} are possible (the canvas set with the longest p0, p1 ... run)", s.name, s.points.len());
+            }
+        }
+        self.file = blockedit::select(&self.file, &[(SETS.to_string(), vec![donor; sets.len()])])?;
+        let keep: Vec<(String, Vec<usize>)> = sets
+            .iter()
+            .enumerate()
+            .map(|(j, s)| (format!("{SETS}[{j}].points"), (0..s.points.len()).collect()))
+            .collect();
+        self.file = blockedit::select(&self.file, &keep)?;
+        for (j, s) in sets.iter().enumerate() {
+            let set = |n: &str| format!("{SETS}[{j}].{n}");
+            set_fixed_string(&mut self.file, &set("name"), &s.name)?;
+            for field in ["bsp index", "manual reference frame", "editor folder"] {
+                apply_set(&mut self.file, &set(field), "none")?;
+            }
+            apply_set(&mut self.file, &set("flags"), "0x0")?;
+            for (k, p) in s.points.iter().enumerate() {
+                let (x, y, z) = ue_to_blam(abs_pos(self.origin, *p));
+                let q = |n: &str| format!("{SETS}[{j}].points[{k}].{n}");
+                apply_set(&mut self.file, &q("position"), &format!("({x}, {y}, {z})"))?;
+                apply_set(&mut self.file, &q("reference frame"), "none")?;
+                apply_set(&mut self.file, &q("structure bsp"), &format!("#{bsp}"))?;
+                // Flying points, as Bungie's flight paths: no BSP, no sector.
+                apply_set(&mut self.file, &q("bsp index"), "-1")?;
+                apply_set(&mut self.file, &q("sector index"), "-1")?;
+                apply_set(&mut self.file, &q("facing direction"), "(0, 0)")?;
+            }
+            println!("  points  {} <- {} point(s), cloned from point set [{donor}]", s.name, s.points.len());
+        }
+        // A clear of "scripting data" keeps its last element: this one.
+        self.added.insert("scripting data", 1);
+        Ok(())
+    }
+
     /// The index a block's next appended element will have once `clears`
     /// has run: those before it are gone if the block is cleared.
     fn final_index(&self, block: &str, clear: &Clear, before: usize) -> usize {
@@ -2349,7 +3155,7 @@ impl Baker {
     /// Clone the bots' squads, zone and objective from the canvas's own, before
     /// the clears (which keep this bake's appends). Returns the indices they
     /// will have once the clears have run.
-    fn bots_clone(&mut self, bots: &Bots, starts: &[PlayerStart], clear: &Clear) -> Result<BotIndices> {
+    fn bots_clone(&mut self, bots: &Bots, starts: &[PlayerStart], clear: &Clear, places: usize) -> Result<BotIndices> {
         let spawns = if bots.spawns.is_empty() { starts } else { &bots.spawns };
         if spawns.is_empty() {
             bail!("bots: no spawns and no player starts to stand them on");
@@ -2376,7 +3182,8 @@ impl Baker {
             };
             Ok(if cleared { kept } else { before })
         };
-        let squad = base("squads", donor, count * bots.kinds().len())?;
+        let waves = bots.waves.as_ref().map_or(0, |w| w.total(places));
+        let squad = base("squads", donor, count * bots.kinds().len() + waves)?;
         let zone = base("zones", bots.zone, 1)?;
         let objective = base("ai objectives", bots.objective, 1)?;
         // The AI reads `ai user hint data[0]` without checking the block has
@@ -2390,18 +3197,300 @@ impl Baker {
             bots.zone,
             bots.objective
         );
-        Ok(BotIndices { squad, count, zone, objective, hint, spawns: spawns.iter().map(|s| (s.pos, s.yaw)).collect() })
+        if waves > 0 {
+            println!("  bots    {waves} wave squad(s) for {places} labelled place(s)");
+        }
+        Ok(BotIndices { squad, count, waves, zone, objective, hint, spawns: spawns.iter().map(|s| (s.pos, s.yaw)).collect() })
+    }
+
+    /// Replace BSP `bsp`'s pathfinding with sectors generated from its
+    /// instanced geometry (`sbsp` is the BSP's payload). The simulation finds
+    /// an AI's sector through the instance it stands on: `instanced geometry
+    /// refs[instance]` names an `object refs` element whose refs hold one
+    /// entry per collision surface of the instance's definition
+    /// (docs/engine_ai_pathfinding.md).
+    ///
+    /// Existing object refs keep their indices, because scenario objects name
+    /// them by index. An instance reuses the object it already has when that
+    /// object is its alone and the right size; otherwise it gets a new one,
+    /// cloned from such an object with its child blocks. Every other ref (the
+    /// shell's, and objects that are not instances) becomes none: the sectors
+    /// they named are gone.
+    fn instance_pathfinding(&mut self, bsp: usize, ground: &Ground) -> Result<()> {
+        use blockedit::{element_with_wrapper, NestedReplace};
+        let Ground { instances, mesh, pf, refs, .. } = ground;
+
+        // What the scenario has now.
+        let pfp = format!("ai pathfinding data[{bsp}]");
+        struct Old {
+            /// `object id` is unset: an object for instanced geometry.
+            plain: bool,
+            /// The ref count of each `bsps` entry.
+            bsps: Vec<usize>,
+        }
+        let (old, mut igr, shell_refs) = {
+            let tag = TagFile::parse(&self.file, Some(self.file.len()))?;
+            let l = tag.layout()?;
+            let root = tag.read_data(&l)?;
+            let block = |path: &str| blockedit::find_block(&l, &self.file, &root, path).map(|f| f.block);
+            let objects = block(&format!("{pfp}.object refs"))?;
+            let mut old = Vec::new();
+            for o in 0..objects.count as usize {
+                let e = objects.element(o).context("object ref")?;
+                let entries = block(&format!("{pfp}.object refs[{o}].bsps"))?.count as usize;
+                let mut bsps = Vec::new();
+                for k in 0..entries {
+                    bsps.push(block(&format!("{pfp}.object refs[{o}].bsps[{k}].bsp2d refs"))?.count as usize);
+                }
+                old.push(Old { plain: e[16..].iter().all(|&b| b == 0xff), bsps });
+            }
+            let igr = block(&format!("{pfp}.instanced geometry refs"))?;
+            if igr.element_size != 4 {
+                bail!("pathfinding: instanced geometry refs are {} bytes each, not 4", igr.element_size);
+            }
+            // A BSP of the map's own has its own instances: the canvas BSP's
+            // entries mean nothing for them, so every one starts as none.
+            let igr = if igr.count as usize == instances.len() {
+                igr.elements.to_vec()
+            } else {
+                [0xff, 0xff, 0, 0].repeat(instances.len())
+            };
+            (old, igr, block(&format!("{pfp}.bsp2d refs"))?.count as usize)
+        };
+        let named = |igr: &[u8], i: usize| i16::from_le_bytes([igr[i * 4], igr[i * 4 + 1]]);
+        let mut users = vec![0usize; old.len()];
+        for &i in refs.keys() {
+            if let Some(u) = usize::try_from(named(&igr, i)).ok().and_then(|o| users.get_mut(o)) {
+                *u += 1;
+            }
+        }
+        // The object each instance gets.
+        let mut object_of: BTreeMap<usize, usize> = BTreeMap::new();
+        let mut added = 0;
+        for (&i, r) in refs {
+            let reuse = usize::try_from(named(&igr, i))
+                .ok()
+                .filter(|&o| o < old.len() && users[o] == 1 && old[o].plain && old[o].bsps == [r.len()]);
+            object_of.insert(i, reuse.unwrap_or_else(|| {
+                added += 1;
+                old.len() + added - 1
+            }));
+        }
+        let objects_path = format!("{pfp}.object refs");
+        if added > 0 {
+            let donor = (0..old.len())
+                .find(|&o| old[o].plain && old[o].bsps.len() == 1)
+                .context("pathfinding: the scenario has no instanced-geometry object ref to clone new ones from")?;
+            let (donor_element, donor_wrapper) = element_with_wrapper(&self.file, &objects_path, donor)?;
+            let (mut elements, mut wrappers) = (Vec::new(), Vec::new());
+            for o in 0..old.len() {
+                let (e, w) = element_with_wrapper(&self.file, &objects_path, o)?;
+                elements.extend(e);
+                wrappers.push(w);
+            }
+            for _ in 0..added {
+                elements.extend(&donor_element);
+                wrappers.push(donor_wrapper.clone());
+            }
+            if old.len() + added > 8192 {
+                bail!("pathfinding: {} object refs; a BSP holds 8192", old.len() + added);
+            }
+            self.file = blockedit::replace_nested(
+                &self.file,
+                &[NestedReplace {
+                    path: objects_path.clone(),
+                    count: (old.len() + added) as u32,
+                    elements,
+                    wrappers: Some(wrappers),
+                }],
+            )?;
+        }
+        // Each object's refs: an instance's own, or none.
+        let leaf = |path: String, values: &[i32]| NestedReplace {
+            path,
+            count: values.len() as u32,
+            elements: values.iter().flat_map(|v| v.to_le_bytes()).collect(),
+            wrappers: None,
+        };
+        let instance_of: BTreeMap<usize, usize> = object_of.iter().map(|(&i, &o)| (o, i)).collect();
+        for o in 0..old.len() + added {
+            match instance_of.get(&o) {
+                Some(i) => {
+                    let path = format!("{objects_path}[{o}].bsps[0].bsp2d refs");
+                    self.file = blockedit::replace_nested(&self.file, &[leaf(path, &refs[i])])?;
+                    if o >= old.len() {
+                        // A clone: the entry's own fields are the donor's;
+                        // `vertex offset`, which the simulation never reads,
+                        // is cleared.
+                        let entries = format!("{objects_path}[{o}].bsps");
+                        let (mut element, wrapper) = element_with_wrapper(&self.file, &entries, 0)?;
+                        let n = element.len();
+                        element[n - 4..].fill(0);
+                        self.file = blockedit::replace_nested(
+                            &self.file,
+                            &[NestedReplace { path: entries, count: 1, elements: element, wrappers: Some(vec![wrapper]) }],
+                        )?;
+                    }
+                }
+                None => {
+                    for (k, &count) in old[o].bsps.iter().enumerate() {
+                        let path = format!("{objects_path}[{o}].bsps[{k}].bsp2d refs");
+                        self.file = blockedit::replace_nested(&self.file, &[leaf(path, &vec![-1; count])])?;
+                    }
+                }
+            }
+        }
+        for (&i, &o) in &object_of {
+            igr[i * 4..i * 4 + 2].copy_from_slice(&(o as i16).to_le_bytes());
+        }
+        let table = |name: &str, count: usize, elements: Vec<u8>| NestedReplace {
+            path: format!("{pfp}.{name}"),
+            count: count as u32,
+            elements,
+            wrappers: None,
+        };
+        let mut edits = vec![
+            table("sectors", pf.sectors.len(), pf.sectors_bytes()),
+            table("links", pf.links.len(), pf.links_bytes()),
+            table("bsp2d refs", shell_refs, (-1i32).to_le_bytes().repeat(shell_refs)),
+            table("bsp2d nodes", 0, Vec::new()),
+            table("vertices", pf.vertices.len(), pf.vertices_bytes()),
+            table("pathfinding hints", pf.hints.len(), pf.hints_bytes()),
+            table("instanced geometry refs", instances.len(), igr),
+        ];
+        // These name links and sectors that are gone.
+        for name in ["giant pathfinding data", "seams", "jump seams", "doors"] {
+            edits.push(table(name, 0, Vec::new()));
+        }
+        self.file = blockedit::replace_nested(&self.file, &edits)?;
+
+        // Every firing position on this BSP stores the sector it stands on,
+        // and an AI plans its way to a position through that sector: the old
+        // indices now name other sectors, or none. Look each one up again.
+        // A position in a moving object's frame keeps no sector.
+        let zones = block_count(&self.file, "zones")?;
+        let (mut placed, mut lost) = (0, 0);
+        for z in 0..zones {
+            let fpp = format!("zones[{z}].firing positions");
+            let (count, size, mut elements) = {
+                let tag = TagFile::parse(&self.file, Some(self.file.len()))?;
+                let l = tag.layout()?;
+                let root = tag.read_data(&l)?;
+                let b = blockedit::find_block(&l, &self.file, &root, &fpp)?.block;
+                (b.count as usize, b.element_size as usize, b.elements.to_vec())
+            };
+            if count == 0 {
+                continue;
+            }
+            let off = field_offsets(
+                &self.file,
+                &format!("{fpp}[0]"),
+                &["position (local)", "reference frame", "structure bsp", "bsp index", "sector index"],
+            )?;
+            let mut changed = false;
+            for e in elements.chunks_exact_mut(size) {
+                let short = |e: &[u8], o: usize| i16::from_le_bytes([e[o], e[o + 1]]);
+                if short(e, off[2]) != bsp as i16 && short(e, off[3]) != bsp as i16 {
+                    continue;
+                }
+                let sector = if short(e, off[1]) >= 0 {
+                    None
+                } else {
+                    let p = [0, 4, 8].map(|k| f32::from_le_bytes(e[off[0] + k..off[0] + k + 4].try_into().unwrap()));
+                    // The floor at or just under the point, no further down
+                    // than an AI stands tall.
+                    pf.sector_at(&mesh.collision, p).filter(|&(_, floor)| p[2] - floor < 1.0).map(|(s, _)| s)
+                };
+                match sector {
+                    Some(_) => placed += 1,
+                    None => lost += 1,
+                }
+                put_i16(e, off[4], sector.map_or(-1, |s| s as u16 as i16));
+                changed = true;
+            }
+            if changed {
+                self.file = blockedit::replace_nested(
+                    &self.file,
+                    &[NestedReplace { path: fpp, count: count as u32, elements, wrappers: None }],
+                )?;
+            }
+        }
+        println!("  path    firing positions on BSP {bsp}: {placed} on a sector, {lost} on none");
+        println!(
+            "  path    {} piece(s) of ground: {}",
+            ground.pieces.len(),
+            ground
+                .pieces
+                .iter()
+                .take(8)
+                .map(|(a, c, n)| format!("{a:.0} wu^2 in {n} sector(s) about ({:.0}, {:.0})", c[0], c[1]))
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+        if ground.drowned.0 > 0 {
+            println!(
+                "  path    water: {} upward polygon(s), {:.0} wu^2 in plan, lie too deep to be ground; {}",
+                ground.drowned.0,
+                ground.drowned.1,
+                match ground.drowned.2 {
+                    Some(off) => format!("their middles are {off:.2} wu (median) from the bed the water was baked on"),
+                    None => "the states carry no bed to check them against".to_string(),
+                }
+            );
+        }
+        if ground.cut > 0 || ground.beneath > 0 {
+            println!(
+                "  path    {} floor(s) cut where another piece of ground lies closely over them; {} surface(s) that are no ground name the sector beneath or beside them",
+                ground.cut, ground.beneath
+            );
+        }
+        println!(
+            "  path    pathfinding[{bsp}]: {} instance(s) of {} with a pathfinding object, {} polygon(s) -> {} sector(s) ({} step(s)), {} link(s) ({} seam(s)), {} vertices; {} object ref(s) reused, {} added, {} emptied",
+            refs.len(),
+            instances.len(),
+            ground.polygons,
+            pf.sectors.len(),
+            pf.sectors.iter().filter(|s| !s.is_floor()).count(),
+            pf.links.len(),
+            pf.hints.len() / 2,
+            pf.vertices.len(),
+            refs.len() - added,
+            added,
+            old.len() + added - refs.len()
+        );
+        Ok(())
     }
 
     /// Point the cloned squads, zone and objective at each other and at the
     /// map, and write the BSP's generated pathfinding. Runs after
     /// `single_bsp`, with `bsp` the BSP's final index and `sbsp` its payload.
-    fn bots_finish(&mut self, bots: &Bots, ix: &BotIndices, bsp: usize, sbsp: &[u8]) -> Result<()> {
+    ///
+    /// With `ground` (the level's `blam.pathfinding`, already written by
+    /// [`Self::instance_pathfinding`]) the bots stand and fight on those
+    /// sectors, and the shell's are not built.
+    fn bots_finish(
+        &mut self,
+        bots: &Bots,
+        ix: &BotIndices,
+        bsp: usize,
+        sbsp: &[u8],
+        ground: Option<&Ground>,
+        objectives: &[BotObjective],
+    ) -> Result<()> {
         use blam_sbsp::pathfinding::{self, Pathfinding};
-        let shell = pathfinding::shell_collision(sbsp).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
-        let pf = Pathfinding::build(&shell).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
-        pf.check_rings().map_err(|e| anyhow::anyhow!("bots: pathfinding {e}"))?;
-        pf.check_hints().map_err(|e| anyhow::anyhow!("bots: pathfinding {e}"))?;
+        let built;
+        let (shell, pf): (&blam_sbsp::ce::Collision, &Pathfinding) = match ground {
+            Some(g) => (&g.mesh.collision, &g.pf),
+            None => {
+                let shell = pathfinding::shell_collision(sbsp).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
+                let pf = Pathfinding::build(&shell).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
+                pf.check_rings().map_err(|e| anyhow::anyhow!("bots: pathfinding {e}"))?;
+                pf.check_hints().map_err(|e| anyhow::anyhow!("bots: pathfinding {e}"))?;
+                built = (shell, pf);
+                (&built.0, &built.1)
+            }
+        };
+        if ground.is_none() {
         let instances = pathfinding::instance_count(sbsp).map_err(|e| anyhow::anyhow!("bots: {e}"))?;
 
         // The tables. One `instanced geometry refs` entry per instance, none
@@ -2452,6 +3541,7 @@ impl Baker {
                 pf.cracks_dropped
             );
         }
+        }
 
         // Firing positions over the ground the spawns stand on.
         let spawn_wu: Vec<[f32; 3]> = ix
@@ -2467,7 +3557,7 @@ impl Baker {
         // Blood Gulch start is on one piece.)
         let spawn_components: Vec<Option<usize>> = spawn_wu
             .iter()
-            .map(|p| pf.sector_at(&shell, *p).map(|(s, _)| pf.component[s]))
+            .map(|p| pf.sector_at(shell, *p).map(|(s, _)| pf.component[s]))
             .collect();
         let mut tally: BTreeMap<usize, usize> = BTreeMap::new();
         for c in spawn_components.iter().flatten() {
@@ -2494,11 +3584,73 @@ impl Baker {
         let points: Vec<[f64; 3]> = spawns.iter().map(|(p, _)| *p).collect();
         let spawns: Vec<([f64; 3], f64)> = spread_order(&points).into_iter().map(|i| spawns[i]).collect();
         self.bot_starts = (0..ix.count).map(|i| abs_pos(self.origin, spawns[i % spawns.len()].0)).collect();
+
+        // The places to hold: firing positions inside each one's boundary,
+        // on the main ground, from the finest grid that keeps them few enough.
+        let holds: Vec<(&BotObjective, [f32; 3])> = objectives
+            .iter()
+            .map(|o| {
+                let (x, y, z) = ue_to_blam(abs_pos(self.origin, o.pos));
+                (o, [x as f32, y as f32, z as f32])
+            })
+            .collect();
+        // `inset` keeps a held place's own positions off its rim; the grid
+        // leaves the whole boundary to it.
+        let within = |o: &BotObjective, c: [f32; 3], p: [f32; 3], inset: f32| {
+            let r = o.radius - inset.min(o.radius / 4.0);
+            let (dx, dy, dz) = (p[0] - c[0], p[1] - c[1], p[2] - c[2]);
+            dx * dx + dy * dy <= r * r && dz <= o.up && dz >= -o.down
+        };
+        let mut held: Vec<(String, Vec<pathfinding::FiringPosition>)> = Vec::new();
+        if !holds.is_empty() {
+            let mut left: Vec<usize> = (0..holds.len()).collect();
+            let mut found: Vec<Option<Vec<pathfinding::FiringPosition>>> = vec![None; holds.len()];
+            for (n, &spacing) in BOT_HOLD_SPACING.iter().enumerate() {
+                if left.is_empty() {
+                    break;
+                }
+                let all = pf.firing_positions(shell, spacing, &components, 0.0);
+                left.retain(|&h| {
+                    let (o, c) = holds[h];
+                    let mine: Vec<_> = all.iter().filter(|f| within(o, c, f.point, BOT_HOLD_INSET)).cloned().collect();
+                    let last = n + 1 == BOT_HOLD_SPACING.len();
+                    if mine.len() >= BOT_HOLD_WANT || last {
+                        // Too many: an even share of them, not the first sectors'.
+                        let step = (mine.len() as f32 / BOT_HOLD_MAX as f32).max(1.0);
+                        let kept = (0..mine.len().min(BOT_HOLD_MAX)).map(|i| mine[(i as f32 * step) as usize]).collect();
+                        found[h] = Some(kept);
+                        false
+                    } else {
+                        true
+                    }
+                });
+            }
+            for ((o, c), mine) in holds.iter().zip(found) {
+                let mine = mine.unwrap_or_default();
+                if mine.len() < BOT_POSITIONS_PER_AREA {
+                    println!(
+                        "  note    bots: {} at ({:.1}, {:.1}, {:.1}) wu is not held: {} firing position(s) inside its boundary on the main ground, fewer than {BOT_POSITIONS_PER_AREA}",
+                        o.name, c[0], c[1], c[2], mine.len()
+                    );
+                    continue;
+                }
+                println!("  bots    {}: {} firing position(s) inside its boundary at ({:.1}, {:.1}, {:.1}) wu", o.name, mine.len(), c[0], c[1], c[2]);
+                held.push((o.name.clone(), mine));
+            }
+        }
+        let held_count: usize = held.iter().map(|h| h.1.len()).sum();
+        let budget = 2048usize.saturating_sub(held_count);
+        // The grid leaves the held places to their own areas.
+        let free = |f: &pathfinding::FiringPosition| !holds.iter().any(|&(o, c)| within(o, c, f.point, 0.0));
+
         let mut spacing = bots.spacing as f32;
-        let mut fps = pf.firing_positions(&shell, spacing, &components, 0.0);
-        while fps.len() > 2048 {
+        let grid = |spacing: f32| -> Vec<pathfinding::FiringPosition> {
+            pf.firing_positions(shell, spacing, &components, 0.0).into_iter().filter(free).collect()
+        };
+        let mut fps = grid(spacing);
+        while fps.len() > budget {
             spacing *= 1.15;
-            fps = pf.firing_positions(&shell, spacing, &components, 0.0);
+            fps = grid(spacing);
         }
         // Narrow ground falls between the grid's points (Night Lockout's
         // walkways had 12 at 2.5 wu): a finer grid, down to 1 wu, while the
@@ -2506,8 +3658,8 @@ impl Baker {
         let want = bots.areas.clamp(1, 32) * BOT_POSITIONS_PER_AREA;
         while fps.len() < want && spacing > BOT_SPACING_MIN {
             let finer_spacing = (spacing / 1.25).max(BOT_SPACING_MIN);
-            let finer = pf.firing_positions(&shell, finer_spacing, &components, 0.0);
-            if finer.len() > 2048 {
+            let finer = grid(finer_spacing);
+            if finer.len() > budget {
                 break;
             }
             (spacing, fps) = (finer_spacing, finer);
@@ -2545,7 +3697,18 @@ impl Baker {
                 [ax0, -ay1, ax1, -ay0].map(|v| v as f64 * WU_CM)
             })
             .collect();
-        let areas: Vec<Vec<pathfinding::FiringPosition>> = cells.into_values().collect();
+        let mut areas: Vec<Vec<pathfinding::FiringPosition>> = cells.into_values().collect();
+        // The roaming tasks and bots.json know the grid's areas, which come
+        // first; the held places follow.
+        let grid_areas = areas.len();
+        if grid_areas + held.len() > 32 {
+            bail!(
+                "bots: {grid_areas} area(s) of grid and {} place(s) to hold; a zone's tasks name at most 32 areas: lower bots.areas",
+                held.len()
+            );
+        }
+        let held_names: Vec<String> = held.iter().map(|h| h.0.clone()).collect();
+        areas.extend(held.into_iter().map(|h| h.1));
 
         let zp = format!("zones[{}]", ix.zone);
         let fpp = format!("{zp}.firing positions");
@@ -2619,7 +3782,8 @@ impl Baker {
                 .map(|f| (0..3).map(|i| (f.point[i] - mean[i]).powi(2)).sum::<f32>())
                 .sum::<f32>()
                 / n;
-            set_fixed_string(&mut self.file, &format!("{a}.name"), &format!("bots_area_{k}"))?;
+            let area_name = if k < grid_areas { format!("bots_area_{k}") } else { held_names[k - grid_areas].clone() };
+            set_fixed_string(&mut self.file, &format!("{a}.name"), &area_name)?;
             for (field, value) in [
                 ("runtime relative mean point", format!("({}, {}, {})", mean[0], mean[1], mean[2])),
                 ("runtime standard deviation", format!("{}", var.sqrt())),
@@ -2634,10 +3798,19 @@ impl Baker {
             start += members.len();
         }
         println!(
-            "  bots    zone {:?}: {total} firing position(s) at {spacing:.2} wu in {} area(s)",
+            "  bots    zone {:?}: {total} firing position(s) ({held_count} in places to hold) at {spacing:.2} wu in {} area(s) ({} to hold)",
             "mjolnir_bots",
-            areas.len()
+            areas.len(),
+            held_names.len()
         );
+        self.bot_objectives = held_names
+            .iter()
+            .enumerate()
+            .map(|(j, name)| {
+                let o = objectives.iter().find(|o| &o.name == name).expect("held from these");
+                (name.clone(), grid_areas + j, abs_pos(self.origin, o.pos), o.radius as f64 * WU_CM)
+            })
+            .collect();
 
         // The user hints: none of the canvas's, which name its BSPs.
         let hp = format!("ai user hint data[{}]", ix.hint);
@@ -2661,10 +3834,11 @@ impl Baker {
         // of the areas, which MJOLNIRHud sends a bot to (`ai_set_task`) to roam
         // the map. Every task sees the players.
         let n = areas.len();
+        let tasks = BOT_AREA_TASKS + 1 + held_names.len();
         let op = format!("ai objectives[{}]", ix.objective);
         self.file = blockedit::select(
             &self.file,
-            &[(format!("{op}.tasks"), vec![0; BOT_AREA_TASKS + 1]), (format!("{op}.opposing objectives"), vec![])],
+            &[(format!("{op}.tasks"), vec![0; tasks]), (format!("{op}.opposing objectives"), vec![])],
         )?;
         let tap0 = format!("{op}.tasks[0].areas");
         let ta_size = block_element_size(&self.file, &tap0)?;
@@ -2686,8 +3860,16 @@ impl Baker {
             elements: (0..n).flat_map(area_entry).collect(),
             wrappers: None,
         }];
+        for (j, _) in held_names.iter().enumerate() {
+            task_areas.push(blockedit::NestedReplace {
+                path: format!("{op}.tasks[{}].areas", BOT_AREA_TASKS + 1 + j),
+                count: 1,
+                elements: area_entry(grid_areas + j),
+                wrappers: None,
+            });
+        }
         for k in 0..BOT_AREA_TASKS {
-            let members = area_task_members(k, n);
+            let members = area_task_members(k, grid_areas);
             task_areas.push(blockedit::NestedReplace {
                 path: format!("{op}.tasks[{}].areas", k + 1),
                 count: members.len() as u32,
@@ -2701,9 +3883,13 @@ impl Baker {
             (format!("{op}.zone index"), format!("#{}", ix.zone)),
             (format!("{op}.first task index"), "#0".to_string()),
         ];
-        for t in 0..=BOT_AREA_TASKS {
+        for t in 0..tasks {
             let tp = format!("{op}.tasks[{t}]");
-            let name = if t == 0 { "hunt".to_string() } else { format!("area_{}", t - 1) };
+            let name = match t {
+                0 => "hunt".to_string(),
+                t if t <= BOT_AREA_TASKS => format!("area_{}", t - 1),
+                t => held_names[t - BOT_AREA_TASKS - 1].clone(),
+            };
             sets.extend([
                 (format!("{tp}.name"), name),
                 (format!("{tp}.flags"), "0x200".to_string()),
@@ -2714,7 +3900,7 @@ impl Baker {
                 // Every player slot, not the donor's first four.
                 (format!("{tp}.follow players"), if t == 0 { "0xffff" } else { "0x0" }.to_string()),
                 (format!("{tp}.first_child"), "none".to_string()),
-                (format!("{tp}.next_sibling"), if t < BOT_AREA_TASKS { format!("#{}", t + 1) } else { "none".to_string() }),
+                (format!("{tp}.next_sibling"), if t + 1 < tasks { format!("#{}", t + 1) } else { "none".to_string() }),
                 (format!("{tp}.parent"), "none".to_string()),
                 (format!("{tp}.filter"), "0".to_string()),
                 (format!("{tp}.filter flags"), "0x0".to_string()),
@@ -2725,8 +3911,9 @@ impl Baker {
             apply_set(&mut self.file, &field, &value).with_context(|| format!("{field} = {value}"))?;
         }
         println!(
-            "  bots    objective \"mjolnir_bots\": task hunt over {n} area(s), tasks area_0 .. area_{} sharing them",
-            BOT_AREA_TASKS - 1
+            "  bots    objective \"mjolnir_bots\": task hunt over {n} area(s), tasks area_0 .. area_{} sharing the {grid_areas} of grid{}",
+            BOT_AREA_TASKS - 1,
+            if held_names.is_empty() { String::new() } else { format!(", tasks {} holding one each", held_names.join(", ")) }
         );
 
         // The squads: one actor each, standing on its spawn, `count` of each
@@ -2738,14 +3925,17 @@ impl Baker {
                 .iter()
                 .position(|v| v.as_ref().is_some_and(|s| s.display().to_lowercase().contains(&want.to_lowercase()))))
         };
-        let keep: Vec<(String, Vec<usize>)> = (0..ix.count * bots.kinds().len())
+        let keep: Vec<(String, Vec<usize>)> = (0..ix.count * bots.kinds().len() + ix.waves)
             .flat_map(|i| {
                 let s = format!("squads[{}]", ix.squad + i);
                 [(format!("{s}.spawn points"), vec![0]), (format!("{s}.spawn formations"), vec![])]
             })
             .collect();
         self.file = blockedit::select(&self.file, &keep)?;
-        for (t, kind) in bots.kinds().iter().enumerate() {
+        // Each kind's character and weapons, for the wave squads.
+        let mut resolved: Vec<ResolvedKind> = Vec::new();
+        let wave_only: Vec<BotType> = bots.types.iter().filter(|t| t.wave_only).cloned().collect();
+        for (t, kind) in bots.kinds().iter().chain(wave_only.iter()).enumerate() {
             let wanted: Vec<&String> = if kind.weapons.is_empty() {
                 kind.weapon.as_ref().or(bots.weapon.as_ref()).into_iter().collect()
             } else {
@@ -2788,6 +3978,10 @@ impl Baker {
                 }),
                 None => None,
             };
+            resolved.push((kind.name.clone(), character, weapons.clone(), kind.team.clone()));
+            if kind.wave_only {
+                continue;
+            }
             for i in 0..ix.count {
                 let s = format!("squads[{}]", ix.squad + t * ix.count + i);
                 let (pos, yaw) = spawns[i % spawns.len()];
@@ -2826,6 +4020,185 @@ impl Baker {
                 ix.count - 1,
                 character.map(|c| format!(", character palette[{c}]")).unwrap_or_default(),
                 if weapons.is_empty() { String::new() } else { format!(", weapon palette {weapons:?}") }
+            );
+        }
+        if let Some(w) = &bots.waves {
+            self.bots_waves(bots, w, ix, bsp, &resolved, objectives, &held_names, pf, shell, &components)?;
+        }
+        Ok(())
+    }
+
+    /// The wave squads: per labelled place, `waves.squads` single-actor
+    /// squads `wave_<place>_<k>` of the kinds `waves.kinds` names in turn,
+    /// standing on the main ground `waves.distance` outside its boundary,
+    /// spread round it, with its task first. A place that is not held keeps
+    /// its squads under `wave_unheld_<j>_<k>`, which no director asks for.
+    #[allow(clippy::too_many_arguments)]
+    fn bots_waves(
+        &mut self,
+        bots: &Bots,
+        w: &BotWaves,
+        ix: &BotIndices,
+        bsp: usize,
+        resolved: &[ResolvedKind],
+        objectives: &[BotObjective],
+        held_names: &[String],
+        pf: &blam_sbsp::pathfinding::Pathfinding,
+        shell: &blam_sbsp::ce::Collision,
+        components: &[usize],
+    ) -> Result<()> {
+        let pooled = !w.tiers.is_empty();
+        if w.squads == 0 || (!pooled && w.kinds.is_empty()) {
+            return Ok(());
+        }
+        let resolve = |names: &[String]| -> Result<Vec<&ResolvedKind>> {
+            if names.is_empty() {
+                bail!("bots.waves: a tier names no kinds");
+            }
+            names
+                .iter()
+                .map(|k| resolved.iter().find(|r| &r.0 == k).with_context(|| format!("bots.waves: no bot type named {k:?}")))
+                .collect()
+        };
+        let kinds: Vec<&ResolvedKind> = if pooled { Vec::new() } else { resolve(&w.kinds)? };
+        let tier_kinds: Vec<Vec<&ResolvedKind>> = w.tiers.iter().map(|t| resolve(&t.kinds)).collect::<Result<_>>()?;
+        let first = ix.squad + ix.count * bots.kinds().len();
+        // Ground round each place: positions on the main ground in a ring
+        // outside its boundary, with nothing over them for a body's height.
+        // A rock lying on the terrain is not ground: a squad placed under one
+        // stood on it with no sector, or inside it, and never moved.
+        let ring = pf.firing_positions(shell, 1.5, components, 0.0);
+        let rings: Vec<[f32; 4]> = objectives
+            .iter()
+            .map(|o| {
+                let (x, y, _) = ue_to_blam(abs_pos(self.origin, o.pos));
+                let reach = o.radius + w.distance * 1.5 + 1.0;
+                [x as f32 - reach, y as f32 - reach, x as f32 + reach, y as f32 + reach]
+            })
+            .collect();
+        let mut over: Vec<(usize, [f32; 4])> = Vec::new();
+        for surface in 0..shell.surfaces.len() {
+            let poly = blam_sbsp::unpack16::polygon(shell, surface);
+            if poly.is_empty() {
+                continue;
+            }
+            let mut b = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+            for v in &poly {
+                b = [b[0].min(v[0]), b[1].min(v[1]), b[2].max(v[0]), b[3].max(v[1])];
+            }
+            if rings.iter().any(|r| b[0] <= r[2] && b[2] >= r[0] && b[1] <= r[3] && b[3] >= r[1]) {
+                over.push((surface, b));
+            }
+        }
+        const HEADROOM: f32 = 2.5;
+        let clear = |p: [f32; 3]| {
+            !over.iter().any(|&(surface, b)| {
+                p[0] >= b[0]
+                    && p[0] <= b[2]
+                    && p[1] >= b[1]
+                    && p[1] <= b[3]
+                    && blam_sbsp::pathfinding::Pathfinding::surface_z(shell, surface, p[0], p[1])
+                        .is_some_and(|z| z > p[2] + 0.05 && z < p[2] + HEADROOM)
+            })
+        };
+        let (mut placed, mut unheld) = (0usize, 0usize);
+        for (j, o) in objectives.iter().enumerate() {
+            let held = held_names.iter().position(|n| n == &o.name);
+            let (x, y, z) = ue_to_blam(abs_pos(self.origin, o.pos));
+            let c = [x as f32, y as f32, z as f32];
+            let (lo, hi) = (o.radius + w.distance * 0.5, o.radius + w.distance * 1.5);
+            let mut around: Vec<(f32, [f32; 3])> = ring
+                .iter()
+                .filter_map(|f| {
+                    let (dx, dy) = (f.point[0] - c[0], f.point[1] - c[1]);
+                    let d = (dx * dx + dy * dy).sqrt();
+                    (d >= lo && d <= hi && (f.point[2] - c[2]).abs() < 4.0 && clear(f.point)).then(|| (dy.atan2(dx), f.point))
+                })
+                .collect();
+            around.sort_by(|a, b| a.0.total_cmp(&b.0));
+            if held.is_some() && around.is_empty() {
+                println!("  note    bots: {}: no ground {lo:.1} to {hi:.1} wu from it for wave squads; they stand at its centre", o.name);
+            }
+            // (squad index, name, kind, where it stands, which weapon), then written alike.
+            let mut jobs: Vec<(usize, String, &ResolvedKind, [f32; 3], usize)> = Vec::new();
+            if pooled {
+                // The tiers' pools stand round the first place held; a director
+                // loads them into a transport at once and sends them on.
+                if held.is_none() || placed > 0 {
+                    continue;
+                }
+                let total = w.total(0);
+                for (t, tk) in tier_kinds.iter().enumerate() {
+                    for f in 0..w.forks {
+                        for k in 0..w.squads {
+                            let n = (t * w.forks + f) * w.squads + k;
+                            let at = if around.is_empty() { c } else { around[n * around.len() / total].1 };
+                            jobs.push((first + n, format!("wave_t{t}_{f}_{k}"), tk[k % tk.len()], at, k));
+                        }
+                    }
+                }
+            } else {
+                for k in 0..w.squads {
+                    let at = if around.is_empty() { c } else { around[k * around.len() / w.squads].1 };
+                    let squad_name = match held {
+                        Some(_) => format!("wave_{}_{k}", o.name),
+                        None => format!("wave_unheld_{j}_{k}"),
+                    };
+                    jobs.push((first + j * w.squads + k, squad_name, kinds[k % kinds.len()], at, k));
+                }
+            }
+            let count = jobs.len();
+            for (index, squad_name, kind, at, k) in jobs {
+                let s = format!("squads[{index}]");
+                let (name, character, weapons, team) = kind;
+                set_fixed_string(&mut self.file, &format!("{s}.name"), &squad_name)?;
+                // Facing the place.
+                let yaw = (c[1] - at[1]).atan2(c[0] - at[0]);
+                let task = held.map_or(0, |h| BOT_AREA_TASKS + 1 + h);
+                let mut sets = vec![
+                    (format!("{s}.flags"), "0x0".to_string()),
+                    (format!("{s}.parent"), "none".to_string()),
+                    (format!("{s}.initial zone"), format!("#{}", ix.zone)),
+                    (format!("{s}.initial objective"), format!("#{}", ix.objective)),
+                    (format!("{s}.initial task"), format!("#{task}")),
+                    (format!("{s}.editor folder"), "none".to_string()),
+                    (format!("{s}.spawn points[0].position"), format!("({}, {}, {})", at[0], at[1], at[2] + 0.1)),
+                    (format!("{s}.spawn points[0].reference frame"), "none".to_string()),
+                    (format!("{s}.spawn points[0].structure bsp"), format!("#{bsp}")),
+                    (format!("{s}.spawn points[0].facing (yaw, pitch)"), format!("({}, 0)", yaw.to_degrees())),
+                    (format!("{s}.team"), team.clone().unwrap_or_else(|| "covenant".to_string())),
+                ];
+                if let Some(wp) = weapons.get(k % weapons.len().max(1)) {
+                    sets.push((format!("{s}.spawn points[0].initial weapon"), format!("#{wp}")));
+                }
+                if let Some(ch) = character {
+                    sets.push((format!("{s}.spawn points[0].character type"), format!("#{ch}")));
+                }
+                for (field, value) in sets {
+                    apply_set(&mut self.file, &field, &value).with_context(|| format!("{field} = {value} ({name})"))?;
+                }
+            }
+            match held {
+                Some(_) => placed += count,
+                None => unheld += count,
+            }
+        }
+        if unheld > 0 && w.vitality.is_some() && !pooled {
+            bail!("bots.waves.vitality: {unheld} wave squad(s) are for places not held, which its scripts name by place");
+        }
+        if pooled {
+            println!(
+                "  bots    wave squads: {} tier(s) of {} fork(s) of {}: {placed} ({})",
+                w.tiers.len(),
+                w.forks,
+                w.squads,
+                w.tiers.iter().map(|t| t.kinds.join("+")).collect::<Vec<_>>().join(" / ")
+            );
+        } else {
+            println!(
+                "  bots    wave squads: {placed} for {} place(s) to hold ({}), {unheld} for places not held",
+                held_names.len(),
+                w.kinds.join(", ")
             );
         }
         Ok(())
@@ -2874,7 +4247,7 @@ impl Baker {
 }
 
 fn bake(a: BakeArgs) -> Result<()> {
-    let level = load_level(&a.file)?;
+    let mut level = load_level(&a.file)?;
     for note in validate_level(&level)? {
         println!("note: {note}");
     }
@@ -2883,6 +4256,7 @@ fn bake(a: BakeArgs) -> Result<()> {
     }
     let map = palette_map()?;
     let scen = level.canvas.scenario.to_uppercase();
+    let level_dir = a.file.parent().unwrap_or(Path::new("."));
 
     let idx = index::build(&a.src.paks)?;
     let by_group = idx.by_group();
@@ -2897,6 +4271,14 @@ fn bake(a: BakeArgs) -> Result<()> {
     let original = idx.read(entry, None, &a.src.oodle_roots())?;
     println!("{}", entry.path);
     println!("  source   {} bytes", original.len());
+    // A wave's transport fills: one wave squad per troop seat its tag has.
+    if let Some(w) = level.blam.bots.as_mut().and_then(|b| b.waves.as_mut()) {
+        if let Some(t) = &w.transport {
+            let seats = transport_troop_seats(&idx, &a.src.oodle_roots(), t)?;
+            println!("  bots    {seats} wave squad(s) per place: the troop seats of {}", t.vehicle);
+            w.squads = seats;
+        }
+    }
 
     let mut baker = Baker {
         file: original.clone(),
@@ -2905,6 +4287,7 @@ fn bake(a: BakeArgs) -> Result<()> {
         added: Default::default(),
         bot_starts: Vec::new(),
         bot_areas: Vec::new(),
+        bot_objectives: Vec::new(),
         object_index: Default::default(),
         group_index: Default::default(),
     };
@@ -2938,20 +4321,43 @@ fn bake(a: BakeArgs) -> Result<()> {
     )?;
     baker.objects(&level.blam.objects)?;
     let bots = match &level.blam.bots {
-        Some(b) => Some(baker.bots_clone(b, &level.blam.player_starts, &level.blam.clear)?),
+        Some(b) => {
+            let places = bot_objectives(&level.blam.objects, &b.objectives)?.len();
+            Some(baker.bots_clone(b, &level.blam.player_starts, &level.blam.clear, places)?)
+        }
         None => None,
     };
+    let points_bsp = if level.blam.single_bsp.is_some() {
+        0
+    } else {
+        level.blam.active_bsps.first().copied().unwrap_or(0)
+    };
+    baker.point_sets(&level.blam.point_sets, points_bsp)?;
     let script = match &level.blam.script {
         Some(rel) => {
             if !level.blam.clear.scripts {
                 bail!("blam.script needs clear.scripts: the script is compiled beside the startup script that clear writes");
             }
             let path = a.file.parent().unwrap_or(Path::new(".")).join(rel);
-            let text = std::fs::read_to_string(&path)
+            let mut text = std::fs::read_to_string(&path)
                 .with_context(|| format!("reading blam.script {}", path.display()))?;
+            if let Some(b) = &level.blam.bots {
+                // Every labelled place to hold (the wave squads' names); the
+                // bots' own pass, which keeps only those it can hold, runs later.
+                let places: Vec<String> =
+                    bot_objectives(&level.blam.objects, &b.objectives)?.into_iter().map(|o| o.name).collect();
+                let extra = a.extra_paks.as_ref().map(index::build).transpose()?;
+                let indices: Vec<&index::Index> = std::iter::once(&idx).chain(extra.as_ref()).collect();
+                text.push_str(&wave_vitality_scripts(&indices, &a.src.oodle_roots(), b, &places)?);
+            }
             Some((path, text))
         }
-        None => None,
+        None => {
+            if level.blam.bots.as_ref().and_then(|b| b.waves.as_ref()).is_some_and(|w| w.vitality.is_some()) {
+                bail!("bots.waves.vitality needs blam.script: its scripts are compiled with the level's own");
+            }
+            None
+        }
     };
     baker.clears(&level.blam.clear, script.as_ref().map(|(p, t)| (p.as_path(), t.as_str())))?;
     if level.blam.map_variant {
@@ -3054,6 +4460,10 @@ fn bake(a: BakeArgs) -> Result<()> {
     // but the map never starts. Ordinary new tags resolve by name the moment
     // a reference names them, so the scenario package needs no import.
     let mut extra_packages: Vec<blam_pack::NewPackage> = Vec::new();
+    // The level's BSP, by its canvas index, and the pathfinding generated
+    // for it once its payload is in hand.
+    let level_bsp = level.blam.single_bsp.or_else(|| level.blam.active_bsps.first().copied());
+    let mut ground: Option<Ground> = None;
     if !a.bsps.is_empty() {
         let code = a
             .standalone
@@ -3083,6 +4493,26 @@ fn bake(a: BakeArgs) -> Result<()> {
                 Ok(0) => {}
                 Ok(n) => println!("  bsp {index}: {n} copy of the shell lowered {COPY_DROP} wu"),
                 Err(e) => println!("  bsp {index}: no copy of the shell looked for ({e})"),
+            }
+            if let Some(cfg) = level.blam.pathfinding.as_ref().filter(|_| Some(index) == level_bsp) {
+                let g = generate_ground(cfg, &new_body, level_dir)?;
+                if cfg.instances == PathfindingInstances::Ground {
+                    // The simulation reads an instance's sectors only when
+                    // its policy is not none.
+                    let chosen: Vec<usize> = g.refs.keys().copied().collect();
+                    let set = blam_sbsp::navmesh::set_instance_policy(
+                        &mut new_body,
+                        &chosen,
+                        blam_sbsp::navmesh::POLICY_STATIC,
+                    )
+                    .map_err(|e| anyhow::anyhow!("pathfinding: {e}"))?;
+                    println!(
+                        "  bsp {index}: {} of {} instance(s) carry walkable ground; {set} set to a static pathfinding policy",
+                        chosen.len(),
+                        g.instances.len()
+                    );
+                }
+                ground = Some(g);
             }
             // (field, group directory, four-CC, replacement body)
             let parts: [(String, &str, &str, Option<&[u8]>); 2] = [
@@ -3173,6 +4603,24 @@ fn bake(a: BakeArgs) -> Result<()> {
     if let Some(keep) = level.blam.single_bsp {
         baker.single_bsp(keep)?;
     }
+    if let Some(cfg) = &level.blam.pathfinding {
+        let canvas_bsp = level_bsp.context("pathfinding: name the level's BSP with single_bsp or active_bsps")?;
+        if ground.is_none() {
+            // A level on a canvas BSP as it ships: nothing to change in the
+            // BSP, so only instances that are static already.
+            if cfg.instances == PathfindingInstances::Ground {
+                bail!("pathfinding: instances \"ground\" changes the BSP, so it needs --bsp {canvas_bsp}=<payload>");
+            }
+            let payload = a
+                .pathfinding_bsp
+                .as_ref()
+                .with_context(|| format!("pathfinding: --bsp {canvas_bsp}=<payload> or --pathfinding-bsp <payload> is needed"))?;
+            let sbsp = std::fs::read(payload).with_context(|| format!("cannot read BSP payload {}", payload.display()))?;
+            ground = Some(generate_ground(cfg, &sbsp, level_dir)?);
+        }
+        let bsp = if level.blam.single_bsp.is_some() { 0 } else { canvas_bsp };
+        baker.instance_pathfinding(bsp, ground.as_ref().expect("generated"))?;
+    }
     if let (Some(b), Some(ix)) = (&level.blam.bots, &bots) {
         // The bots walk the BSP the level plays on: its `--bsp` payload.
         let canvas_bsp = level
@@ -3189,7 +4637,8 @@ fn bake(a: BakeArgs) -> Result<()> {
             .with_context(|| format!("bots: --bsp {canvas_bsp}=<payload> is needed to generate pathfinding"))?;
         let sbsp = std::fs::read(payload).with_context(|| format!("cannot read BSP payload {payload}"))?;
         let bsp = if level.blam.single_bsp.is_some() { 0 } else { canvas_bsp };
-        baker.bots_finish(b, ix, bsp, &sbsp)?;
+        let objectives = bot_objectives(&level.blam.objects, &b.objectives)?;
+        baker.bots_finish(b, ix, bsp, &sbsp, ground.as_ref(), &objectives)?;
     }
 
     // The map's own Unreal world, when one is given: the bare level renamed
@@ -3275,6 +4724,7 @@ fn bake(a: BakeArgs) -> Result<()> {
 
     let bot_starts = std::mem::take(&mut baker.bot_starts);
     let bot_areas = std::mem::take(&mut baker.bot_areas);
+    let bot_objectives = std::mem::take(&mut baker.bot_objectives);
     let file = baker.file;
 
     // The same exactness gate `pack` applies before anything leaves the tool.
@@ -3534,7 +4984,19 @@ fn bake(a: BakeArgs) -> Result<()> {
         .unwrap_or_else(|| scen.to_string());
     let write_bots = |dir: &Path| -> Result<()> {
         let path = dir.join(format!("{file_key}.bots.json"));
-        std::fs::write(&path, serde_json::to_vec_pretty(&bots_record(&bot_starts, &bot_areas))?)?;
+        let mut record = bots_record(&bot_starts, &bot_areas);
+        if !bot_objectives.is_empty() {
+            // Not under a name the HUD already reads: it takes the first
+            // "starts", "areas" and "tasks" in the file.
+            let tenth = |v: f64| (v * 10.0).round() / 10.0;
+            record["holds"] = serde_json::Value::Array(
+                bot_objectives
+                    .iter()
+                    .map(|(name, area, pos, radius)| serde_json::json!({ "name": name, "area": area, "pos": pos.map(tenth), "radius": tenth(*radius) }))
+                    .collect(),
+            );
+        }
+        std::fs::write(&path, serde_json::to_vec_pretty(&record)?)?;
         println!(
             "  wrote    {} ({} bot start(s), {} area(s))",
             path.display(),
@@ -4060,6 +5522,46 @@ fn append_forge_preloads(data: &[u8], targets: &[String], usmap: &ue_asset::Usma
 
 #[cfg(test)]
 mod tests {
+    /// A baked water state of the first format, written and read back.
+    #[test]
+    fn a_baked_water_state_says_how_deep_a_point_is() {
+        use exr::prelude::*;
+        let dir = std::env::temp_dir().join(format!("mjolnir-water-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // 4 x 2 texels of 100 cm about the origin; the left half is water
+        // 150 cm deep with its surface at 300 cm (capture -200 + height 500).
+        let wet = |x: usize| x < 2;
+        write_rgba_file(dir.join("height.exr"), 4, 2, |x, _| (if wet(x) { 500f32 } else { 0.0 }, 0f32, 0f32, 1f32)).unwrap();
+        write_rgba_file(dir.join("velocity.exr"), 4, 2, |x, _| (0f32, 0f32, if wet(x) { 150f32 } else { 0.0 }, 0f32)).unwrap();
+        std::fs::write(
+            dir.join("state.json"),
+            r#"{"height": "flux_state/height.exr", "velocity": "flux_state/velocity.exr", "centre": [0, 0, 1000], "res": [4, 2], "cell": 100.0, "height_cm": 500.0, "capture": -200.0}"#,
+        )
+        .unwrap();
+        let water = super::Water::load(&super::PathfindingWater { states: vec!["state.json".into()], max_depth: 0.5 }, &dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        // (-150 cm, 50 cm) in Unreal is (-0.49, -0.16) wu, y the other way.
+        let depth = water.depth([-150.0 / 304.8, -50.0 / 304.8, 150.0 / 304.8]).expect("wet");
+        assert!((depth - 150.0 / 304.8).abs() < 1e-4, "{depth}");
+        assert!(water.depth([150.0 / 304.8, -50.0 / 304.8, 0.0]).is_none(), "the right half is dry");
+        assert!(water.depth([50.0, 0.0, 0.0]).is_none(), "outside the state is dry");
+        assert!(water.off_bed([-0.4, 0.1, 0.0]).is_none(), "no ground in this format");
+    }
+
+    /// Reads a real state when MJOLNIR_FLUX_STATE names its state.json.
+    #[test]
+    fn a_shipped_water_state_loads() {
+        let Some(path) = std::env::var_os("MJOLNIR_FLUX_STATE") else { return };
+        let path = std::path::PathBuf::from(path);
+        let cfg = super::PathfindingWater { states: vec![path.file_name().unwrap().to_string_lossy().into_owned()], max_depth: 0.5 };
+        let water = super::Water::load(&cfg, path.parent().unwrap()).unwrap();
+        let s = &water.states[0];
+        let wet: Vec<f32> = s.surface.iter().copied().filter(|z| !z.is_nan()).collect();
+        let (lo, hi) = wet.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &z| (lo.min(z), hi.max(z)));
+        println!("{} of {} texels wet; surface {lo:.0} to {hi:.0} cm; ground {}", wet.len(), s.surface.len(), s.bed.is_some());
+        assert!(!wet.is_empty());
+    }
+
     use super::*;
 
     #[test]
@@ -4216,7 +5718,7 @@ mod tests {
     #[test]
     fn appended_elements_land_after_the_clear() {
         let mut baker = Baker { file: vec![], origin: [0.0; 3], next_unique: 0,
-            added: Default::default(), bot_starts: vec![], bot_areas: vec![],
+            added: Default::default(), bot_starts: vec![], bot_areas: vec![], bot_objectives: vec![],
             object_index: Default::default(), group_index: Default::default() };
         let clear = Clear { blocks: vec!["object names".into()], ..Default::default() };
         assert_eq!(baker.final_index("object names", &clear, 405), 0);
@@ -4231,7 +5733,7 @@ mod tests {
         let palettes = vec![("standard", vec![entry.clone(); 32]), ("packs", vec![entry.clone(); 200]),
                             ("utilities", vec![entry; 24])];
         let mut baker = Baker { file: vec![0x42], origin: [0.0;3], next_unique: 0,
-            added: Default::default(), bot_starts: vec![], bot_areas: vec![],
+            added: Default::default(), bot_starts: vec![], bot_areas: vec![], bot_objectives: vec![],
             object_index: Default::default(), group_index: Default::default() };
         let error = baker.map_variant_palettes(&palettes, &ForgeLimits::default(), &BTreeMap::new()).unwrap_err();
         assert!(error.to_string().contains("256 map variant palette entries"));
@@ -4404,6 +5906,40 @@ mod tests {
         assert_eq!(r["starts"], serde_json::json!([[30020.8, 48048.4, 824.4], [12265.3, -24116.8, -30.5]]));
         assert_eq!(bots_record(&[], &[])["starts"], serde_json::json!([]));
         assert_eq!(r["tasks"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn bot_objectives_takes_labelled_objects_with_a_boundary() {
+        let hill = |order: &str, shape: &str| ObjectPlacement {
+            tag: "objects\\multi\\ctf\\flag_stand".into(),
+            group: "scenery".into(),
+            pos: [100.0, 200.0, 300.0],
+            rot: [0.0; 3],
+            name: None,
+            placed: true,
+            power_group: None,
+            position_group: None,
+            set: [
+                ("multiplayer data.megalo label", "koth_hill"),
+                ("multiplayer data.spawn order", order),
+                ("multiplayer data.boundary shape", shape),
+                ("multiplayer data.boundary width or radius", "6.5"),
+                ("multiplayer data.boundary positive height", "1.25"),
+                ("multiplayer data.boundary negative height", "0.5"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        };
+        let mut ball = hill("0", "cylinder");
+        ball.set.insert("multiplayer data.megalo label".into(), "oddball_spawn".into());
+        let objects = vec![hill("4", "cylinder"), hill("4", "cylinder"), hill("2", "box"), ball, hill("1", "sphere")];
+        let held = bot_objectives(&objects, &["koth_hill".to_string()]).unwrap();
+        let names: Vec<&str> = held.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(names, ["koth_hill_4", "koth_hill_4_1", "koth_hill_1"]);
+        assert_eq!((held[0].radius, held[0].up, held[0].down), (6.5, 1.25, 0.5));
+        assert_eq!((held[2].up, held[2].down), (6.5, 6.5), "a sphere reaches its radius both ways");
+        assert!(bot_objectives(&objects, &[]).unwrap().is_empty(), "no labels, nothing held");
     }
 
     #[test]

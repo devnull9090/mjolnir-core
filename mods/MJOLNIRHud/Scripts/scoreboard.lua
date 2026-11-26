@@ -144,9 +144,11 @@ function Board.rows(players, mode, totals)
     return rows
 end
 
---- Who won: "RED TEAM WINS", "<name> WINS", or "DRAW" when the lead is
---- shared (or nobody scored).
+--- Who won: "RED TEAM WINS", "<name> WINS", "DRAW" when the lead is shared
+--- (or nobody scored), or the match's own `winnerTitle` when it has one.
 function Board.winner(match)
+    -- A result the scores cannot show (Pelican Warfare's Covenant win).
+    if match.winnerTitle then return match.winnerTitle end
     if match.mode.teams then
         local totals = Board.totals(match)
         if totals.Red == totals.Blue then return "DRAW" end

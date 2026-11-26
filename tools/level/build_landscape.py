@@ -220,7 +220,10 @@ MAP_LOOKS = {
     # PWR alpine watershed: meadow floors, packed routes, granite slopes,
     # and altitude/slope controlled snow using the shipped B40 snow surfaces.
     "LPW": {
-        "pbr": {"grass_tint": [0.40, 0.62, 0.36, 1.0],
+        # Meadow: A30's own wild grass and weeds (clover, litter and soil in
+        # it), already green, so the tint is near neutral; the old
+        # desaturated grass needed 0.4/0.62/0.36 to read as grass at all.
+        "pbr": {"grass_tint": [1.0, 1.05, 0.9, 1.0],
                 "sand_tint": [0.70, 0.68, 0.61, 1.0],
                 "dirt_tint": [0.70, 0.65, 0.56, 1.0],
                 "mix": [0.2, 0.75, 0.0, 0.25],
@@ -252,7 +255,18 @@ MAP_LOOKS = {
                     "SandN": "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_N",
                     "SandO": "Trampled_Forest_Path_ub4jdihkw/T_Trampled_Forest_Path_ub4jdihkw_NSVT_ORHG",
                     "SandBD": "Ground_Gravel_uconcitg/T_Ground_Gravel_uconcitg_sbs_NSVT_D",
-                    "SandBN": "Ground_Gravel_uconcitg/T_Ground_Gravel_uconcitg_sbs_NSVT_N"}},
+                    "SandBN": "Ground_Gravel_uconcitg/T_Ground_Gravel_uconcitg_sbs_NSVT_N",
+                    # ORHG where the default grass is OHRG: the shader reads
+                    # .r (occlusion) the same and floors grass roughness at
+                    # 0.92, so only partial-grass edges see height as rough.
+                    "GrassD": "Wild_Grass_and_Weeds_rm5krfp0/T_Wild_Grass_NSVT_D_A30",
+                    "GrassN": "Wild_Grass_and_Weeds_rm5krfp0/T_Wild_Grass_and_Weeds_rm5krfp0_NSVT_N",
+                    "GrassO": "Wild_Grass_and_Weeds_rm5krfp0/T_Wild_Grass_NSVT_ORHG",
+                    # Tracks keep packed earth (SandD); the stone in the ruts
+                    # and shoulders (MidD) is A30's stones on soil.
+                    "MidD": "Stones_on_Soil_rmsijrp0/T_Soil_Stone_NSVT_A30_D",
+                    "MidN": "Stones_on_Soil_rmsijrp0/T_Soil_Stone_NSVT_N",
+                    "MidO": "Stones_on_Soil_rmsijrp0/T_Soil_Stone_NSVT_ORHG"}},
         "cliff": {"tint": [0.8, 0.83, 0.84, 1.0],
                   "fill": [0.86, 0.93, 1.0, 0.18],
                   "mix": [0.6, 1.2, 1.0, 1.0],

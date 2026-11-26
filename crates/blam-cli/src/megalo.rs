@@ -112,21 +112,30 @@ pub struct WriteArgs {
     /// Warfare: connected players required to start the warmup countdown.
     #[arg(long, default_value_t = 2)]
     pub minimum_players: u8,
-    /// Warfare: seconds of warmup once the minimum player count is met.
-    #[arg(long, default_value_t = 30)]
+    /// Warfare: seconds of warmup once the minimum player count is met, for
+    /// the rest to join and get ready.
+    #[arg(long, default_value_t = 60)]
     pub warmup_seconds: u16,
     /// Warfare: length of the initial transport/drop phase.
     #[arg(long, default_value_t = 60)]
     pub insertion_seconds: u16,
     /// Warfare: seconds to capture a neutral site (twice this to take an enemy site).
-    #[arg(long, default_value_t = 8)]
+    #[arg(long, default_value_t = 15)]
     pub capture_seconds: u16,
+    /// Warfare: seconds for Covenant AI alone in a zone to take it from neutral
+    /// (a team's zone drains to neutral first, at the capture rate).
+    #[arg(long, default_value_t = 30)]
+    pub covenant_capture_seconds: u16,
     /// Warfare: let living vehicle occupants capture and contest sites.
     #[arg(long)]
     pub allow_mounted_capture: bool,
     /// Warfare: minutes of combat after deployment (independent of the base round timer).
     #[arg(long, default_value_t = 20)]
     pub warfare_minutes: u8,
+    /// Warfare: seconds the Covenant must hold all three zones to win the match
+    /// (both teams lose); 0 turns the rule off.
+    #[arg(long, default_value_t = 60)]
+    pub covenant_hold_seconds: u16,
     /// Rounds in a game (1..=31). An end of round before the last resets
     /// the round in place; the last ends the game, and the game's own return
     /// to the menu then drops every fireteam client. MJOLNIR's matches are
@@ -351,8 +360,10 @@ pub fn run(a: MegaloArgs) -> Result<()> {
                     warmup_seconds: w.warmup_seconds,
                     insertion_seconds: w.insertion_seconds,
                     capture_seconds: w.capture_seconds,
+                    covenant_capture_seconds: w.covenant_capture_seconds,
                     allow_mounted_capture: w.allow_mounted_capture,
                     match_minutes: w.warfare_minutes,
+                    covenant_hold_seconds: w.covenant_hold_seconds,
                 })
                 .map_err(|e| anyhow::anyhow!("{e}"))?,
                 Mode::Empty => Variant::empty(w.score.unwrap_or(25)),

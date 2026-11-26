@@ -64,13 +64,13 @@ local function label(root, name, x, y, scale, color, initial)
 end
 
 local function panel(pc)
-    local p = canvasWidget(pc,"PWRFlightInstruments",430,226)
+    local p = canvasWidget(pc,"PWRFlightInstruments",430,262)
     p.widget:SetAnchorsInViewport({Minimum={X=.055,Y=.225},Maximum={X=.055,Y=.225}})
     p.widget:SetAlignmentInViewport({X=0,Y=0})
     p.canvas:SetRenderTransformPivot({X=0,Y=0})
     p.canvas:SetRenderScale({X=1.28,Y=1.28})
-    strip(p,"Glass",0,0,430,226,BACK)
-    strip(p,"LeadingEdge",0,0,5,226,CYAN)
+    strip(p,"Glass",0,0,430,262,BACK)
+    strip(p,"LeadingEdge",0,0,5,262,CYAN)
     strip(p,"Divider",20,48,390,2,{R=.39,G=.91,B=1,A=.35})
     p.mode = label(p,"Mode",20,8,1.18,CYAN)
     p.track = label(p,"Track",235,10,.93,MUTED)
@@ -80,6 +80,8 @@ local function panel(pc)
     p.sink = label(p,"Sink",225,82,1.95,WHITE)
     p.terrain = label(p,"Terrain",20,142,.96,MUTED)
     p.help = label(p,"Control",20,180,1.04,WHITE)
+    -- During insertion: when the zones open (blank otherwise).
+    p.opens = label(p,"Opens",20,218,1.04,AMBER)
     return p
 end
 
@@ -111,7 +113,8 @@ function Flight.new()
         markerVisible(false)
         velocity, last = nil, nil
     end
-    function self.update(pc, stage, f, clearance, jump, brake)
+    --- `opens`: whole seconds until the zones open (insertion), or nil.
+    function self.update(pc, stage, f, clearance, jump, brake, opens)
         if owner ~= pc:GetAddress() or not p or not valid(p.widget) then
             self.hide()
             p, owner, marker = panel(pc), pc:GetAddress(), nil
@@ -121,7 +124,8 @@ function Flight.new()
         local mode = stage==3 and "FREEFALL" or f and f.brake and "BRAKING" or "GLIDE"
         local help = stage==3 and ((jump or "SPACE").."  DEPLOY") or ("HOLD "..(brake or "SHIFT").."  BRAKE")
         local content = {mode=mode,track="TRK  "..track,speed=speed,sink=sink,sinkTitle=vertical.." / M/S",
-            terrain="TERRAIN CLR   "..height.." M",help=help}
+            terrain="TERRAIN CLR   "..height.." M",help=help,
+            opens=opens and string.format("ZONES OPEN   %d:%02d",math.floor(opens/60),opens%60) or ""}
         for name,value in pairs(content) do
             if not last or last[name]~=value then p[name]:SetText(FText(value)) end
         end

@@ -27,6 +27,7 @@
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import process from "node:process";
 import { parseAck, toScript } from "./in_game_input.mjs";
@@ -291,9 +292,62 @@ function bridgeStatus() {
   return fields;
 }
 
+/** One call over the bridge's named pipe (native/bridge/mjolnir_bridge.c).
+ * Resolves null when nothing was sent (no pipe, or it would not connect), so
+ * the caller can use the files without running the request twice. Once the
+ * request is written, any failure is an error: it may have run already.
+ * `connect` is for tests. */
+export function pipeCall(pipe, request, id, timeoutMs, { connect = net.connect } = {}) {
+  return new Promise((resolve, reject) => {
+    let sent = false, settled = false, received = Buffer.alloc(0);
+    const socket = connect(pipe);
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      fn(value);
+    };
+    const timer = setTimeout(() => {
+      if (!sent) finish(resolve, null);
+      else finish(reject, new Error(`the bridge did not answer on its pipe within ${timeoutMs} ms`));
+    }, timeoutMs);
+    socket.on("connect", () => {
+      sent = true;
+      socket.write(request);
+    });
+    socket.on("data", (chunk) => {
+      received = Buffer.concat([received, chunk]);
+      const message = decodeMessage(received);
+      if (!message) return;
+      if (Number(message.headers.id) !== id) {
+        finish(reject, new Error(`the bridge answered request ${message.headers.id} on its pipe, not ${id}`));
+        return;
+      }
+      finish(resolve, { ok: message.headers.ok === "1", body: message.body });
+    });
+    socket.on("error", (error) => {
+      if (!sent) finish(resolve, null);
+      else finish(reject, new Error(`the bridge's pipe failed mid-call (${error.code ?? error.message}); the game may have closed`));
+    });
+    socket.on("close", () => {
+      if (!sent) finish(resolve, null);
+      else finish(reject, new Error("the bridge closed its pipe without an answer; the game may have closed or reloaded the mod"));
+    });
+  });
+}
+
 async function bridgeCall(op, body, timeoutMs = 15_000) {
   const { bridge } = paths();
   fs.mkdirSync(bridge, { recursive: true });
+
+  // The pipe first, when the heartbeat names one: no files, no polls.
+  const pipe = bridgeStatus()?.pipe;
+  if (pipe && pipe !== "none") {
+    const id = ++nextId;
+    const answer = await pipeCall(pipe, encodeMessage({ id, op }, body), id, timeoutMs);
+    if (answer) return answer;
+  }
 
   const requestFile = path.join(bridge, "request.txt");
   const responseFile = path.join(bridge, "response.txt");

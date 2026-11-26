@@ -77,7 +77,7 @@ Bots.SIDES = {
 
 local state = nil
 local dllDir, mapsDir, levelsDir = nil, nil, nil
-local enable, run, setTeams = nil, nil, nil
+local enable, run, setTeams, put = nil, nil, nil, nil
 local scriptId = os.time() + 7000
 local log = function() end
 local Bipeds = nil
@@ -140,19 +140,36 @@ local function loadDll()
     enable = ok and package.loadlib(dll, "mjolnir_bots_enable") or false
     run = ok and package.loadlib(dll, "mjolnir_sim_script") or false
     setTeams = ok and package.loadlib(dll, "mjolnir_bots_teams") or false
+    put = ok and package.loadlib(dll, "mjolnir_request_put") or false
     return run ~= false
+end
+
+--- Hands `text` to the DLL as its request file `file`: in memory
+--- (mjolnir_request_put), or written beside it by a DLL without that export.
+--- On a PC with Windows Defender's real-time scan, the DLL opening a file a
+--- moment after Lua wrote it waited ~5 ms. `keep` serves every read until
+--- the next hand.
+local function hand(file, text, keep)
+    if put then
+        local ok, held = pcall(put, file, text, nil, keep and true or false)
+        if ok and held == true then return true end
+    end
+    local f = io.open(dllDir .. file, "wb")
+    if not f then return false end
+    f:write(text)
+    f:close()
+    return true
 end
 
 --- Each side's campaign team plays for its multiplayer team (`on`), or the
 --- DLL puts the simulation's own code back.
 local function teamTable(on)
     if not (loadDll() and setTeams) then return false end
-    local f = io.open(dllDir .. "bot_teams.txt", "wb")
-    if not f then return false end
+    local rows = {}
     if on then
-        for _, side in pairs(Bots.SIDES) do f:write(string.format("%d %d\n", side.campaign, side.multiplayer)) end
+        for _, side in pairs(Bots.SIDES) do rows[#rows + 1] = string.format("%d %d\n", side.campaign, side.multiplayer) end
     end
-    f:close()
+    if not hand("bot_teams.txt", table.concat(rows), true) then return false end
     pcall(setTeams)
     return true
 end
@@ -162,10 +179,7 @@ end
 local function script(lines)
     if not loadDll() then return false end
     scriptId = scriptId + 1
-    local f = io.open(dllDir .. "script.txt", "wb")
-    if not f then return false end
-    f:write(tostring(scriptId), "\n", table.concat(lines, "\n"), "\n")
-    f:close()
+    if not hand("script.txt", tostring(scriptId) .. "\n" .. table.concat(lines, "\n") .. "\n") then return false end
     pcall(run)
     return true
 end

@@ -219,9 +219,7 @@ __declspec(dllexport) int mjolnir_sim_lifts(void *L) {
     if (!dir[0]) find_dir();
     unsigned char *sim = (unsigned char *)GetModuleHandleA("HaloSimulation_tag_release.dll");
     if (!sim || !install_main_tick(sim)) return 0;
-    char path[MAX_PATH];
-    if (snprintf(path, sizeof path, "%slifts.txt", dir) >= (int)sizeof path) return 0;
-    FILE *f = fopen(path, "rb");
+    FILE *f = open_request("lifts.txt");
     if (!f) return 0;
     static char text[1 << 20];
     size_t n = fread(text, 1, sizeof text - 1, f);
@@ -230,7 +228,7 @@ __declspec(dllexport) int mjolnir_sim_lifts(void *L) {
     text[n] = 0;
     int bad = whole && strlen(text) == n ? lift_parse(text, &lifts_scratch) : -1;
     if (bad) {
-        fireteam_log("lifts: %s is unreadable at line %d; the set in use is kept", path, bad);
+        fireteam_log("lifts: lifts.txt is unreadable at line %d; the set in use is kept", bad);
         return 0;
     }
     /* The setter, here at the map's start rather than in a tick. */

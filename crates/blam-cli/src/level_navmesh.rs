@@ -79,10 +79,10 @@ fn ring(pf: &Pathfinding, s: usize) -> Vec<[f32; 3]> {
         let l = &pf.links[link as usize];
         let next = if l.left as usize == s && l.left >= 0 {
             out.push(pf.vertices[l.v1 as usize]);
-            l.forward as i32
+            l.forward
         } else {
             out.push(pf.vertices[l.v2 as usize]);
-            l.reverse as i32
+            l.reverse
         };
         if next == first || next < 0 {
             break;

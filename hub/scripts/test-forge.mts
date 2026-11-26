@@ -36,7 +36,9 @@ function archive(value: unknown = manifest, packages: string[] = [], options: { 
     "mjolnir.json": json(value),
     [`${prefix}/test-pack_P.utoc`]: toc,
     [`${prefix}/test-pack_P.ucas`]: new Uint8Array(options.emptyCas ? [] : [1]),
-  });
+    // A fixed file time: the zip stamps "now" to two seconds otherwise, so two
+    // archives built either side of a tick differ and the download check fails.
+  }, { mtime: new Date(2026, 0, 1) });
 }
 
 test("Forge profile package IDs match the shared Rust UE CityHash vectors", () => {

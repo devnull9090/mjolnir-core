@@ -1,0 +1,10 @@
+# The bake-off lines: every model speaks these, so they can be compared by ear.
+# voice<TAB>name<TAB>text
+ai	low_altitude	You're getting pretty close to the ground, Chief. Pull your chute!
+ai	splat	Well. I tried to warn you.
+ai	briefing	The Covenant want this island. Hold all three sites, and they can't land troops.
+ai	insertion	Pelicans are wheels up. When the light goes green, jump.
+ai	covenant_all	They hold every zone. Retake one, now, or we lose the island.
+announcer	title	Pelican Warfare!
+announcer	zones_open	Capture the zones!
+announcer	zone_secured	Zone A secured.

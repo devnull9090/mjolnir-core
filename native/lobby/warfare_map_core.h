@@ -27,6 +27,8 @@ typedef struct {
 typedef struct {
     uint64_t instance, sampled_ms;
     int tick, phase, score[2], owners[3], vehicle_count;
+    /* Each site's chosen candidate (blam-megalo SiteState.candidate). */
+    int candidates[3];
     wmap_player players[WMAP_PLAYERS];
     uint32_t vehicles[WMAP_VEHICLES], known_carriers[2];
 } wmap_input;
@@ -93,7 +95,7 @@ static void wmap_build(const wmap_input *in,wmap_lookup lookup,void *context,wma
         || in->vehicle_count<0 || in->vehicle_count>WMAP_VEHICLES) return;
     out->instance=in->instance;out->sampled_ms=in->sampled_ms;out->tick=in->tick;out->phase=in->phase;
     if (in->score[0]<0 || in->score[1]<0 || in->score[0]>32767 || in->score[1]>32767) return;
-    for (int i=0;i<3;i++) if (in->owners[i]<0 || in->owners[i]>2) return;
+    for (int i=0;i<3;i++) if (in->owners[i]<0 || in->owners[i]>3) return; /* 3: the Covenant */
     out->score[0]=in->score[0];out->score[1]=in->score[1];
     /* Only the primary local viewpoint is exported. Death retains its team;
      * missing/unassigned local players never fall back to a remote viewpoint. */
@@ -133,8 +135,13 @@ static void wmap_build(const wmap_input *in,wmap_lookup lookup,void *context,wma
     }
     for (int i=0;i<5;i++) {
         wmap_object fixed;memset(&fixed,0,sizeof fixed);fixed.handle=0x10000;fixed.forward[0]=1;
-        int marker=i<2 ? 4+i : 7+i-2;
-        memcpy(fixed.position,warfare_layout_markers[marker],sizeof fixed.position);
+        if (i<2) memcpy(fixed.position,warfare_layout_markers[4+i],sizeof fixed.position);
+        else {
+            /* The site where this match put it; an unknown candidate draws the classic spot. */
+            int site=i-2,c=in->candidates[site];
+            if (c<0 || c>=warfare_candidate_counts[site]) c=0;
+            memcpy(fixed.position,warfare_candidates[site][c],sizeof fixed.position);
+        }
         int team=i<2 ? i : in->owners[i-2]==1 ? 0 : in->owners[i-2]==2 ? 1 : -1;
         wmap_add(out,i<2 ? WM_BASE : WM_CAPTURE,(uint32_t)(i<2 ? i : i-2),team,&fixed);
     }

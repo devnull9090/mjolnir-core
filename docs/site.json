@@ -35,6 +35,10 @@
         "sound_mixer.md",
         "koth_visuals.md",
         "pelican_warfare.md",
+        "pelican_warfare_waves.md",
+        "pwr_ai_feasibility.md",
+        "pwr_map_0.1.2.md",
+        "pwr_detail_plan.md",
         "pwr_tactical_map.md",
         "live_map_install.md",
         "update_check.md",
@@ -81,6 +85,16 @@
         "custom_ui.md",
         "h2_cache_format.md",
         "h2_shader_census.md"
+      ]
+    },
+    {
+      "id": "engine",
+      "title": "Engine reference",
+      "blurb": "How the simulation works, subsystem by subsystem: the tag data that drives it, where its code lives, and how we know. Every claim is labelled traced, measured, seen live or inferred.",
+      "docs": [
+        "engine_reference.md",
+        "engine_ai_pathfinding.md",
+        "engine_research_method.md"
       ]
     },
     {

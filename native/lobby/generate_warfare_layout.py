@@ -8,6 +8,10 @@ import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# Spawn sequences site + 3 * candidate; blam-megalo warfare.rs MAX_CANDIDATES.
+MAX_CANDIDATES = 6
+# Transport route points after the start (plan_transport_routes.py MAX_POINTS).
+ROUTE_POINTS = 6
 MANIFEST = ROOT / "levels/warfare/pwr/layout.json"
 HEADER = Path(__file__).with_name("warfare_layout.h")
 
@@ -75,6 +79,30 @@ def validate(data):
             points.append(point)
         if timeout < (max(start[2], end[2]) - play[0][2]) / 6 + 10:
             raise ValueError("descent timeout lacks clearance for the lowest floor")
+    reinforcement = data.get("reinforcement")
+    if reinforcement is not None:
+        interval, flight = reinforcement.get("interval_seconds"), reinforcement.get("flight_seconds")
+        if set(reinforcement) != {"interval_seconds", "flight_seconds"} or any(
+                isinstance(v, bool) or not isinstance(v, int) for v in (interval, flight)):
+            raise ValueError("reinforcement needs whole interval_seconds and flight_seconds")
+        # A flight ends (and its transport can be recycled) before the next one leaves.
+        if not (10 <= flight <= duration and flight + 10 <= interval <= 600):
+            raise ValueError("invalid reinforcement timing")
+    candidates = data.get("capture_candidates_m")
+    if candidates is not None:
+        if not isinstance(candidates, list) or len(candidates) != 3:
+            raise ValueError("capture_candidates_m lists extra spots for each of the three sites")
+        spots = [tuple(vector(c, "capture")) for c in data["captures_m"]]
+        for site, extra in enumerate(candidates):
+            if not isinstance(extra, list) or len(extra) > MAX_CANDIDATES - 1:
+                raise ValueError(f"site {site} may have at most {MAX_CANDIDATES - 1} extra candidates")
+            for value in extra:
+                point = vector(value, "candidate")
+                if any(not play[0][i] < point[i] < play[1][i] for i in range(3)):
+                    raise ValueError("capture candidates must be inside the play volume")
+                spots.append(tuple(point))
+        if len(set(spots)) != len(spots):
+            raise ValueError("capture candidates must be distinct")
     if len({tuple(v) for v in points}) != 4:
         raise ValueError("four distinct flight flags are required by the runtime map guard")
     markers = marker_points(data)
@@ -111,6 +139,12 @@ def generate(data):
         "#define WARFARE_ROUTE_CORRECTION_LIMIT 3.0f",
         "#define WARFARE_TRANSPORT_CLEANUP_SECONDS 5.0f",
     ]
+    reinforcement = data.get("reinforcement") or {"interval_seconds": 0, "flight_seconds": 0}
+    lines += [
+        "/* Reinforcement waves: one leaves every interval of combat (0 = none). */",
+        f"#define WARFARE_REINFORCEMENT_INTERVAL {reinforcement['interval_seconds']}",
+        f"#define WARFARE_REINFORCEMENT_FLIGHT_SECONDS {number(reinforcement['flight_seconds'])}",
+    ]
     extent = max(abs(v) for side in data["scenario_bounds_m"].values() for v in side)
     lines.append(f"#define WARFARE_POSITION_SANITY_M {number(extent + 1000)}")
     for kind, key in (("play", "play_area_m"), ("scenario", "scenario_bounds_m")):
@@ -122,6 +156,43 @@ def generate(data):
         route = data["flights_m"][team]
         lines.append("    {" + vec(route["start"]) + ", " + vec(route["end"]) + "},")
     markers = marker_points(data)
+    extra = data.get("capture_candidates_m") or [[], [], []]
+    lines += ["};",
+              "/* Moving zones: candidate 0 is the classic capture marker; the rest come",
+              " * from capture_candidates_m (marker spawn sequence site + 3 * candidate). */",
+              f"#define WARFARE_MAX_CANDIDATES {MAX_CANDIDATES}",
+              "static const int warfare_candidate_counts[3] = {"
+              + ", ".join(str(1 + len(e)) for e in extra) + "};",
+              "static const float warfare_candidates[3][WARFARE_MAX_CANDIDATES][3] = {"]
+    for site in range(3):
+        rows = [vector(data["captures_m"][site], "capture")] + [vector(c, "candidate") for c in extra[site]]
+        rows = [[r[0], r[1], r[2] + 1.2] for r in rows]
+        rows += [[0.0, 0.0, 0.0]] * (MAX_CANDIDATES - len(rows))
+        lines.append("    {" + ", ".join(vec(r) for r in rows) + "},")
+    # Transports out of sight (levels/warfare/pwr/plan_transport_routes.py):
+    # each route's points after its start; count 0 keeps today's behaviour.
+    routes = data.get("transport_routes_m") or {}
+    def path_row(route):
+        points = (route or {}).get("path") or []
+        if len(points) > ROUTE_POINTS:
+            raise ValueError(f"a transport route has at most {ROUTE_POINTS} points")
+        rows = [vector(p, "route point") for p in points] + [[0.0, 0.0, 0.0]] * (ROUTE_POINTS - len(points))
+        return "{" + str(len(points)) + ", {" + ", ".join(vec(r) for r in rows) + "}}"
+    lines += ["};",
+              "/* Transports out of sight: the points each flies through after its",
+              " * start, from transport_routes_m. A Pelican's end at its flight start,",
+              " * a Spirit's at its hover over the spot. Count 0: no route. */",
+              f"#define WARFARE_ROUTE_POINTS {ROUTE_POINTS}",
+              "typedef struct { int count; float point[WARFARE_ROUTE_POINTS][3]; } warfare_path;",
+              "static const warfare_path warfare_pelican_paths[2] = {"]
+    pelicans = routes.get("pelicans") or {}
+    for team in ("red", "blue"):
+        lines.append("    " + path_row(pelicans.get(team)) + ",")
+    lines += ["};", "static const warfare_path warfare_spirit_paths[3][WARFARE_MAX_CANDIDATES] = {"]
+    spirits = routes.get("spirits") or [[], [], []]
+    for site in range(3):
+        rows = [path_row(r) for r in spirits[site]] + [path_row(None)] * (MAX_CANDIDATES - len(spirits[site]))
+        lines.append("    {" + ", ".join(rows) + "},")
     lines += ["};", f"#define WARFARE_LAYOUT_MARKERS {len(markers)}",
               "#define WARFARE_LAYOUT_MARKER_MASK ((1u << WARFARE_LAYOUT_MARKERS) - 1u)",
               "static const float warfare_layout_markers[WARFARE_LAYOUT_MARKERS][3] = {"]

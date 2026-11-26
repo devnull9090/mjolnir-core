@@ -309,6 +309,13 @@ elevator room.
 - `cutscene_flags`: `[{ "pos": [x, y, z], "yaw": 0 }]` moves the canvas's first
   cutscene flags to these points, so their names stay valid for
   `player_teleport` / `object_teleport` from the Blam console.
+- `point_sets`: `[{ "name": "ps_way_out", "points": [[x, y, z], ...] }]`
+  replaces the canvas's script point sets, for `blam.script`'s command scripts
+  (`cs_fly_to ps_way_out/p0`). Each is a clone of the canvas set with the
+  longest run of points named `p0`, `p1` ... (the engine finds a point by that
+  name; B40's longest is 14), renamed and moved, as flying points with no
+  sector. A `clear` of "scripting data" keeps them. Pelican Warfare's Spirits
+  leave this way (`levels/warfare/pwr/prepare_runtime.py`).
 
 A `blam.objects`, `vehicles`, `weapons` or `equipment` element also takes `set`:
 fields of the placement, relative to its element
@@ -353,6 +360,39 @@ the bake does not create a collision plane or kill volume. The original level
 JSON is retained in the map archive, so the value reaches the loader. Omit it
 or use `null` to leave the loader's per-map default in effect.
 
+### `blam.pathfinding` — sectors from instanced geometry ([engine_ai_pathfinding.md](engine_ai_pathfinding.md))
+
+```jsonc
+"pathfinding": {
+  "instances": "static",    // which instances get sectors: "static", those whose policy in the BSP is
+                            // static already; "ground", every instance that carries walkable ground
+                            // (the bake sets their policy to static in the --bsp payload)
+  "plane_tolerance": 0.2,   // how far a sector's points may lie from its plane, wu
+  "dent": 0,                // how far a sector's corner may lie inside its convex hull, wu
+  "border": 0,              // how far a border between two sectors may move when straightened, wu
+  "max_corners": 16,        // corners per sector, straight runs not counted
+  "min_ground": 0,          // connected ground smaller than this (wu², in plan) gets no sectors
+  "min_island": 0,          // floor sharing edges with less floor than this (wu²) is left out first:
+                            // rock facets
+  "headroom": 0,            // a floor with another piece of ground less than this (wu) above it is cut
+                            // away there, so a slab or platform on the terrain joins it. 0: never cut
+  "seam_step": 0.1,         // how far apart in height two floors' edges may be for a seam to join them:
+                            // how far a slab may stand above the ground it lies on
+  "water": {                // optional: floor too deep under water gets no sectors
+    "states": ["flux_state/river/state.json"],  // the level's baked Fluid Flux states, relative to this file
+    "max_depth": 0.5        // wu under the surface, judged at each polygon's middle
+  }
+}
+```
+
+Replaces the AI pathfinding of the level's BSP (`single_bsp`, or the first of
+`active_bsps`) with sectors generated from its instanced geometry, for ground
+that lives in instances: a campaign BSP, or a converted terrain. The BSP's
+payload comes from `--bsp <index>=<payload>` or `--pathfinding-bsp <payload>`.
+Firing positions on that BSP are looked up again on the new sectors. With
+`blam.bots` too, the bots stand and fight on this ground instead of the
+shell's.
+
 ### `blam.bots` — AI bots ([bots.md](bots.md))
 
 ```jsonc
@@ -365,6 +405,23 @@ or use `null` to leave the loader's per-map default in effect.
   "spacing": 2.5,                  // firing position grid, wu (widened to fit 2048,
                                    // narrowed to 1 wu for 8 per area)
   "areas": 16,                     // the firing positions' grid of areas
+  "objectives": ["koth_hill"],     // Megalo labels whose objects are places to hold:
+                                   // an area and a task <label>_<spawn order> each
+  "waves": { "squads": 4,          // squads wave_<place>_<k> per place, outside it,
+             "kinds": ["elite_heroic", "grunt_heroic"], // whose first task holds it;
+             "distance": 6 },      // kinds (bots.types names) taken in turn
+  // or, to fill the vehicle that brings them: one squad per troop seat its tag
+  // has (AI seat type passenger, label starting `seats`; tuning_fork: 16)
+  // "waves": { "transport": { "vehicle": "objects\vehicles\covenant\tuning_fork\tuning_fork",
+  //                           "seats": "fork_p" }, "kinds": [...],
+  //   "vitality": "legendary" },  // scripts wave_vitality_<place>: each squad's
+  //                               // character's legendary body and shield
+  // or waves that get harder: a pool per tier of `forks` transports' worth,
+  // squads wave_t<tier>_<fork>_<seat>; a director sends them (ai_set_task) and
+  // calls wave_vitality_t<tier> (legendary vitality times `scale`)
+  // "waves": { "transport": {...}, "forks": 3, "tiers": [
+  //   { "kinds": ["elite_heroic", "grunt_heroic"] },
+  //   { "kinds": ["elite_legendary"], "vitality": "legendary", "scale": 1.25 } ] },
   "types": [                       // kinds of bot, `count` squads each: <name>_<k>
     { "name": "spartan", "character": "objects\\characters\\spartans\\ai\\mjolnir_bot_spartan",
       "weapon": "assault_rifle", "team": "covenant" },
@@ -387,6 +444,12 @@ every area, then `area_0` .. `area_15` sharing the areas out, all with `magic pl
 sight`; MJOLNIRHud orders bots to those sixteen whatever the map has), and one
 `ai user hint data` element with every hint list emptied: the AI reads element
 0 without checking the block has one, and a map that cleared it crashed.
+
+`objectives` makes places to hold ([bots.md](bots.md#places-to-hold)): every
+placed object whose `multiplayer data.megalo label` is listed and whose
+boundary is a cylinder or a sphere gets a zone area after the grid's, firing
+positions inside its boundary, and a task named `<label>_<spawn order>` over
+that one area. `bots.json` lists them under `holds`.
 
 After `single_bsp` it writes the kept BSP's `ai pathfinding data`, generated
 from the `--bsp` payload's collision shell (`blam_sbsp::pathfinding`), and
