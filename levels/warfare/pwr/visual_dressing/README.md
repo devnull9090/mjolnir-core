@@ -241,15 +241,25 @@ range row: vista.json finds the range by its mesh.
 Measured on PC3 with 12 sectors, `hide DistantApron` (what the ring costs) at
 three views, two runs each, the same session procedure:
 
-| View | One mesh | 12 sectors, cube bounds | 12 sectors, fitted bounds |
+| View | One mesh | 12 sectors, cube bounds | 12 sectors, fitted bounds (first build) |
 |---|---|---|---|
 | Centre, looking out | 2.72 / 1.68 ms | 0.24 / 0.33 ms | 0.40 / -0.20 ms |
 | Centre, looking down | 0.93 ms | 1.43 ms | -0.22 ms |
 | Red base, looking across the map | 2.64 / 2.93 ms | 2.86 / 2.59 ms | 2.80 / 3.57 ms |
 
-Across the whole map the mountains fill the view and their sectors are drawn:
-no change there. A lower-detail ring for lower Geometry qualities is the
-lever left for that view; it changes the look.
+From the red base looking across the map the ring costs as much as before;
+why is not settled yet (see the single-sector runs below).
+
+Build tools that look the range up by `pwr_distant_apron` (world_surfaces.py,
+stage_alpine_roads.py, package_site_finish.py, bind_apron_geology.py) read its
+material, which every sector shares, and run before staging, while the level
+still has the one row. world_surfaces.py's one-row check still holds: only
+sector 0 keeps that id.
+
+`mesh_rewrite --fit-axes` leaves normals and tangents as they are: the engine
+takes a component's scale out of the tangent basis. Without the flag the
+writer's output is byte-for-byte what main's writer gives (the apron
+re-cooked by both: same SHA-256).
 
 Ray tracing is not the cost on this card: `r.RayTracing.Geometry.StaticMeshes
 0`, `r.Lumen.HardwareRayTracing 0` and a 300 m `r.RayTracing.Culling.Radius`

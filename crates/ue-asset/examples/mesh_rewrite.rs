@@ -306,11 +306,7 @@ fn main() {
     let more = (2..8)
         .take_while(|k| {
             doc["meshes"].as_array().into_iter().flatten().any(|m| {
-                m["primitives"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .any(|p| p["attributes"].get(format!("TEXCOORD_{k}")).is_some())
+                m["primitives"].as_array().into_iter().flatten().any(|p| p["attributes"].get(format!("TEXCOORD_{k}")).is_some())
             })
         })
         .count();
@@ -447,18 +443,6 @@ fn main() {
         .fold(0.0f32, f32::max)
         .max(1e-6);
     let mut fit = DONOR_HALF / half;
-    // `--fit-axes`: each axis fills the donor's box on its own, so a flat or
-    // long piece gets bounds as tight as its own box instead of a cube of its
-    // longest side. The component then needs a per-axis scale (printed), and
-    // the normals are stored pre-divided by it: the engine scales normals by
-    // the inverse, which brings them back to the geometry's own.
-    let fit_axes = a.iter().any(|s| s == "--fit-axes");
-    let mut fits = [fit; 3];
-    if fit_axes {
-        for k in 0..3 {
-            fits[k] = DONOR_HALF / ((hi[k] - lo[k]) * 0.5).max(1e-3);
-        }
-    }
     if let Some(i) = a.iter().position(|s| s == "--donor-sphere") {
         let limit: f32 = a
             .get(i + 1)
@@ -469,23 +453,48 @@ fn main() {
             limit.is_finite() && limit > 0.0,
             "invalid donor sphere radius"
         );
-        // The radius the normalised geometry needs, at the scale chosen so far.
         let radius = geo
             .positions
             .chunks_exact(3)
             .map(|p| {
                 let v = to_cm(p);
                 (0..3)
-                    .map(|k| ((v[k] - centre[k]) * fits[k]).powi(2))
+                    .map(|k| (v[k] - centre[k]).powi(2))
                     .sum::<f32>()
                     .sqrt()
             })
             .fold(0.0f32, f32::max);
-        if radius > limit {
-            let shrink = limit / radius;
-            fit *= shrink;
-            for f in fits.iter_mut() {
-                *f *= shrink;
+        fit = fit.min(limit / radius.max(1e-6));
+    }
+    // `--fit-axes`: each axis fills the donor's box on its own, so a flat or
+    // long piece gets bounds as tight as its own box instead of a cube of its
+    // longest side; the component takes a per-axis scale (printed). Normals
+    // and tangents stay as they are: the engine takes the component's scale
+    // out of the tangent basis (rotation only), so they come back unchanged.
+    // `--donor-sphere` still caps the result, scaling every axis alike.
+    let fit_axes = a.iter().any(|s| s == "--fit-axes");
+    let mut fits = [fit; 3];
+    if fit_axes {
+        for k in 0..3 {
+            fits[k] = DONOR_HALF / ((hi[k] - lo[k]) * 0.5).max(1e-3);
+        }
+        if let Some(i) = a.iter().position(|s| s == "--donor-sphere") {
+            let limit: f32 = a[i + 1].parse().expect("invalid donor sphere radius");
+            let radius = geo
+                .positions
+                .chunks_exact(3)
+                .map(|p| {
+                    let v = to_cm(p);
+                    (0..3)
+                        .map(|k| ((v[k] - centre[k]) * fits[k]).powi(2))
+                        .sum::<f32>()
+                        .sqrt()
+                })
+                .fold(0.0f32, f32::max);
+            if radius > limit {
+                for f in fits.iter_mut() {
+                    *f *= limit / radius;
+                }
             }
         }
     }
@@ -499,9 +508,7 @@ fn main() {
     geo.positions = normalised;
     let mut swapped = Vec::with_capacity(geo.normals.len());
     for n in geo.normals.chunks_exact(3) {
-        let m = [n[0] / fits[0], n[2] / fits[1], n[1] / fits[2]];
-        let len = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt().max(1e-12);
-        swapped.extend_from_slice(&[m[0] / len, m[1] / len, m[2] / len]);
+        swapped.extend_from_slice(&[n[0], n[2], n[1]]);
     }
     geo.normals = swapped;
     // The same swap for the bump frame. Exchanging two axes is a mirror, so the
@@ -511,15 +518,9 @@ fn main() {
             .chunks_exact(4)
             .any(|t| t[0] != 0.0 || t[1] != 0.0 || t[2] != 0.0)
     {
-        // Tangents scale like positions (the engine scales them by the
-        // component's scale), so a per-axis fit stores them multiplied by it.
         geo.tangents = tangents
             .chunks_exact(4)
-            .flat_map(|t| {
-                let m = [t[0] * fits[0], t[2] * fits[1], t[1] * fits[2]];
-                let len = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt().max(1e-12);
-                [m[0] / len, m[1] / len, m[2] / len, -t[3]]
-            })
+            .flat_map(|t| [t[0], t[2], t[1], -t[3]])
             .collect();
     }
     // The incident direction, re-expressed in each vertex's own tangent frame
