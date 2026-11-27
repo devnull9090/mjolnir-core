@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ActionButton, useHub } from "@mjolnir/hub-kit";
 import { HUB_SITE } from "../hub/client";
 
@@ -11,9 +13,40 @@ import { HUB_SITE } from "../hub/client";
  * in a menu behind it, so the header is not a row of small links.
  */
 export default function AccountChip() {
-  const { user, ready, signIn, signOut, openUrl } = useHub();
+  const { user, ready, signIn, signOut, openUrl, refreshUser } = useHub();
   const [open, setOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+
+  // "Refresh from Discord" is a fresh Discord sign-in on the website (the hub
+  // keeps no Discord token to ask with), which rewrites the hub's name and
+  // avatar. When the player comes back to the launcher, re-read the account
+  // and the cached copy in hub_auth.json. Listens only while a refresh is
+  // pending, for ten minutes at most.
+  useEffect(() => {
+    if (!refreshing) return;
+    // The native window's focus event, not the DOM's: WebView2 does not
+    // always pass an OS-level focus change on to the page.
+    let unlisten: (() => void) | undefined;
+    let live = true;
+    void getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        if (!focused) return;
+        invoke("hub_refresh_user")
+          .catch(console.error)
+          .finally(refreshUser);
+      })
+      .then((fn) => {
+        if (live) unlisten = fn;
+        else fn();
+      });
+    const stop = setTimeout(() => setRefreshing(false), 10 * 60 * 1000);
+    return () => {
+      live = false;
+      unlisten?.();
+      clearTimeout(stop);
+    };
+  }, [refreshing, refreshUser]);
 
   // Close on a click anywhere else, or on Escape.
   useEffect(() => {
@@ -82,6 +115,19 @@ export default function AccountChip() {
             <p className="text-sm text-text-primary truncate">{name}</p>
             <p className="text-xs text-text-secondary truncate">Signed in to the Hub as @{user.username}</p>
           </div>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              setRefreshing(true);
+              openUrl(`${HUB_SITE}/api/v1/auth/discord?next=/account`);
+            }}
+            title="Changed your Discord name or avatar? Sign in with Discord again in your browser to update it here and in game"
+            className="w-full flex items-center justify-between px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-surface-hover cursor-pointer"
+          >
+            Refresh from Discord
+            <span aria-hidden className="text-xs">↗</span>
+          </button>
           <button
             role="menuitem"
             onClick={() => {
