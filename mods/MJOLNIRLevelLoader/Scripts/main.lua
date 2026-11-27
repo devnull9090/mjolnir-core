@@ -2007,6 +2007,13 @@ local function spawnEnvironment(world)
             set("exposure_bias", "AutoExposureBias", (post.exposure_bias or 0.0) - math.log(k, 2))
             set("local_exposure", "LocalExposureHighlightContrastScale", post.local_exposure)
             set("local_exposure", "LocalExposureShadowContrastScale", post.local_exposure)
+            -- The CE masters write ambient occlusion 0 (they hold their own
+            -- ambient in the emissive). Where Lumen cannot run (no hardware
+            -- ray tracing: a GTX 1080 Ti), the renderer multiplies the whole
+            -- pixel, emissive included, by material AO times this fraction,
+            -- and converted levels drew black (Gemini, Battle Creek,
+            -- 2026-11-27). With Lumen it changes nothing (PC 1: 0.1/255).
+            set("ao_static_fraction", "AmbientOcclusionStaticFraction", 0.0)
         end)
     end
     Log("environment spawned (sun/atmosphere/skylight" .. (type(post) == "table" and "/post" or "") .. ")")
