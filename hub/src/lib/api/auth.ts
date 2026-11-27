@@ -113,13 +113,18 @@ export async function loginCallback(c: Ctx) {
     avatar: string | null;
   };
 
-  // Upsert; a returning user keeps their id, role and display_name.
+  // Upsert; a returning user keeps their id and role. The name and avatar
+  // follow Discord on every sign-in: display_name is the Discord global
+  // name, not something the hub lets anyone edit, so a player whose Discord
+  // name changed fixes it here by signing in again (the account page's
+  // "Refresh from Discord" is exactly that).
   const row = await c.env.DB.prepare(
     `INSERT INTO users (id, discord_id, discord_username, discord_avatar, display_name)
      VALUES (?1, ?2, ?3, ?4, ?5)
      ON CONFLICT(discord_id) DO UPDATE SET
        discord_username = excluded.discord_username,
        discord_avatar = excluded.discord_avatar,
+       display_name = excluded.display_name,
        updated_at = datetime('now')
      RETURNING id, banned_at`,
   )

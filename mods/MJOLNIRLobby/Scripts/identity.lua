@@ -29,6 +29,7 @@ local TICKET_RETRY = 20     -- seconds between a client's tries to be on the ros
 local WHOIS_SECONDS = 15    -- a client with no roster from its host asks this often
 local SHARE_SECONDS = 30    -- the host re-sends the roster this often
 local ME_RETRY = 60         -- after the hub did not say who we are
+local ME_REFRESH = 300      -- re-ask who we are, for a name refreshed on the hub
 
 local Games, Net, log, dir, coversDir, localName, presentNames, isPublic, onBanned, worldContext
 local me = nil              -- { id, name, reports } for this machine's account
@@ -151,18 +152,27 @@ end
 
 --- Who this machine's launcher signed in as (POST /identity/tickets with no
 --- audience answers that without making a ticket).
+---
+--- Asked again every ME_REFRESH seconds: a player who refreshes their name
+--- from Discord on the hub while the game runs should host the next match
+--- under the new name, and nothing tells the game it changed. It rides the
+--- identity loop that already runs each second, costs one hub call per five
+--- minutes (no row written), and keeps the old answer while asking.
 local function askMe()
-    if me or asking or now() < nextMe then return end
+    if asking or now() < nextMe then return end
     local name = localName()
     if not name then return end
     asking = true
     Games.call("POST", "/identity/tickets", { platform_name = name:sub(1, 64) }, function(status, data)
         asking = false
         if status == 201 and type(data) == "table" and type(data.player) == "table" then
-            me = { id = data.player.id, name = data.player.name, reports = 0 }
+            nextMe = now() + ME_REFRESH
             meBan = data.matchmaking_ban
-            log("identity: signed in as " .. tostring(me.name) .. (meBan and " (banned from matchmaking)" or ""))
-            dirty = true
+            if not me or me.id ~= data.player.id or me.name ~= data.player.name then
+                me = { id = data.player.id, name = data.player.name, reports = 0 }
+                log("identity: signed in as " .. tostring(me.name) .. (meBan and " (banned from matchmaking)" or ""))
+                dirty = true
+            end
         else
             nextMe = now() + ME_RETRY
             if status ~= 0 then log("identity: the hub answered " .. tostring(status) .. " (who am I)") end

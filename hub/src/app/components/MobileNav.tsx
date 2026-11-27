@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Wrench,
   Swords,
+  UserRound,
 } from "lucide-react";
 import { DiscordIcon, GitHubIcon } from "./icons";
 import { useHub } from "./HubKit";
@@ -157,6 +158,14 @@ export function MobileNav() {
                   Moderation
                 </Link>
               )}
+              <Link
+                href="/account"
+                onClick={close}
+                className="flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium text-text-muted hover:text-foreground hover:bg-surface-raised transition-colors"
+              >
+                <UserRound className="w-5 h-5" />
+                Account
+              </Link>
               <Link
                 href="/account/keys"
                 onClick={close}

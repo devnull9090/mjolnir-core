@@ -2616,6 +2616,38 @@ pub fn auth_poll() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "status": status }))
 }
 
+/// Re-read who the paired key belongs to (GET /auth/me) and rewrite the
+/// cached user in hub_auth.json, so the name and avatar follow the hub after
+/// a "Refresh from Discord" on the website. None when signed out, or when
+/// the hub could not be asked (the cached user stays as it was).
+pub fn refresh_user() -> Option<HubUser> {
+    let mut auth = load_auth()?;
+    let resp = http()
+        .ok()?
+        .get(format!("{}/auth/me", hub_api()))
+        .bearer_auth(&auth.key)
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let user: HubUser = resp.json().ok()?;
+    if user.id != auth.user.id {
+        // Not the account this key was paired for: leave the cache alone.
+        return None;
+    }
+    let changed = user.display_name != auth.user.display_name
+        || user.avatar_url != auth.user.avatar_url
+        || user.username != auth.user.username
+        || user.role != auth.user.role;
+    if changed {
+        auth.user = user.clone();
+        let _ = save_auth(&auth);
+    }
+    Some(user)
+}
+
 /// Forget the paired key locally. The key itself stays valid until it is
 /// revoked at mjolnircore.com/account/keys — this launcher cannot revoke it,
 /// because a credential that can revoke credentials is a bigger credential.
@@ -2685,7 +2717,9 @@ pub fn session_check() -> HubSession {
     if !missing.is_empty() {
         return session("missing_scope", expires_at, missing);
     }
-    session("ok", expires_at, vec![])
+    // The key works: bring the cached name and avatar up to date while here.
+    let user = refresh_user().or_else(|| Some(auth.user.clone()));
+    HubSession { state: "ok", user, expires_at, missing_scopes: vec![] }
 }
 
 // ─── Signed code mods ───────────────────────────────────────────────────

@@ -1694,6 +1694,14 @@ async fn hub_auth_poll() -> Result<serde_json::Value, String> {
         .map_err(|e| format!("Task join error: {e}"))?
 }
 
+/// Re-read the signed-in user from the hub and update the cached copy.
+#[tauri::command]
+async fn hub_refresh_user() -> Result<Option<hub::HubUser>, String> {
+    tauri::async_runtime::spawn_blocking(hub::refresh_user)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))
+}
+
 #[tauri::command]
 fn hub_sign_out() -> Result<(), String> {
     hub::sign_out()
@@ -2299,6 +2307,7 @@ pub fn run() {
             hub_auth_status,
             hub_auth_start,
             hub_auth_poll,
+            hub_refresh_user,
             hub_session_check,
             hub_sign_out,
             code_mods_status,

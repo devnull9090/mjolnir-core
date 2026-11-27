@@ -39,6 +39,54 @@
   ],
   "releases": [
     {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.24.5",
+      "tag": "launcher-v0.24.5",
+      "title": "Refresh your name from Discord",
+      "date": "2026-11-26",
+      "summary": "Changed your Discord name or avatar? The account menu's new Refresh from Discord brings the launcher, the hub and the game up to date.",
+      "body": "### Added\n\n- **Refresh from Discord.** The account menu (your name at the top right)\n  has a new item. It opens a Discord sign-in in your browser, and when you\n  come back to the launcher your name and avatar are the current ones. Your\n  name in multiplayer is your hub name, so this is also how you change it in\n  game.\n\n### Fixed\n\n- **An old name in the account menu.** The launcher kept the name and avatar\n  from when you first signed in. It now checks them with the hub each time it\n  checks your sign-in.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Refresh from Discord. The account menu (your name at the top right) has a new item. It opens a Discord sign-in in your browser, and when you come back to the launcher your name and avatar are the current ones. Your name in multiplayer is your hub name, so this is also how you change it in game."
+          ]
+        },
+        {
+          "heading": "Fixed",
+          "items": [
+            "An old name in the account menu. The launcher kept the name and avatar from when you first signed in. It now checks them with the hub each time it checks your sign-in."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.24.5",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.24.5.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.24.5"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.57.1",
+      "tag": "mods-v0.57.1",
+      "title": "Your current name in game",
+      "date": "2026-11-26",
+      "summary": "A name refreshed from Discord on the hub now reaches the game within five minutes, without restarting it.",
+      "body": "### Fixed\n\nIn MJOLNIRLobby 0.34.5.\n\n- **Hub names stuck on an old Discord name.** In multiplayer you are shown\n  by your hub name, which the hub took from Discord when you first signed in\n  and never updated. Signing in again now updates it, and so does the new\n  Refresh from Discord on your hub account page and in the launcher's account\n  menu. The game asks the hub who you are every five minutes, so a running\n  game picks the new name up for your next match.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Hub names stuck on an old Discord name. In multiplayer you are shown by your hub name, which the hub took from Discord when you first signed in and never updated. Signing in again now updates it, and so does the new Refresh from Discord on your hub account page and in the launcher's account menu. The game asks the hub who you are every five minutes, so a running game picks the new name up for your next match."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.57.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.57.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.57.1"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.57.0",
