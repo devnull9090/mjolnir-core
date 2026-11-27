@@ -41,6 +41,27 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.59.2",
+      "tag": "mods-v0.59.2",
+      "title": "Flashlight no longer blinding",
+      "date": "2026-11-27",
+      "summary": "On converted and custom maps the flashlight whited out the screen. It is now bright enough to see by in the dark without blowing out.",
+      "body": "### Fixed\n\nIn MJOLNIRLevelLoader 0.21.13.\n\n- **Flashlight far too bright on converted and custom maps.** Since mods\n  0.54.0 the loader raised the flashlight by every stop of a map's extra\n  lighting, as if the campaign never adjusted its exposure in the dark. On\n  Battle Creek that was 8 stops, which turned anything within a few metres\n  into a white blob, the weapon included. It now raises it by 5 stops less,\n  allowing for the map's own exposure setting: 3 stops on Battle Creek.\n  The campaign's flashlight is unchanged.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Flashlight far too bright on converted and custom maps. Since mods 0.54.0 the loader raised the flashlight by every stop of a map's extra lighting, as if the campaign never adjusted its exposure in the dark. On Battle Creek that was 8 stops, which turned anything within a few metres into a white blob, the weapon included. It now raises it by 5 stops less, allowing for the map's own exposure setting: 3 stops on Battle Creek. The campaign's flashlight is unchanged."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.59.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.59.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.59.2"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.59.1",
       "tag": "mods-v0.59.1",
       "title": "Weapons lit without ray tracing",
