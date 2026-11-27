@@ -5885,11 +5885,22 @@ end
 --- This opt-in captures the currently rendered sky, including any restored
 --- height haze; it intentionally does not repeat the earlier clear-haze capture.
 --- Capture once after furnishing; no polling or recurring per-frame work.
+---
+--- Every map gets this capture when the sky light cannot capture in real
+--- time: the game's Low and Medium settings turn
+--- r.SkyLight.RealTimeReflectionCapture off, and the sky light then keeps the
+--- one capture made at spawn, before the level drew anything. That capture
+--- is black, and without Lumen (no hardware ray tracing: a GTX 1080 Ti) the
+--- sky light is all that lights the stock first-person weapon and bipeds.
+--- They drew black indoors and out (Battle Creek, 2026-11-27).
 function Current.recaptureSkyAfterDecor(world)
     local level = Current.level
     local env = type(level) == "table" and level.environment
     local settings = type(env) == "table" and env.skylight
-    if type(settings) ~= "table" or settings.recapture_after_load ~= true or Current.skyRecapture then return false end
+    if Current.skyRecapture then return false end
+    if not (type(settings) == "table" and settings.recapture_after_load == true) and Current.realtimeSkyCapture() then
+        return false
+    end
     local sky = Current.actors.__sky
     local function identity(object)
         if not (object and object:IsValid()) then return nil end
@@ -5918,6 +5929,16 @@ function Current.recaptureSkyAfterDecor(world)
         if not captured then Log("post-decor skylight capture: " .. tostring(err)) end
     end)
     return true
+end
+
+--- Whether the sky light captures in real time (see recaptureSkyAfterDecor).
+--- Unknown counts as yes, which keeps the capture opt-in.
+function Current.realtimeSkyCapture()
+    local ok, v = pcall(function()
+        return findObject("/Script/Engine.Default__KismetSystemLibrary")
+            :GetConsoleVariableIntValue("r.SkyLight.RealTimeReflectionCapture")
+    end)
+    return not ok or tonumber(v) ~= 0
 end
 
 --- A run of ours on the game thread, for MJOLNIRHud's hitch log (its

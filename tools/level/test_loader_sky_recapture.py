@@ -64,6 +64,24 @@ class SkyRecaptureTest(unittest.TestCase):
                     assert(#pending == 0 and captures == 0)
                 ''')
 
+    def test_no_realtime_capture_recaptures_every_map(self):
+        # Low/Medium settings turn the sky light's real-time capture off; the
+        # spawn-time capture is then black, so every map recaptures once.
+        for value in ('nil', 'false'):
+            with self.subTest(value=value):
+                self.lua.execute(f'''
+                    Current.skyRecapture = nil; pending = {{}}; captures = 0
+                    Current.level.environment.skylight.recapture_after_load = {value}
+                    findObject = function() return {{GetConsoleVariableIntValue=function() return 0 end}} end
+                    assert(Current.recaptureSkyAfterDecor(world))
+                    pending[1].callback()
+                    assert(captures == 1)
+                    findObject = function() return {{GetConsoleVariableIntValue=function() return 1 end}} end
+                    Current.skyRecapture = nil; pending = {{}}
+                    assert(not Current.recaptureSkyAfterDecor(world))
+                    findObject = nil
+                ''')
+
     def test_world_travel_skips_stale_callback(self):
         self.lua.execute('''
             assert(Current.recaptureSkyAfterDecor(world))
