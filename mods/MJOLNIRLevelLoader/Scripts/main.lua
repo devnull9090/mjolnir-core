@@ -272,6 +272,9 @@ local Current = {
     -- source material, shared by every decor piece and foliage group that
     -- asks for the same values.
     scalarMids = {},
+    -- Decor material instances by spec and slot (applyMaterial), shared by
+    -- every piece that asks for the same material and changes it no further.
+    sharedMids = {},
     -- Baked decor pieces (MJDecor_<id>) given scalar instances in this
     -- world, by id: a reload puts back the mesh's own materials on these
     -- alone. A piece fresh from the world has its mesh's own already.
@@ -399,6 +402,7 @@ local function resetState()
     Current.soundSet = nil
     Current.sunMids = {}
     Current.scalarMids = {}
+    Current.sharedMids = {}
     Current.bakedMids = {}
     Current.foliageDressed = nil
     Current.rocksHidden = nil
@@ -464,6 +468,7 @@ local function clearActors()
     Current.broken = nil
     Current.sunMids = {}
     Current.scalarMids = {}
+    Current.sharedMids = {}
     Current.movingSounds = {}
     Current.turning = {}
     Current.claimed = {}
@@ -1130,18 +1135,46 @@ local function runtimeMaterial(world, spec, name, target)
     return mid
 end
 
+--- A material spec as text, the same for equal specs: keys sorted.
+local function specKey(v)
+    if type(v) == "table" then
+        local keys = {}
+        for k in pairs(v) do keys[#keys + 1] = k end
+        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+        local parts = {}
+        for n, k in ipairs(keys) do parts[n] = tostring(k) .. "=" .. specKey(v[k]) end
+        return "{" .. table.concat(parts, ",") .. "}"
+    elseif type(v) == "number" then
+        return string.format("%.17g", v)
+    end
+    return string.format("%q", tostring(v))
+end
+
 --- One slot of applyMaterials: entry `i` of a material list made and set,
 --- counted in `st` ({ applied, failed, bounds }). A load sets a spawned
 --- piece's slots one at a time, a slice a frame (spawnDecorItem): CE
 --- terrain is up to 106 runtime materials on one mesh.
-local function applyMaterial(comp, entry, i, world, id, st)
+--- `shared`: the piece changes its materials no further (no pulse, tint or
+--- terrain shadows), so it takes the instance an earlier piece made from the
+--- same spec for the same slot. Every instance is a material of its own to
+--- the renderer: PWR's rocks drew with 1,010 instances (8 once shared), and
+--- hiding them saved 0.5-1.0 ms on a GTX 1080 Ti even looking at the ground.
+local function applyMaterial(comp, entry, i, world, id, st, shared)
     local mat, err
     if type(entry) == "string" and #entry > 0 then
         mat = resolveMesh(entry)
         err = "not found: " .. entry
     elseif type(entry) == "table" then
-        local ok, m, e = pcall(runtimeMaterial, world, entry, string.format("%s_%d", id, i - 1))
-        mat, err = ok and m or nil, ok and e or m
+        -- The slot is in the key: a landscape cut picks slots by number.
+        local key = shared and (specKey(entry) .. "#" .. (i - 1))
+        local have = key and Current.sharedMids[key]
+        if have and have:IsValid() then
+            mat = have
+        else
+            local ok, m, e = pcall(runtimeMaterial, world, entry, string.format("%s_%d", id, i - 1))
+            mat, err = ok and m or nil, ok and e or m
+            if key and mat then Current.sharedMids[key] = mat end
+        end
         -- A machine's moving part is drawn moved by its material (the CE
         -- device masters' World Position Offset), out past the mesh's own
         -- bounds: the spec's bounds_scale keeps the mesh drawn wherever the
@@ -1615,8 +1648,9 @@ local function spawnDecorItem(world, origin, item)
     end
     if item.materials then
         local st = { applied = 0, failed = 0, bounds = 1.0 }
+        local shared = not item.pulse and not item.tint and not isTerrain(item)
         for i, entry in ipairs(type(item.materials) == "table" and item.materials or {}) do
-            jobs[#jobs + 1] = function(comp) applyMaterial(comp, entry, i, world, id, st) end
+            jobs[#jobs + 1] = function(comp) applyMaterial(comp, entry, i, world, id, st, shared) end
         end
         jobs[#jobs + 1] = function(comp)
             local nApplied, nFailed = materialsDone(comp, id, st)
