@@ -6171,8 +6171,12 @@ local function spawnDecor(world)
         step("waterfalls", function() Effects.waterfalls(world) end)
         step("flux", function() Effects.flux(world) end, true)
         step("lights", function() Placed.lights(world) end)
-        -- The game's flashlight, raised to the level's light scale (flashlight.lua).
-        step("flashlight", function() Placed.flashlight.expose(lightScale(), findObject, Log) end)
+        -- The game's flashlight, raised for the level's light scale and exposure (flashlight.lua).
+        step("flashlight", function()
+            local env = Current.level and Current.level.environment
+            local post = type(env) == "table" and type(env.post) == "table" and env.post or {}
+            Placed.flashlight.expose(lightScale(), findObject, Log, post.exposure_bias)
+        end)
         step("decals", function() Placed.decals(world) end)
         step("landscape", function() Land.apply(world) end, true)
         -- What the landscape handed on: its ground, cliffs and components,
