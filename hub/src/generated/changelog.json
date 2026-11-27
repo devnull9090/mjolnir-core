@@ -41,6 +41,27 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.59.1",
+      "tag": "mods-v0.59.1",
+      "title": "Weapons lit without ray tracing",
+      "date": "2026-11-27",
+      "summary": "On graphics cards without hardware ray tracing, such as a GTX 1080 Ti, your first-person weapon drew black. It is lit again.",
+      "body": "### Fixed\n\nIn MJOLNIRLevelLoader 0.21.12.\n\n- **Black first-person weapon on cards without hardware ray tracing.** At\n  the Low and Medium video settings the game stops updating the sky light,\n  and it kept a capture taken before the map had drawn: black. Without ray\n  tracing the sky light is all that lights your weapon, so it drew black.\n  The loader now captures the sky again once the map is ready. On a\n  GTX 1080 Ti at Battle Creek, the weapon went from black to properly lit.\n  Cards with ray tracing look as before.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Black first-person weapon on cards without hardware ray tracing. At the Low and Medium video settings the game stops updating the sky light, and it kept a capture taken before the map had drawn: black. Without ray tracing the sky light is all that lights your weapon, so it drew black. The loader now captures the sky again once the map is ready. On a GTX 1080 Ti at Battle Creek, the weapon went from black to properly lit. Cards with ray tracing look as before."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.59.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.59.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.59.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.59.0",
       "tag": "mods-v0.59.0",
       "title": "Maps no longer draw black without ray tracing",
