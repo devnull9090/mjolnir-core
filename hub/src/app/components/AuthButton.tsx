@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LogOut, ShieldCheck } from "lucide-react";
+import { LogOut, ShieldCheck, UserRound } from "lucide-react";
 
 import { useHub } from "./HubKit";
 
@@ -53,6 +53,14 @@ export function AuthButton() {
             {(user.display_name ?? user.username).slice(0, 1).toUpperCase()}
           </span>
         )}
+      </Link>
+      <Link
+        href="/account"
+        title="Account: refresh your name and avatar from Discord"
+        aria-label="Account"
+        className="text-text-muted hover:text-foreground"
+      >
+        <UserRound className="w-4 h-4" />
       </Link>
       <button
         title="Sign out"
