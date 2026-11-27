@@ -39,6 +39,75 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.59.2",
+      "tag": "mods-v0.59.2",
+      "title": "Flashlight no longer blinding",
+      "date": "2026-11-27",
+      "summary": "On converted and custom maps the flashlight whited out the screen. It is now bright enough to see by in the dark without blowing out.",
+      "body": "### Fixed\n\nIn MJOLNIRLevelLoader 0.21.13.\n\n- **Flashlight far too bright on converted and custom maps.** Since mods\n  0.54.0 the loader raised the flashlight by every stop of a map's extra\n  lighting, as if the campaign never adjusted its exposure in the dark. On\n  Battle Creek that was 8 stops, which turned anything within a few metres\n  into a white blob, the weapon included. It now raises it by 5 stops less,\n  allowing for the map's own exposure setting: 3 stops on Battle Creek.\n  The campaign's flashlight is unchanged.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Flashlight far too bright on converted and custom maps. Since mods 0.54.0 the loader raised the flashlight by every stop of a map's extra lighting, as if the campaign never adjusted its exposure in the dark. On Battle Creek that was 8 stops, which turned anything within a few metres into a white blob, the weapon included. It now raises it by 5 stops less, allowing for the map's own exposure setting: 3 stops on Battle Creek. The campaign's flashlight is unchanged."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.59.2",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.59.2.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.59.2"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.59.1",
+      "tag": "mods-v0.59.1",
+      "title": "Weapons lit without ray tracing",
+      "date": "2026-11-27",
+      "summary": "On graphics cards without hardware ray tracing, such as a GTX 1080 Ti, your first-person weapon drew black. It is lit again.",
+      "body": "### Fixed\n\nIn MJOLNIRLevelLoader 0.21.12.\n\n- **Black first-person weapon on cards without hardware ray tracing.** At\n  the Low and Medium video settings the game stops updating the sky light,\n  and it kept a capture taken before the map had drawn: black. Without ray\n  tracing the sky light is all that lights your weapon, so it drew black.\n  The loader now captures the sky again once the map is ready. On a\n  GTX 1080 Ti at Battle Creek, the weapon went from black to properly lit.\n  Cards with ray tracing look as before.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Black first-person weapon on cards without hardware ray tracing. At the Low and Medium video settings the game stops updating the sky light, and it kept a capture taken before the map had drawn: black. Without ray tracing the sky light is all that lights your weapon, so it drew black. The loader now captures the sky again once the map is ready. On a GTX 1080 Ti at Battle Creek, the weapon went from black to properly lit. Cards with ray tracing look as before."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.59.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.59.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.59.1"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.59.0",
+      "tag": "mods-v0.59.0",
+      "title": "Maps no longer draw black without ray tracing",
+      "date": "2026-11-27",
+      "summary": "Converted maps drew black or nearly black on graphics cards without hardware ray tracing, such as a GTX 1080 Ti. They are lit again.",
+      "body": "### Fixed\n\nIn MJOLNIRLevelLoader 0.21.11.\n\n- **Black maps on cards without hardware ray tracing.** The converted\n  maps' surfaces carry their own ambient light. Where the engine's global\n  illumination cannot run, it darkened that light by the surfaces' ambient\n  occlusion, and the maps drew black: Gemini, Battle Creek and others on a\n  GTX 1080 Ti. The loader now turns that darkening off for converted maps.\n  From the same spot on a GTX 1080 Ti, Battle Creek's average brightness\n  went from 0.8 to 39 and Gemini's from 0.4 to 23.6. Cards with ray\n  tracing look exactly as before.\n\n### Known issue\n\n- On cards without hardware ray tracing, your first-person weapon can still\n  look dark indoors.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Black maps on cards without hardware ray tracing. The converted maps' surfaces carry their own ambient light. Where the engine's global illumination cannot run, it darkened that light by the surfaces' ambient occlusion, and the maps drew black: Gemini, Battle Creek and others on a GTX 1080 Ti. The loader now turns that darkening off for converted maps. From the same spot on a GTX 1080 Ti, Battle Creek's average brightness went from 0.8 to 39 and Gemini's from 0.4 to 23.6. Cards with ray tracing look exactly as before."
+          ]
+        },
+        {
+          "heading": "Known issue",
+          "items": [
+            "On cards without hardware ray tracing, your first-person weapon can still look dark indoors."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.59.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.59.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.59.0"
+    },
+    {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
       "version": "0.24.5",

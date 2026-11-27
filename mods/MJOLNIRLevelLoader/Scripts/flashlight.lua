@@ -2,14 +2,24 @@
 --
 -- A level with manual exposure (environment.post.manual_exposure) lights its
 -- world `light_scale` times brighter than the campaign does and exposes for
--- it (lightScale in main.lua). The flashlight is the game's own: its
--- Blueprint (BP_Flashlight_EquipmentActor) drives two spot lights at
--- SoftLightIntensityScalar and PointLightIntensityScalar, in EV, tuned for
--- the campaign's exposure. On such a level it was 13 stops too dim: a dark
--- room stayed black with it on (Pelican Warfare's bases, 2026-11-21).
+-- it (lightScale in main.lua): AutoExposureBias = exposure_bias -
+-- log2(scale), with no physical camera exposure. The flashlight is the
+-- game's own: its Blueprint (BP_Flashlight_EquipmentActor) drives two spot
+-- lights at SoftLightIntensityScalar and PointLightIntensityScalar, in EV.
+-- Left alone on such a level it was too dim to see in a dark room (Pelican
+-- Warfare's bases, 2026-11-21).
 --
--- EV is a power of two, so the light scale is log2(scale) stops: both
--- scalars are raised by that on the class's default object (every flashlight
+-- Raising it by the whole log2(scale) (mods 0.54.0 to 0.59.1) was too much.
+-- That assumes the campaign exposes at EV 0, but its auto exposure in the
+-- dark sits a few stops above that, and the flashlight is tuned for it. At
+-- +8 on Battle Creek the beam whited out the screen and the weapon. So the
+-- light is raised by what this level's exposure takes away, less
+-- CAMPAIGN_EV: log2(scale) - exposure_bias - CAMPAIGN_EV. On Battle Creek
+-- (scale 256, bias 0) that is +3, which reads clearly on a wall in shade and
+-- does not blow out at arm's length (2026-11-27, judged against +0, +2, +4
+-- and +8 in game).
+--
+-- Both scalars are raised on the class's default object (every flashlight
 -- made from then on) and on the flashlights already in the world. Setup
 -- only: one write when a level is dressed, and restore() puts the game's own
 -- values back when the level is left, so the campaign is never touched.
@@ -19,6 +29,9 @@ local CLASS = "/Game/_Prototypes/SynchronizationTestContent/Assets/Equipments/BP
 local FIELDS = { "SoftLightIntensityScalar", "PointLightIntensityScalar" }
 local original          -- the game's own scalars, read once
 local stops = 0         -- what is applied now
+
+-- The exposure, in stops above EV 0, that the game's flashlight is tuned for.
+local CAMPAIGN_EV = 5
 
 local function defaults(findObject)
     local cdo = findObject(CLASS .. ".Default__BP_Flashlight_EquipmentActor_C")
@@ -32,9 +45,17 @@ local function set(target, extra)
     end
 end
 
---- Raise the flashlight by log2(`scale`) stops (scale 1 leaves it alone).
-function Flashlight.expose(scale, findObject, log)
-    local extra = (type(scale) == "number" and scale > 1) and math.log(scale) / math.log(2) or 0
+--- How many stops a level with light scale `scale` and exposure bias `bias`
+--- raises the flashlight by (never below 0; scale 1 leaves it alone).
+function Flashlight.boost(scale, bias)
+    if type(scale) ~= "number" or scale <= 1 then return 0 end
+    local extra = math.log(scale) / math.log(2) - (tonumber(bias) or 0) - CAMPAIGN_EV
+    return extra > 0 and extra or 0
+end
+
+--- Raise the flashlight for a level's light scale and exposure bias.
+function Flashlight.expose(scale, findObject, log, bias)
+    local extra = Flashlight.boost(scale, bias)
     if extra == stops then return end
     local ok, err = pcall(function()
         local cdo = defaults(findObject)
@@ -49,7 +70,7 @@ function Flashlight.expose(scale, findObject, log)
             if actor:IsValid() then set(actor, extra) end
         end
         stops = extra
-        if log then log(string.format("flashlight: %+.1f stops for the level's light scale", extra)) end
+        if log then log(string.format("flashlight: %+.1f stops for the level's light scale and exposure", extra)) end
     end)
     if not ok and log then log("flashlight: " .. tostring(err)) end
 end
