@@ -148,7 +148,8 @@ $ReadScreen = @'
 
 $OpenUpdates = @'
 (() => {
-  const nav = [...document.querySelectorAll("button, a")].find(e => e.textContent.trim() === "Updates");
+  // The sidebar item carries a count badge when anything is out of date ("Updates6").
+  const nav = [...document.querySelectorAll("button, a")].find(e => /^Updates\s*\d*$/.test(e.textContent.trim()));
   if (!nav) return "no Updates button";
   nav.click();
   return "opened";
