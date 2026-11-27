@@ -39,6 +39,33 @@
   ],
   "releases": [
     {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
+      "version": "0.59.0",
+      "tag": "mods-v0.59.0",
+      "title": "Maps no longer draw black without ray tracing",
+      "date": "2026-11-27",
+      "summary": "Converted maps drew black or nearly black on graphics cards without hardware ray tracing, such as a GTX 1080 Ti. They are lit again.",
+      "body": "### Fixed\n\nIn MJOLNIRLevelLoader 0.21.11.\n\n- **Black maps on cards without hardware ray tracing.** The converted\n  maps' surfaces carry their own ambient light. Where the engine's global\n  illumination cannot run, it darkened that light by the surfaces' ambient\n  occlusion, and the maps drew black: Gemini, Battle Creek and others on a\n  GTX 1080 Ti. The loader now turns that darkening off for converted maps.\n  From the same spot on a GTX 1080 Ti, Battle Creek's average brightness\n  went from 0.8 to 39 and Gemini's from 0.4 to 23.6. Cards with ray\n  tracing look exactly as before.\n\n### Known issue\n\n- On cards without hardware ray tracing, your first-person weapon can still\n  look dark indoors.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Black maps on cards without hardware ray tracing. The converted maps' surfaces carry their own ambient light. Where the engine's global illumination cannot run, it darkened that light by the surfaces' ambient occlusion, and the maps drew black: Gemini, Battle Creek and others on a GTX 1080 Ti. The loader now turns that darkening off for converted maps. From the same spot on a GTX 1080 Ti, Battle Creek's average brightness went from 0.8 to 39 and Gemini's from 0.4 to 23.6. Cards with ray tracing look exactly as before."
+          ]
+        },
+        {
+          "heading": "Known issue",
+          "items": [
+            "On cards without hardware ray tracing, your first-person weapon can still look dark indoors."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.59.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.59.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.59.0"
+    },
+    {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
       "version": "0.24.5",
