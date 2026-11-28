@@ -11,14 +11,15 @@ import type { ReportReason, ReportSubject } from "../types";
 import { useHub } from "./context";
 import { AlertIcon } from "./icons";
 import { ActionButton, ErrorNote } from "./primitives";
+import { Select } from "./Select";
 
-const REASONS: { key: ReportReason; label: string }[] = [
-  { key: "malware", label: "Malicious or unsafe" },
-  { key: "stolen", label: "Stolen work" },
-  { key: "broken", label: "Broken or crashes the game" },
-  { key: "nsfw", label: "Unmarked adult content" },
-  { key: "spam", label: "Spam" },
-  { key: "other", label: "Something else" },
+const REASONS: { value: ReportReason; label: string }[] = [
+  { value: "malware", label: "Malicious or unsafe" },
+  { value: "stolen", label: "Stolen work" },
+  { value: "broken", label: "Broken or crashes the game" },
+  { value: "nsfw", label: "Unmarked adult content" },
+  { value: "spam", label: "Spam" },
+  { value: "other", label: "Something else" },
 ];
 
 export function ReportButton({
@@ -76,18 +77,14 @@ export function ReportButton({
   return (
     <div className="rounded-lg border border-[var(--mj-border)] p-3 space-y-2 max-w-md">
       <p className="text-xs font-semibold text-[var(--mj-text)]">What is wrong with this?</p>
-      <select
+      <Select
         value={reason}
-        onChange={(e) => setReason(e.target.value as ReportReason)}
-        className="w-full px-2 py-1.5 text-sm rounded-lg bg-[var(--mj-bg)] border border-[var(--mj-border)] text-[var(--mj-text)] cursor-pointer"
-        aria-label="Reason"
-      >
-        {REASONS.map((r) => (
-          <option key={r.key} value={r.key}>
-            {r.label}
-          </option>
-        ))}
-      </select>
+        onChange={setReason}
+        options={REASONS}
+        ariaLabel="Reason"
+        size="sm"
+        className="w-full"
+      />
       <textarea
         value={detail}
         onChange={(e) => setDetail(e.target.value)}

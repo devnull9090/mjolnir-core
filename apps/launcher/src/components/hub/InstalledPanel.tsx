@@ -12,6 +12,7 @@ import {
   BoltIcon,
   ErrorNote,
   RefreshIcon,
+  Select,
   ShieldIcon,
   timeAgo,
 } from "@mjolnir/hub-kit";
@@ -239,19 +240,16 @@ function ProfileBar({ library }: { library: Library }) {
   if (!state) return null;
   return (
     <div className="flex items-center gap-2">
-      <select
+      <Select
         value={state.active}
-        onChange={(e) => void run("profile", "hub_profile_switch", { name: e.target.value })}
+        onChange={(next) => void run("profile", "hub_profile_switch", { name: next })}
         disabled={!!busy}
-        className="px-2 py-1.5 text-sm rounded-lg bg-surface-secondary border border-border-subtle cursor-pointer"
-        aria-label="Profile"
-      >
-        {state.profiles.map((p) => (
-          <option key={p.name} value={p.name}>
-            {p.name}
-          </option>
-        ))}
-      </select>
+        ariaLabel="Profile"
+        size="sm"
+        align="right"
+        options={state.profiles.map((p) => ({ value: p.name, label: p.name }))}
+        className="min-w-28"
+      />
       {creating ? (
         <form
           onSubmit={(e) => {

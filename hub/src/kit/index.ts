@@ -14,6 +14,7 @@ export * from "./ui/context";
 export * from "./ui/format";
 export * from "./ui/icons";
 export * from "./ui/primitives";
+export * from "./ui/Select";
 export * from "./ui/Avatar";
 export * from "./ui/UserLink";
 export * from "./ui/ProfileSummary";

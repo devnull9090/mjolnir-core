@@ -5,8 +5,13 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { PageShell } from "../../components/ui";
+import { Select } from "../../components/HubKit";
 
 const CATEGORIES = ["gameplay", "maps", "forge", "textures", "weapons", "camera", "tools", "framework", "multiplayer"];
+const CATEGORY_OPTIONS = CATEGORIES.map((c) => ({
+  value: c,
+  label: c === "forge" ? "Forge pack" : c[0].toUpperCase() + c.slice(1),
+}));
 
 export default function NewModPage() {
   const router = useRouter();
@@ -121,21 +126,17 @@ export default function NewModPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="category" className="block text-sm font-semibold text-foreground mb-1">
+                <label id="category-label" htmlFor="category" className="block text-sm font-semibold text-foreground mb-1">
                   Category
                 </label>
-                <select
+                <Select
                   id="category"
+                  ariaLabelledBy="category-label"
                   value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-lg bg-background border border-border text-foreground focus:border-gold/60 focus:outline-none capitalize"
-                >
-                  {CATEGORIES.map((c) => (
-                    <option key={c} value={c}>
-                      {c === "forge" ? "Forge pack" : c}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setCategory}
+                  options={CATEGORY_OPTIONS}
+                  className="w-full"
+                />
               </div>
               <div>
                 <label htmlFor="license" className="block text-sm font-semibold text-foreground mb-1">
