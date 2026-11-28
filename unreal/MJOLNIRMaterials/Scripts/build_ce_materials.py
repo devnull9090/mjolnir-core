@@ -4522,8 +4522,13 @@ elif TRIAL_ROOT:
     build_flare(defaults)
     build_cliff_pbr(defaults)
     build_cliff_pbr(defaults, "M_CE_CliffTess", tessellate=True, shade_uv=True)
-    # The cladding rocks tessellated: their own vertex normals.
-    build_cliff_pbr(defaults, "M_CE_CladTess", tessellate=True)
+    # The cladding rocks' master (clad_materials.py parents every clad MIC
+    # here): their own vertex normals, NOT tessellated. Their displacement
+    # (upgrade_ce_map.py TESS["clad_disp"]) is 0 on every map, so Nanite
+    # tessellated them to move nothing: about 2 ms of a GTX 1080 Ti's frame
+    # on Coagulation (2026-11-27). The name stays so published MICs keep
+    # their parent; tessellate again only with a clad_disp above 0.
+    build_cliff_pbr(defaults, "M_CE_CladTess")
     # Until the runtime pack carries it (MJOLNIRLevelLoader falls back here).
     build_plasma(defaults)
     # Converted props that move (physics_props): lit by Unreal.
