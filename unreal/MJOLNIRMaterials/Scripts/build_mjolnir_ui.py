@@ -1191,7 +1191,11 @@ def player_card_panel(bp):
 
     stats_row = widget(bp, unreal.HorizontalBox, "PlayerCardStatsRow", "PlayerCardStack")
     gap(stats_row, bottom=24)
-    for idx, label in enumerate(("MATCHES", "WIN RATE", "K / D", "TOP WEAPON")):
+    for idx, (label, weight, val_size) in enumerate((
+            ("MATCHES", 1.0, 28),
+            ("WIN RATE", 1.0, 28),
+            ("K / D", 1.0, 28),
+            ("TOP WEAPON", 1.65, 22))):
         tile = widget(bp, unreal.Border, f"PlayerCardStat{idx}", stats_row.get_name())
         if CHROME.get("PanelSubtle"):
             tile.set_editor_property("background", box_brush(CHROME["PanelSubtle"], (0.08, 0.12, 0.08, 0.12)))
@@ -1199,15 +1203,16 @@ def player_card_panel(bp):
         else:
             tile.set_editor_property("brush_color", unreal.LinearColor(0.02, 0.05, 0.08, 0.75))
         tile.set_editor_property("padding", unreal.Margin(18, 14, 18, 14))
-        fill(tile, 1)
+        tile.set_clipping(unreal.WidgetClipping.CLIP_TO_BOUNDS)
+        fill(tile, weight)
         tile.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 12 if idx < 3 else 0, 0))
         col = widget(bp, unreal.VerticalBox, f"PlayerCardStat{idx}Col", tile.get_name())
         lbl = widget(bp, unreal.TextBlock, f"PlayerCardStat{idx}Label", col.get_name())
         text_style(lbl, label, 14, ACCENT, "Bold")
         val = widget(bp, unreal.TextBlock, f"PlayerCardStat{idx}Value", col.get_name())
-        text_style(val, "—", 28, WHITE, "Bold")
+        text_style(val, "—", val_size, WHITE, "Bold")
         val.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
-        gap(val, top=6, bottom=4)
+        gap(val, top=8 if idx == 3 else 6, bottom=4)
         sub = widget(bp, unreal.TextBlock, f"PlayerCardStat{idx}Sub", col.get_name())
         text_style(sub, "", 14, (0.64, 0.78, 0.87, 1.0))
         sub.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)

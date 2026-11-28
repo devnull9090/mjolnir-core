@@ -31,9 +31,12 @@ local formatted = Card.formatStats({
     weapons = { { weapon = "pistol", kills = 112 } },
 })
 check(formatted and formatted[1].value == "20", "matches count formatted")
-check(formatted[2].value == "65%" and formatted[2].sub == "13W · 7L", "win rate & record formatted")
-check(formatted[3].value == "2.00" and formatted[3].sub == "240K · 120D", "K/D formatted")
+check(formatted[2].value == "65%" and formatted[2].sub == "13W / 7L", "win rate & record formatted")
+check(formatted[3].value == "2.00" and formatted[3].sub == "240K / 120D", "K/D formatted")
 check(formatted[4].value == "MAGNUM" and formatted[4].sub == "112 KILLS", "top weapon humanized")
+check(Card.humanWeapon("FragGrenade") == "FRAG GRENADE", "PascalCase FragGrenade humanized")
+check(Card.humanWeapon("MagnumPistol") == "MAGNUM", "PascalCase MagnumPistol humanized")
+check(Card.humanWeapon("RocketLauncher") == "ROCKET LAUNCHER", "PascalCase RocketLauncher humanized")
 
 -- Harness
 local function fakeWidget()

@@ -12,23 +12,32 @@ local M = {}
 local WEAPON_NAMES = {
     pistol = "MAGNUM",
     magnum = "MAGNUM",
+    magnum_pistol = "MAGNUM",
+    marksman_rifle = "DMR",
     assault_rifle = "ASSAULT RIFLE",
+    smg = "SMG",
     shotgun = "SHOTGUN",
     sniper_rifle = "SNIPER RIFLE",
     rocket_launcher = "ROCKET LAUNCHER",
+    flak_cannon = "FUEL ROD",
     plasma_pistol = "PLASMA PISTOL",
     plasma_rifle = "PLASMA RIFLE",
     needler = "NEEDLER",
     plasma_cannon = "FUEL ROD",
+    energy_blade = "ENERGY SWORD",
     frag_grenade = "FRAG GRENADE",
     plasma_grenade = "PLASMA GRENADE",
+    explosion = "EXPLOSION",
     melee = "MELEE",
     warthog = "WARTHOG",
+    warthog_driver = "WARTHOG",
     ghost = "GHOST",
     banshee = "BANSHEE",
+    banshee_bomb = "BANSHEE BOMB",
     scorpion = "SCORPION",
     turret = "TURRET",
     splatter = "SPLATTER",
+    collision_damage = "SPLATTER",
 }
 
 local REASONS = { "cheating", "betraying", "harassment", "griefing", "quitting", "name", "other" }
@@ -48,9 +57,10 @@ end
 
 local function humanWeapon(raw)
     if type(raw) ~= "string" or raw == "" then return "—" end
-    local key = string.lower(raw):gsub("[%s%-]+", "_")
+    local snake = raw:gsub("(%l)(%u)", "%1_%2"):gsub("[%s%-]+", "_")
+    local key = string.lower(snake)
     if WEAPON_NAMES[key] then return WEAPON_NAMES[key] end
-    return string.upper((raw:gsub("_", " ")))
+    return string.upper((snake:gsub("_", " ")))
 end
 
 function M.profileUrl(player)
@@ -103,9 +113,9 @@ function M.formatStats(st)
     return {
         { label = "MATCHES", value = tostring(matches), sub = string.format("%d COMPLETED", completed) },
         { label = "WIN RATE", value = string.format("%d%%", winPct),
-          sub = draws > 0 and string.format("%dW · %dL · %dD", wins, losses, draws)
-              or string.format("%dW · %dL", wins, losses) },
-        { label = "K / D", value = kd, sub = string.format("%dK · %dD", kills, deaths) },
+          sub = draws > 0 and string.format("%dW / %dL / %dD", wins, losses, draws)
+              or string.format("%dW / %dL", wins, losses) },
+        { label = "K / D", value = kd, sub = string.format("%dK / %dD", kills, deaths) },
         { label = fourthLabel, value = fourthVal, sub = fourthSub },
     }
 end
