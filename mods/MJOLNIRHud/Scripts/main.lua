@@ -1240,6 +1240,16 @@ local function animate(t)
     elseif wasShowing then
         setVisible(Feed.Callout, false)
     end
+    if Match.boardOpenAt and boardShown and Board and Board:IsValid() then
+        local bp = math.min(1, math.max(0, (t - Match.boardOpenAt) / 0.12))
+        local e = 1 - (1 - bp) * (1 - bp) * (1 - bp)
+        local sc = 0.972 + 0.028 * e
+        pcall(function()
+            Board.Panel:SetRenderOpacity(e)
+            Board.Panel:SetRenderScale({ X = sc, Y = sc })
+        end)
+        if bp >= 1 then Match.boardOpenAt = nil end
+    end
     local busy = Anim.busy(a, t)
     if not (busy or a.wasBusy) then return end
     a.wasBusy = busy
@@ -1693,6 +1703,53 @@ local function applyFonts(w)
     end
 end
 
+local BOARD_FONT_ROLES = {
+    { "BoardLabel", "Oxanium", "Bold", 140 },
+    { "Title", "Oxanium", "SemiBold", 60 },
+    { "Subtitle", "Oxanium", "Medium", 70 },
+    { "NameH", "Oxanium", "Bold", 110 },
+    { "ScoreH", "Oxanium", "Bold", 110 },
+    { "KillsH", "Oxanium", "Bold", 110 },
+    { "DeathsH", "Oxanium", "Bold", 110 },
+    { "PlayerCount", "Oxanium", "Medium", 80 },
+    { "BoardHint", "Oxanium", "Medium", 80 },
+    { "Marker", "Oxanium", "Bold", 90, 20 },
+    { "Name", "NormativePro", "Medium", 0, 20 },
+    { "Score", "Oxanium", "SemiBold", 25, 20 },
+    { "Kills", "Oxanium", "Regular", 20, 20 },
+    { "Deaths", "Oxanium", "Regular", 20, 20 },
+}
+
+local function applyBoardFonts(w)
+    local fonts = {}
+    for _, role in ipairs(BOARD_FONT_ROLES) do
+        local name, family, face, spacing, count = role[1], role[2], role[3], role[4], role[5]
+        if fonts[family] == nil then fonts[family] = Icons.font(family) or false end
+        local font = fonts[family]
+        if font then
+            if count then
+                for i = 0, count - 1 do
+                    local block = w[name .. i]
+                    pcall(function()
+                        local size = block.Font.Size
+                        if type(size) ~= "number" then return end
+                        block:SetFont({ FontObject = font, TypefaceFontName = FName(face), Size = size,
+                            LetterSpacing = spacing, SkewAmount = 0, OutlineSettings = { OutlineSize = 0 } })
+                    end)
+                end
+            else
+                local block = w[name]
+                pcall(function()
+                    local size = block.Font.Size
+                    if type(size) ~= "number" then return end
+                    block:SetFont({ FontObject = font, TypefaceFontName = FName(face), Size = size,
+                        LetterSpacing = spacing, SkewAmount = 0, OutlineSettings = { OutlineSize = 0 } })
+                end)
+            end
+        end
+    end
+end
+
 local function ensureWidgets()
     if Feed and Feed:IsValid() and Board and Board:IsValid() then return end
     if now() < nextWidgetTry then return end
@@ -1722,6 +1779,7 @@ local function ensureWidgets()
         Board = createWidget(BOARD_CLASS, 45)
         -- A new board is filled from the model, as the feed is.
         if Board then
+            applyBoardFonts(Board)
             setVisible(Board, false)
             boardDirty = true
         end
@@ -2054,7 +2112,10 @@ local function tick()
     end
     if held ~= boardShown then
         boardShown = held
-        if held then boardDirty = true end
+        if held then
+            boardDirty = true
+            Match.boardOpenAt = now()
+        end
         setVisible(Board, held and not HudHidden)
         if Feed and Feed:IsValid() then setVisible(Feed.MatchScore, not held and Match.variant ~= "forge") end
     end

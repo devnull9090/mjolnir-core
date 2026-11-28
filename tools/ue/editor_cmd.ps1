@@ -19,7 +19,10 @@ $renderArgs = if ($AllowRendering) { " -AllowCommandletRendering" } else { "" }
 # The stock renderer cannot execute Halo's fork buffer layouts. GPU-only bake
 # passes opt out; ordinary authoring and all shipping cook invocations keep them.
 if ($StockRenderer) { $renderArgs += " -DisablePlugins=MjolnirForkLayouts" }
-$cmd = "/c `"`"$exe`" `"$project\Meteorite.uproject`" -run=pythonscript -script=`"$Script`"$renderArgs -unattended -nop4 -nosplash -stdout -FullStdOutLogOutput > `"$log`" 2>&1`""
+# -AllowCommandletAudio lets FAudioDeviceManager register AudioInfoModules
+# (Bink/ADPCM decoders) in headless commandlets so WAV imports (build_mjolnir_ui.py,
+# build_ce_sounds.py) do not trip SoundWave.cpp's missing-decoder ensure.
+$cmd = "/c `"`"$exe`" `"$project\Meteorite.uproject`" -run=pythonscript -script=`"$Script`"$renderArgs -AllowCommandletAudio -unattended -nop4 -nosplash -stdout -FullStdOutLogOutput > `"$log`" 2>&1`""
 # One Unreal process on the project at a time: conversions may run side by
 # side (their staging, collision, lightmaps and bakes are their own), but the
 # editor imports and the cook share unreal/MJOLNIRMaterials and its staging

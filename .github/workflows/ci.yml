@@ -54,6 +54,8 @@ jobs:
       - name: Test multiplayer HUD and team presentation
         run: |
           lua5.4 tools/tests/test_multiplayer_ui.lua
+          lua5.4 tools/tests/test_ui_polish.lua
+          lua5.4 tools/tests/test_player_card.lua
           lua5.4 tools/tests/test_flycam_shots.lua
           lua5.4 tools/tests/test_lobby_startup.lua
           lua5.4 tools/tests/test_hill_marker.lua

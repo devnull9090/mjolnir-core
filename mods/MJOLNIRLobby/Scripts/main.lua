@@ -36,6 +36,13 @@ end
 local MOD_DIR = modDirectory()
 local Json = dofile(MOD_DIR .. "\\Scripts\\json.lua")
 local UI = dofile(MOD_DIR .. "\\Scripts\\ui.lua")
+UI.polish = (function(m)
+    return m and m.new and m.new({
+        valid = UI.valid,
+        playerController = UI.playerController,
+        log = UI.log,
+    }) or {}
+end)(dofile(MOD_DIR .. "\\Scripts\\ui_polish.lua"))
 local Net = dofile(MOD_DIR .. "\\Scripts\\net.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local SquadPanel = dofile(MOD_DIR .. "\\Scripts\\squadpanel.lua")
@@ -682,6 +689,7 @@ local function pushScreen(classPath)
     setText(screen.Watermark, BuildLine.text(MODS_DIR))
     -- The emblem opens the site (Pick.openSite); it is cooked unclickable.
     pcall(function() screen.LogoButton:SetVisibility(0) end)
+    UI.polish.adopt(screen, classPath)
     return screen
 end
 
@@ -1147,6 +1155,7 @@ local function hook()
         local okE, event = pcall(function() return name:get():ToString() end)
         if not okE then return end
         ExecuteInGameThread(function()
+            if UI.polish.onEvent(Dl.screen, event, "download") then return end
             local handler = EVENTS[event]
             if handler then
                 local ok, err = pcall(handler)
@@ -1443,7 +1452,8 @@ local function drawLobby()
     local teams = mode and mode.teams
     setText(Lobby.PlayersHeading, "PLAYERS  /  " .. tostring(#roster))
     setText(Lobby.MatchFormat, Pick.format(mode))
-    setText(Lobby.TeamHint, teams and "Teams are assigned by the game when the match starts." or "Every Spartan for themselves.")
+    setText(Lobby.TeamHint, (teams and "Teams are assigned by the game when the match starts." or "Every Spartan for themselves.")
+        .. "  Right-click a player for profile.")
     -- A fireteam client sees the host's choice; only the host changes it or
     -- starts the game.
     local host = Net.isHost()
@@ -1503,13 +1513,27 @@ local function drawLobby()
     end
     if status ~= "" and status ~= listingStatus then setText(Lobby.Status, status) end
     listingStatus = status
+    local okMine, mineName = pcall(function()
+        local pc = UI.playerController()
+        return UI.valid(pc) and pc.PlayerState:GetPlayerName():ToString() or nil
+    end)
+    local mine = okMine and mineName or nil
+    local cardSlots = {}
     for _, group in ipairs({ "FFA", "Red", "Blue", "Unassigned" }) do
         local members = {}
         for _, player in ipairs(roster) do
             if (not teams and group == "FFA") or (teams and player.team == group) then
                 -- The hub account, once known (docs/player_identity.md).
                 local hub = Identity.lookup(player.name)
-                members[#members + 1] = { name = hub and hub.name or player.name, id = hub and hub.id }
+                local isLocal = mine ~= nil and player.name == mine
+                members[#members + 1] = {
+                    name = hub and hub.name or player.name,
+                    rawName = player.name,
+                    id = hub and hub.id,
+                    reports = hub and hub.reports or 0,
+                    isLocal = isLocal,
+                    isHost = host and isLocal,
+                }
             end
         end
         setShown(Lobby[group .. "Roster"], (group == "FFA" and not teams) or
@@ -1519,6 +1543,17 @@ local function drawLobby()
         setText(Lobby[group .. "Heading"], title .. "  /  " .. tostring(#members))
         for i = 0, ROSTER_ROWS - 1 do
             local member = members[i + 1]
+            if member then
+                cardSlots[group .. ":" .. i] = {
+                    name = member.rawName,
+                    hubName = member.name,
+                    userId = member.id,
+                    reports = member.reports,
+                    group = group,
+                    isLocal = member.isLocal,
+                    isHost = member.isHost,
+                }
+            end
             setText(Lobby[group .. "Player" .. i], member and member.name or "")
             setShown(Lobby[group .. "Player" .. i], member ~= nil)
             -- A UI container with hub avatars has a row around the name: it
@@ -1529,6 +1564,9 @@ local function drawLobby()
                 Report.showAvatar(Lobby[group .. "PlayerAvatar" .. i], member and member.id)
             end
         end
+    end
+    if Pick.playerCard and Pick.playerCard.setRoster then
+        Pick.playerCard.setRoster(cardSlots)
     end
 end
 
@@ -2693,8 +2731,8 @@ end
 -- on the right. Every change is saved at once and reaches the fireteam with
 -- the next lobby message.
 
-local SELECTED_PAGE = { R = 0.12, G = 0.32, B = 0.43, A = 0.85 }
-local NORMAL_PAGE = { R = 0.025, G = 0.06, B = 0.09, A = 0.28 }
+local SELECTED_PAGE = { R = 3.2, G = 4.2, B = 4.8, A = 1 }
+local NORMAL_PAGE = { R = 1, G = 1, B = 1, A = 1 }
 
 local function settingsOptions()
     return Settings.page(Tweak.page, Game.mode and Game.mode.id)
@@ -2709,8 +2747,14 @@ local function drawSettings()
         local name = Settings.PAGES[i + 1]
         setShown(s["Page" .. i], name ~= nil)
         if name then
+            local active = i + 1 == Tweak.page
             setText(s["Page" .. i .. "Label"], name)
-            pcall(function() s["Page" .. i]:SetBackgroundColor(i + 1 == Tweak.page and SELECTED_PAGE or NORMAL_PAGE) end)
+            pcall(function() s["Page" .. i]:SetBackgroundColor(active and SELECTED_PAGE or NORMAL_PAGE) end)
+            pcall(function()
+                s["Page" .. i .. "Label"]:SetColorAndOpacity({
+                    SpecifiedColor = active and Pick.GOLD or WHITE, ColorUseRule = 0 })
+            end)
+            pcall(function() s["Page" .. i .. "Mark"]:SetVisibility(active and 3 or 2) end)
         end
     end
     local options = settingsOptions()
@@ -2783,6 +2827,13 @@ end
 
 --- One event from a screen: "start", "map:3", "hover:3", "mode:1" ...
 local function onScreenEvent(isLobby, event, source)
+    local activeScreen = (isLobby == true and Lobby) or (isLobby == false and Select)
+        or (isLobby == "find" and Find) or (isLobby == "settings" and Tweak.screen)
+        or (isLobby == "gametype" and source) or nil
+    local screenKind = (isLobby == true and "lobby") or (isLobby == false and "mapselect")
+        or (isLobby == "find" and "findgames") or (isLobby == "settings" and "settings")
+        or (isLobby == "gametype" and "gametype") or nil
+    if UI.polish.onEvent(activeScreen, event, screenKind) then return end
     if event == "logo" then
         local screens = { [true] = { Lobby, "lobby" }, [false] = { Select, "map-select" },
             find = { Find, "find-games" }, settings = { Tweak.screen, "game-settings" },
@@ -2794,6 +2845,9 @@ local function onScreenEvent(isLobby, event, source)
     if isLobby == "gametype" then return Pick.gameType.onEvent(event, source) end
     if isLobby == "find" then return onFindEvent(event) end
     if isLobby == "settings" then return onSettingsEvent(event) end
+    if isLobby == true and Pick.playerCard and Pick.playerCard.onEvent and Pick.playerCard.onEvent(event) then
+        return
+    end
     local verb, index = event:match("^(%a+):(%d+)$")
     if verb then
         local i = tonumber(index) + 1
@@ -2893,6 +2947,11 @@ local function adoptLobby(screen)
     hookScreenEvents()
     setText(Lobby.Watermark, BuildLine.text(MODS_DIR))
     pcall(function() Lobby.LogoButton:SetVisibility(0) end)
+    UI.polish.adopt(Lobby, LOBBY_CLASS)
+    if Pick.playerCard then
+        if Pick.playerCard.armRightClick then Pick.playerCard.armRightClick() end
+        if Pick.playerCard.close then Pick.playerCard.close() end
+    end
     -- The cooked footer warns, in gold, that the mods are not running; the
     -- status lines below replace it, in the footer's usual grey.
     pcall(function()
@@ -3634,6 +3693,10 @@ local function drawVote()
                 Post.voteBar = width
                 pcall(function() s.VoteBarFillSize:SetWidthOverride(width) end)
             end
+            UI.polish.trackVote(s, { active = true, left = left, leftAt = os.clock(),
+                total = VOTE_SECONDS, held = v.held == true, barWidth = BAR })
+        else
+            UI.polish.trackVote(s, nil)
         end
         Post.voteCountdown = countdown
     end
@@ -3778,6 +3841,7 @@ function Report.draw()
     local s, rep_ = Post.screen, Post.report
     local panel = s.Report
     if not UI.valid(panel) then return end
+    setShown(s.ReportBackdrop, rep_ ~= nil)
     setShown(panel, rep_ ~= nil)
     if not rep_ then return end
     local p = rep_.player
@@ -3893,6 +3957,7 @@ local function hookPostGame()
             if not okE then return end
             ExecuteInGameThread(function()
                 local okH, err = pcall(function()
+                    if UI.polish.onEvent(Post and Post.screen, event, "postgame") then return end
                     local v = Post and Post.vote
                     local index = tonumber(event:match("^vote:(%d+)$") or "")
                     if event == "logo" then
@@ -4533,6 +4598,36 @@ local function kick(player, why, code)
     log(string.format("host: %s %s (%s)", ok and "sent back" or "could not send back", player.name, why))
     return ok
 end
+
+Pick.playerCard = (function(m)
+    return m and m.new and m.new({
+        valid = UI.valid,
+        alive = alive,
+        log = log,
+        getLobby = function() return Lobby end,
+        isHost = Net.isHost,
+        showAvatar = Report.showAvatar,
+        launchUrl = Pick.launch,
+        hubCall = Games.call,
+        explain = Games.explain,
+        remotePlayers = remotePlayers,
+        kick = kick,
+        ban = function(player, rp)
+            if not (player and player.name) then return false end
+            loadBans()[string.lower(player.name)] = { name = player.name, at = os.time() }
+            saveBans()
+            if rp then return kick(rp, "You were banned by the host.") end
+            return true
+        end,
+        delay = ExecuteInGameThreadWithDelay,
+        onOpenCard = function(widget)
+            if UI.polish and UI.polish.previewPop then UI.polish.previewPop(widget) end
+        end,
+        onRightClickOpen = function()
+            if UI.polish and UI.polish.sound then UI.polish.sound("Open") end
+        end,
+    }) or nil
+end)(dofile(MOD_DIR .. "\\Scripts\\player_card.lua"))
 
 --- The host, starting `code`: send every guest without it back to their own
 --- menu (Live.lacking and those still deciding or downloading), since one
