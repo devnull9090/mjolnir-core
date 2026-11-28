@@ -136,4 +136,50 @@ none, why = VariantSettings.apply(withSection(default, 17), {})
 assert(none == nil and why:find("too many"), "more trait sets than the store holds are refused")
 eq(HudVariant.scoreToWin(withSection(default, 17)), nil, "the HUD keeps its default")
 
-print("Variant settings: patched Slayer, CTF, Team King, Juggernaut, Stalker, Reverse Tag and Race match the Rust writer; bad settings are refused; script traits are stepped over")
+-- A map's starting kit (the level's starting_equipment): the traits of the
+-- first entry that lists the game's family, written into the variant.
+do
+    local kits = {
+        { families = { "ctf" }, weapons = { "assault_rifle", "magnum" }, frag_grenades = 2, plasma_grenades = 0,
+            profile = false, traits = { primary_weapon = 0, secondary_weapon = 3, grenades = 4 } },
+        { families = { "king", "oddball", "race", "slayer" }, weapons = { "plasma_pistol" }, frag_grenades = 0,
+            plasma_grenades = 0, profile = true,
+            traits = { primary_weapon = 254, secondary_weapon = 254, grenades = 1 } },
+    }
+    local base = read(dir .. "slayer_default.mglo")
+    eq(VariantSettings.get(base, "trait.primary_weapon"), 0, "a shipped variant names the first weapon")
+    local kit, entry = VariantSettings.kitSettings(kits, "slayer")
+    eq(entry, kits[2], "slayer takes the second kit")
+    local patched = assert(VariantSettings.apply(base, kit))
+    eq(#patched, #base, "kit length")
+    eq(VariantSettings.get(patched, "trait.primary_weapon"), 254, "the map's primary")
+    eq(VariantSettings.get(patched, "trait.secondary_weapon"), 254, "the map's secondary")
+    eq(VariantSettings.get(patched, "trait.grenades"), 1, "the map's grenades")
+    eq(VariantSettings.get(patched, "score"), VariantSettings.get(base, "score"), "the score is left alone")
+    local ctf = assert(VariantSettings.apply(read(dir .. "ctf_default.mglo"), VariantSettings.kitSettings(kits, "ctf")))
+    eq(VariantSettings.get(ctf, "trait.primary_weapon"), 0, "CTF's assault rifle")
+    eq(VariantSettings.get(ctf, "trait.secondary_weapon"), 3, "CTF's pistol")
+    eq(VariantSettings.get(ctf, "trait.grenades"), 4, "CTF's two frags")
+    -- A host's own setting, applied after the kit, wins.
+    local hosted = assert(VariantSettings.apply(patched, { ["trait.grenades"] = 2 }))
+    eq(VariantSettings.get(hosted, "trait.grenades"), 2, "the host's grenades")
+    eq(VariantSettings.get(hosted, "trait.primary_weapon"), 254, "the kit's weapon under a host setting")
+    -- GENERIC starting equipment: the level's one generic kit, read the same
+    -- way, and the host's `kit` key is not a field of the variant.
+    local generic, which = VariantSettings.kitTraits({ weapons = { "assault_rifle", "magnum" }, frag_grenades = 2,
+        plasma_grenades = 0, traits = { primary_weapon = 0, secondary_weapon = 3, grenades = 4 } })
+    eq(which.weapons[2], "magnum", "the generic kit comes back with its traits")
+    local pro = assert(VariantSettings.apply(patched, generic))
+    eq(VariantSettings.get(pro, "trait.primary_weapon"), 0, "generic assault rifle over the map's kit")
+    eq(VariantSettings.get(pro, "trait.secondary_weapon"), 3, "generic pistol")
+    eq(VariantSettings.get(pro, "trait.grenades"), 4, "generic grenades")
+    eq(VariantSettings.kitTraits(nil), nil, "a level without a generic kit")
+    eq(VariantSettings.forMode({ kit = 1, time_limit = 5 }, "slayer").kit, nil, "kit is not a variant field")
+    eq(VariantSettings.forMode({ kit = 1, time_limit = 5 }, "slayer").time_limit, 5, "the other settings stay")
+    -- No kit for the family, or no kits at all: nothing to write.
+    eq(VariantSettings.kitSettings(kits, "juggernaut"), nil, "no kit for juggernaut")
+    eq(VariantSettings.kitSettings(nil, "slayer"), nil, "a map without kits")
+    eq(VariantSettings.kitSettings({ { families = { "slayer" } } }, "slayer"), nil, "a kit without traits")
+end
+
+print("Variant settings: patched Slayer, CTF, Team King, Juggernaut, Stalker, Reverse Tag and Race match the Rust writer; bad settings are refused; script traits are stepped over; a map's starting kit is written by family")

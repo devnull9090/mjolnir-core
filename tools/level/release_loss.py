@@ -19,6 +19,9 @@ is named. The kinds:
   among them (`koth_hill`), and a team a label's objects stand on (health
   pack spots on the eighth team);
 - a vehicle's own tag;
+- a type of weapon or pickup placed (`battle_rifle`: a rebuild through a
+  stale tag map turns a map's battle rifles back into assault rifles), and
+  pickups placed in some game types only;
 - a file under `map/` (`map/vehicle_sounds.json`), or a folder of them;
 - a family of containers: `MJOLNIRMACH`, `MJOLNIRVMESH`, ... (a container's
   name less its chunk number and the map's code).
@@ -77,6 +80,13 @@ def kinds(names, level):
     for v in blam.get("vehicles") or []:
         if v.get("tag"):
             out[("vehicle", v["tag"])] = f"the vehicle {v['tag']}"
+    for lane, what in (("weapons", "weapon"), ("equipment", "pickup")):
+        for row in blam.get(lane) or []:
+            kind = row.get("type") or row.get("tag")
+            if kind:
+                out[(lane, kind)] = f"the {what} {kind}"
+            if (row.get("set") or {}).get(LABEL):
+                out[("limited", lane)] = f"{lane} placed in some game types only"
     for name in names:
         entry = map_entry(name)
         if entry:

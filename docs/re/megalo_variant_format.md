@@ -389,7 +389,7 @@ names are ReachVariantTool's; 0 is "unchanged" throughout.
 | | shield vampirism | u3 | | 1 0%, 2 10%, 3 25%, 4 50%, 5 100% |
 | | assassination immunity, cannot die from damage | u2, u2 | | 1 off, 2 on |
 | offense | damage multiplier, melee damage multiplier | u4, u4 | | 1 0%, 2 25%, 3 50%, 4 75%, 5 90%, 6 100%, 7 110%, 8 125%, 9 150%, 10 200%, 11 300%, 12 instant kill |
-| | primary weapon, secondary weapon | s8, s8 | outside -4..63 becomes -3 | -4 weighted random, -3 unchanged, -2 the scenario's starting profile, -1 none, 0.. an index into the object type list's `weapons` collection |
+| | primary weapon, secondary weapon | s8, s8 | outside -4..63 becomes -3 | -4 weighted random, -3 unchanged, -2 the scenario's starting profile (profile 0 under the Megalo engine; verified in game 2026-11-28, megalo_engine.md "What a player spawns holding"), -1 none, 0.. an index into the object type list's `weapons` collection |
 | | grenade count | u4 | above 14 becomes 1 | 1 map default, 2 none, 3-6 frag 1-4, 7-10 plasma 1-4, 11-14 each 1-4 |
 | | infinite ammo | u2 | | 1 off, 2 on, 3 bottomless |
 | | grenade regeneration, weapon pickup | u2, u2 | above 2 becomes 1 / 2 | 1 off, 2 on |

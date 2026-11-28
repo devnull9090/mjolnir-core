@@ -127,9 +127,12 @@ pub fn sanitize(name: &str) -> String {
     out.trim_matches('_').to_string()
 }
 
-/// Halo 2's game type enum (player starts, netgame equipment) in the names
-/// halo2ue gives CE's, and Halo 2's own (Headhunter, Juggernaut,
-/// Territories) in names of their own.
+/// Halo 2's game type enum (player starts, netgame equipment, starting
+/// equipment) in the names halo2ue gives CE's, and Halo 2's own
+/// (Headhunter, Juggernaut, Territories, Assault) in names of their own.
+/// The engine reads a slot of 1 or 9 as both CTF and Assault, 12 as every
+/// game, and 13 and 14 alike as every game but those two (halo2.dll
+/// 0x698ff0).
 fn game_type(v: i16) -> String {
     match v {
         0 => "None".into(),
@@ -141,6 +144,7 @@ fn game_type(v: i16) -> String {
         6 => "Headhunter".into(),
         7 => "Juggernaut".into(),
         8 => "Territories".into(),
+        9 => "Assault".into(),
         12 => "AllGames".into(),
         13 => "AllGamesExceptCtf".into(),
         14 => "AllGamesExceptCtfAndRace".into(),
@@ -387,11 +391,69 @@ fn summary_materials(meta: &Value) -> usize {
 }
 
 /// The item an item collection spawns: its heaviest permutation (16-byte
-/// elements: f32 weight, item tag ref, variant string id).
+/// elements: f32 weight, item tag ref, variant string id). Halo 2 spawns a
+/// collection of one permutation as that item and draws from a longer one
+/// by weight at every spawn (halo2.dll 0x6ab640); the game places one object
+/// per placement, so the likeliest stands in and `collection_permutations`
+/// carries the rest.
 fn collection_item<'a>(cache: &'a Cache, collection: &Tag<'a>, notes: &mut Vec<String>) -> Option<Tag<'a>> {
     let perms = collection.root.block(0x00, 0x10);
     let best = perms.iter().max_by(|a, b| a.f32(0).total_cmp(&b.f32(0)))?;
     follow(cache, best, 0x04, notes)
+}
+
+/// Every permutation of an item or vehicle collection: its object, weight
+/// and (a vehicle's) model variant.
+fn collection_permutations(cache: &Cache, collection: &Tag<'_>, notes: &mut Vec<String>) -> Vec<Value> {
+    collection
+        .root
+        .block(0x00, 0x10)
+        .iter()
+        .filter_map(|p| {
+            let item = follow(cache, p, 0x04, notes)?;
+            let mut v = json!({"asset": item.name(), "tag_class": item.group().name(), "weight": p.f32(0x00)});
+            let variant = collection.file.string(p.u32(0x0C));
+            if !variant.is_empty() {
+                v["variant"] = json!(variant);
+            }
+            Some(v)
+        })
+        .collect()
+}
+
+/// The scenario's starting equipment (+0x128, 0x9C each): what a player
+/// spawns holding, by game type. An entry is its flags (bit 0 no starting
+/// grenades, bit 1 the starting grenades are plasma), four game type slots
+/// (+0x04) and up to six item collections (+0x3C, 8 bytes apart). A player
+/// takes the first entry whose game types include the game's; its primary
+/// weapon is the first collection's and its secondary the next collection
+/// that gives a different weapon, and the game variant's own weapon
+/// settings may replace either (halo2.dll 0x6aa460). The grenades are two
+/// fragmentation grenades before the flags apply (0x68ab10). Every entry is
+/// staged, in the scenario's order, with each collection's permutations.
+fn starting_equipment(cache: &Cache, root: Struct<'_>, notes: &mut Vec<String>) -> Vec<Value> {
+    root.block(0x128, 0x9C)
+        .iter()
+        .map(|e| {
+            let flags = e.u32(0x00);
+            let collections: Vec<Value> = (0..6)
+                .filter_map(|k| {
+                    let collection = follow(cache, e, 0x3C + 8 * k, notes)?;
+                    Some(json!({
+                        "item_collection": collection.name(),
+                        "items": collection_permutations(cache, &collection, notes),
+                    }))
+                })
+                .collect();
+            json!({
+                "game_types": (0..4).map(|k| game_type(e.i16(0x04 + 2 * k))).collect::<Vec<_>>(),
+                "flags": flags,
+                "no_grenades": flags & 1 != 0,
+                "plasma_grenades": flags & 2 != 0,
+                "item_collections": collections,
+            })
+        })
+        .collect()
 }
 
 /// placement.json: player starts, netgame flags, netgame equipment (as
@@ -429,12 +491,29 @@ fn placements<'c>(
         ctf.iter().min_by(|a, b| d(a.1).total_cmp(&d(b.1))).map_or(own, |f| f.0)
     };
 
+    // Netgame equipment (+0x120, 0x90 each): flags (bit 0 levitate, bit 1
+    // destroy the old object when a new one spawns), four game type slots
+    // (+0x04), spawn time in seconds (+0x0E: 0 takes the collection's own
+    // at +0x08, and 0 there takes 30; a negative time never spawns again),
+    // respawn on empty time (+0x10: a vehicle left unmanned away from its
+    // spot this many seconds is replaced), what starts the respawn timer
+    // (+0x12: 0 the item being picked up or moved, 1 the object being
+    // gone), a classification the game variant's vehicle and weapon
+    // settings key on (+0x14: 0 weapon, 1-7 vehicle classes, 8 grenade, 9
+    // powerup), position (+0x40), rotation (+0x4C) and the item or vehicle
+    // collection (+0x58). halo2.dll 0x699a30 runs them, 0x68a7b0 spawns one.
     for e in root.block(0x120, 0x90).iter() {
         let Some(collection) = follow(cache, e, 0x58, &mut notes) else { continue };
         let game_types: Vec<String> = (0..4).map(|k| game_type(e.i16(0x04 + 2 * k))).collect();
         let (pos, rot) = (e.vec3(0x40), e.vec3(0x4C));
         let flags = e.u32(0x00);
         let Some(item) = collection_item(cache, &collection, &mut notes) else { continue };
+        let permutations = collection_permutations(cache, &collection, &mut notes);
+        let timer_starts = match e.i16(0x12) {
+            0 => "OnPickUp".to_string(),
+            1 => "OnBodyDepletion".to_string(),
+            n => format!("Unknown({n})"),
+        };
         if collection.group() == Group::new(b"vehc") {
             // CE's vehicle spawn flags: bits 0-3 default in Slayer, CTF,
             // King and Oddball, bits 8-11 allowed there.
@@ -456,6 +535,11 @@ fn placements<'c>(
                 "pos": pos, "rot": rot,
                 "team": side(pos, e.i16(0x0C)), "h2_team": e.i16(0x0C), "spawn_flags": mask | mask << 8,
                 "spawn_time": e.i16(0x0E), "game_types": game_types,
+                "collection_spawn_time": collection.root.i16(0x08),
+                "respawn_on_empty_time": e.i16(0x10), "respawn_timer_starts": timer_starts,
+                "destroy_existing": flags & 2 != 0,
+                "classification": e.u8(0x14),
+                "collection_permutations": permutations,
             }));
             count(summary, "vehicle");
         } else {
@@ -469,8 +553,11 @@ fn placements<'c>(
                 "team": e.i16(0x0C), "levitate": flags & 1 != 0,
                 "spawn_time": e.i16(0x0E),
                 "collection_spawn_time": collection.root.i16(0x08),
+                "respawn_timer_starts": timer_starts,
+                "destroy_existing": flags & 2 != 0,
                 "classification": e.u8(0x14),
                 "game_types": game_types,
+                "collection_permutations": permutations,
             }));
             count(summary, "netgame_equipment");
         }
@@ -788,12 +875,15 @@ fn placements<'c>(
     if !lifts.is_empty() {
         notes.push(format!("{} lift(s)", lifts.len()));
     }
+    let starting = starting_equipment(cache, root, &mut notes);
+    notes.push(format!("{} starting equipment entr{}", starting.len(), if starting.len() == 1 { "y" } else { "ies" }));
     summary.notes.extend(notes);
     Ok(json!({
         "world_unit_meters": 3.048,
         "rotation_convention": "halo_yaw_pitch_roll_radians",
         "entries": entries,
         "player_starts": player_starts,
+        "starting_equipment": starting,
         "netgame_flags": netgame_flags,
         "decals": decals,
         "lifts": lifts,

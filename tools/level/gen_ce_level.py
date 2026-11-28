@@ -285,6 +285,167 @@ OCEAN_MAPS = {
 # at every CE start, owned by the neutral team, which any player may use.
 SPAWN_SCENERY = r"objects\multi\spawning\player_spawn"
 
+# Netgame equipment and starting equipment list game types the way starts
+# do, and the engines read the list alike for both (Halo 2: halo2.dll
+# 0x698ff0). Halo 2 counts Assault as CTF, reads "all except CTF and race"
+# as "all except CTF" (it has no Race), and never spawns an entry that lists
+# no game type; a start that lists none serves every game (start_families).
+ITEM_FAMILIES = {**START_FAMILIES, "Assault": (CTF_FAMILY,)}
+
+# The starting grenades before an entry's flags apply: Halo 2 hands out two
+# fragmentation grenades (halo2.dll 0x68ab10) and CE the globals' multiplayer
+# spawn defaults, which the staging carries when it has them.
+STARTING_GRENADES = (2, 0)
+# The player traits' grenade count (docs/re/megalo_variant_format.md): 1 the
+# map's default, 2 none, 3-6 one to four fragmentation, 7-10 plasma, 11-14
+# of each.
+TRAIT_GRENADES_MAP_DEFAULT, TRAIT_GRENADES_NONE = 1, 2
+# A signed weapon trait as its byte: -2 the scenario's starting profile, -1
+# no weapon.
+TRAIT_WEAPON_MAP_DEFAULT, TRAIT_WEAPON_NONE = 0xFE, 0xFF
+
+
+def all_families(halo2):
+    return {CTF_FAMILY, *(H2_NONCTF_FAMILIES if halo2 else NONCTF_FAMILIES)}
+
+
+def item_families(game_types, halo2):
+    """The families a netgame equipment placement or a starting equipment
+    entry is in, from the game types it lists."""
+    nonctf = set(H2_NONCTF_FAMILIES if halo2 else NONCTF_FAMILIES)
+    out = set()
+    for g in game_types or ():
+        if g == "AllGames":
+            out |= {CTF_FAMILY, *nonctf}
+        elif g == "AllGamesExceptCtf":
+            out |= nonctf
+        elif g == "AllGamesExceptCtfAndRace":
+            out |= nonctf if halo2 else nonctf - {"race"}
+        else:
+            out |= set(ITEM_FAMILIES.get(g, ()))
+    return out & all_families(halo2)
+
+
+def set_label(sets, families):
+    """The label of the object set that exactly `families` play with: one
+    `spawn_set_<k>` per distinct set of families, shared by the spawn points
+    and the pickups (`sets` maps a frozenset of families to its label)."""
+    key = frozenset(families)
+    if key not in sets:
+        sets[key] = SPAWN_SET_LABEL.format(len(sets))
+    return sets[key]
+
+
+def grenade_trait(frag, plasma):
+    """The player traits' grenade count for `frag` fragmentation and `plasma`
+    plasma grenades. The trait counts one to four of one kind, or the same
+    number of both; unequal counts of both take the larger for each."""
+    frag, plasma = min(frag, 4), min(plasma, 4)
+    if frag <= 0 and plasma <= 0:
+        return TRAIT_GRENADES_NONE
+    if plasma <= 0:
+        return 2 + frag
+    if frag <= 0:
+        return 6 + plasma
+    return 10 + max(frag, plasma)
+
+
+def explicit_traits(kit, trait_weapons):
+    """The base player traits that name `kit`'s weapons by their place in
+    the game's multiplayer weapon list and its grenades by the trait's own
+    count."""
+    missing = [w for w in kit["weapons"] if w not in trait_weapons]
+    if missing:
+        raise SystemExit(f"starting equipment: {', '.join(missing)} not in the game's multiplayer weapon list "
+                         "(defs/level/palette-map.json trait_weapons)")
+    slots = [trait_weapons.index(w) for w in kit["weapons"]] + [TRAIT_WEAPON_NONE, TRAIT_WEAPON_NONE]
+    return {"primary_weapon": slots[0], "secondary_weapon": slots[1],
+            "grenades": grenade_trait(kit["frag_grenades"], kit["plasma_grenades"])}
+
+
+def generic_kit(weapons, resolve, trait_weapons, grenades):
+    """The level's `generic_equipment`: CE's "generic" starting equipment,
+    which its Pro game types use on every map. A generic variant skips the
+    scenario's entries and the player keeps what the multiplayer biped's tag
+    carries (`weapons`, staged by ce_starting_equipment.py) with the globals'
+    grenades. A host chooses it in GAME SETTINGS; the loader then writes
+    `traits` in place of the map kit's. None when the staging names no such
+    weapons (Halo 2 has no generic kit)."""
+    carried = []
+    for w in weapons or ():
+        kind = resolve("weapons", norm(w["asset"]))
+        if kind and kind not in carried:
+            carried.append(kind)
+    if not carried:
+        return None
+    kit = {"weapons": carried[:2], "frag_grenades": grenades[0], "plasma_grenades": grenades[1]}
+    kit["traits"] = explicit_traits(kit, trait_weapons)
+    return kit
+
+
+def starting_kits(entries, halo2, resolve, trait_weapons, grenades=STARTING_GRENADES, fallback=None):
+    """The level's `starting_equipment` from the staged scenario entries: what
+    a player spawns holding in each family of game types (docs/
+    ce_map_conversion.md, "Starting equipment").
+
+    An entry gives its first collection's weapon and the next collection's
+    that is a different weapon; a collection of several permutations gives
+    its likeliest. Its grenades are `grenades` (fragmentation, plasma) unless
+    its flags say none, or plasma in place of fragmentation. A game takes the
+    first entry that lists its game type, so each family keeps only the first
+    entry naming it. The entry most families take is the one the bake writes
+    into the scenario's starting profile (`profile`), and its `traits` tell
+    the variant to use the map's profile; every other entry's `traits` name
+    its weapons by their place in the game's multiplayer weapon list
+    (`trait_weapons`) and its grenades by the trait's own count. `fallback`
+    is what CE hands out in a game no entry lists (the first and fifth of
+    its globals' weapons): the families left over take it. Halo 2 has no
+    such rule, and every map of its own lists every game."""
+    kits, taken = [], set()
+    for e in entries or ():
+        families = item_families(e.get("game_types"), halo2) - taken
+        if not families:
+            continue
+        taken |= families
+        weapons = []
+        for c in e.get("item_collections") or ():
+            items = c.get("items") or []
+            if not items:
+                continue
+            best = max(items, key=lambda i: i.get("weight", 0.0))
+            kind = resolve("weapons", norm(best["asset"]))
+            if kind and kind not in weapons:
+                weapons.append(kind)
+        weapons = weapons[:2]
+        frag, plasma = grenades
+        if e.get("no_grenades"):
+            frag, plasma = 0, 0
+        if e.get("plasma_grenades"):
+            frag, plasma = 0, plasma + frag
+        kits.append({"families": sorted(families), "weapons": weapons,
+                     "frag_grenades": frag, "plasma_grenades": plasma})
+    left = all_families(halo2) - taken
+    if fallback and left:
+        weapons = []
+        for w in fallback:
+            kind = resolve("weapons", norm(w["asset"]))
+            if kind and kind not in weapons:
+                weapons.append(kind)
+        kits.append({"families": sorted(left), "weapons": weapons[:2],
+                     "frag_grenades": grenades[0], "plasma_grenades": grenades[1]})
+    if not kits:
+        return []
+    # The profile kit: the one most families take, the earliest on a tie.
+    profile = max(range(len(kits)), key=lambda i: (len(kits[i]["families"]), "slayer" in kits[i]["families"], -i))
+    for i, kit in enumerate(kits):
+        kit["profile"] = i == profile
+        if kit["profile"]:
+            kit["traits"] = {"primary_weapon": TRAIT_WEAPON_MAP_DEFAULT, "secondary_weapon": TRAIT_WEAPON_MAP_DEFAULT,
+                             "grenades": TRAIT_GRENADES_MAP_DEFAULT}
+            continue
+        kit["traits"] = explicit_traits(kit, trait_weapons)
+    return kits
+
 
 def start_families(start, halo2):
     """The families a staged start serves (a set of NONCTF_FAMILIES and
@@ -310,8 +471,10 @@ def start_families(start, halo2):
     return out
 
 
-def spawn_plan(player_starts, halo2):
-    """Where players spawn, by game type (#360).
+def spawn_plan(player_starts, halo2, sets=None):
+    """Where players spawn, by game type (#360). `sets`, when given, is the
+    level's table of object sets (set_label), which the pickups only some
+    game types place add to.
 
     Returns (spawns, spawn_sets): each spawn is {start, label, hidden} for a
     `player_spawn` placement at that staged start, and each spawn set is
@@ -351,7 +514,8 @@ def spawn_plan(player_starts, halo2):
                     [spot for spot in spots if spot["families"] & nonctf]
             for spot in hosts:
                 spot["families"].add(family)
-    spawns, sets = [], {}
+    spawns = []
+    sets = {} if sets is None else sets
     for spot in spots:
         families, team = spot["families"], spot["team"]
         ctf = CTF_FAMILY in families and team is not None
@@ -362,9 +526,7 @@ def spawn_plan(player_starts, halo2):
         if ctf:
             spawns.append({"start": spot["start"], "label": f"ctf_spawn_{team}", "hidden": True})
         if rest:
-            if rest not in sets:
-                sets[rest] = SPAWN_SET_LABEL.format(len(sets))
-            spawns.append({"start": spot["start"], "label": sets[rest], "hidden": True})
+            spawns.append({"start": spot["start"], "label": set_label(sets, rest), "hidden": True})
     if len(sets) > SPAWN_SET_POOL:
         raise SystemExit(f"{len(sets)} spawn sets; the variants carry {SPAWN_SET_POOL} labels for them")
     if not any(s["label"].startswith("spawn_set_") or not s["hidden"] for s in spawns):
@@ -691,13 +853,22 @@ def decal_decor(placement, scene_gltf, texture_root, delta):
 
 
 def spawn_seconds(e):
-    """A CE pickup's respawn time: the placement's own, else its item
-    collection's (halo2ue's `collection_spawn_time`), else None for the
+    """A pickup's or a Halo 2 vehicle's respawn time: the placement's own,
+    else its collection's (`collection_spawn_time`), else None for the
     game's default."""
     for key in ("spawn_time", "collection_spawn_time"):
         if (e.get(key) or 0) > 0:
             return int(e[key])
     return None
+
+
+def spawn_time(e, k):
+    """`multiplayer data.spawn time` of placement `e`, the `k`-th of its
+    kind. Halo 2 never brings back a placement whose own time is negative
+    (Uplift's two overshields), which is what a spawn time of 0 does here."""
+    if (e.get("spawn_time") or 0) < 0:
+        return "0"
+    return str(spread(spawn_seconds(e) or DEFAULT_RESPAWN, k))
 
 
 def ce_model_material(texture):
@@ -1467,6 +1638,8 @@ def main():
     ap.add_argument("--title")
     ap.add_argument("--tag-map", help="the tag map (default: defs/level/ce-tag-map.json, or h2-tag-map.json "
                     "for a Halo 2 staging)")
+    ap.add_argument("--starting-equipment", help="a CE map's starting equipment, as ce_starting_equipment.py "
+                    "writes it (default: the staging's starting_equipment.json)")
     ap.add_argument("--terrain", help="terrain decor entry (JSON object)")
     ap.add_argument("--foliage", help="scatter_foliage.py's out.json: the level's `foliage` (its file beside "
                                       "the level file)")
@@ -1551,7 +1724,9 @@ def main():
     # game types the CE or Halo 2 starts there list (spawn_plan). CTF gives
     # each start a team; the CTF variant sets the spawn points' teams by
     # label (blam-megalo ctf.rs), and they stay neutral in every other game.
-    plan, spawn_sets = spawn_plan(placement["player_starts"], source == "halo2_mcc")
+    halo2 = source == "halo2_mcc"
+    object_sets = {}
+    plan, spawn_sets = spawn_plan(placement["player_starts"], halo2, object_sets)
     seen, starts, spawns = set(), [], []
     hidden_spawns = 0
     for p in plan:
@@ -1575,6 +1750,7 @@ def main():
 
     vehicles, weapons, equipment, health_spots = [], [], [], []
     vehicle_sets = []
+    hidden_items = 0
     for e in placement["entries"]:
         asset = norm(e.get("asset", ""))
         if e["kind"] == "vehicle":
@@ -1592,8 +1768,12 @@ def main():
                 set_type = vehicle_set_type(asset, e.get("vehicle_type"))
                 team = CE_TEAMS.get(e.get("team"), "neutral")
                 v = {"type": kind, "pos": to_ue(pos), "yaw": yaw_ue(e["rot"]),
-                     "set": {"multiplayer data.spawn time": str(spread(DEFAULT_RESPAWN, len(vehicles))),
-                             "multiplayer data.abandonment time": str(VEHICLE_ABANDONMENT),
+                     # Halo 2's vehicles are netgame equipment with a
+                     # spawn time of their own and a "respawn on empty"
+                     # time, the abandonment time here; CE's have neither.
+                     "set": {"multiplayer data.spawn time": spawn_time(e, len(vehicles)),
+                             "multiplayer data.abandonment time":
+                                 str(max(e.get("respawn_on_empty_time") or 0, 0) or VEHICLE_ABANDONMENT),
                              "multiplayer data.owner team": CE_OWNER_TEAMS.get(team, "neutral"),
                              "multiplayer data.spawn flags": HIDE_UNLESS_REQUIRED}}
                 if lift:
@@ -1614,6 +1794,12 @@ def main():
                             "multiplayer data.megalo label": HEALTH_SPOT_LABEL},
                 })
                 continue
+            # The game types that place it. Staging from before the
+            # stagers carried them reads as every game type.
+            families = item_families(e.get("game_types", ["AllGames"]), halo2)
+            if not families:
+                dropped[f"{asset} (in no game type the game plays)"] += 1
+                continue
             section = "weapons" if asset in tag_map["weapons"] else "equipment"
             kind = resolve(section, asset)
             if not kind:
@@ -1623,11 +1809,37 @@ def main():
             item = {"type": kind, "pos": to_ue(pos)}
             if section == "weapons":
                 item["yaw"] = yaw_ue(e.get("rot", [0, 0, 0]))
-            item["set"] = {"multiplayer data.spawn time":
-                           str(spread(spawn_seconds(e) or DEFAULT_RESPAWN, len(weapons) + len(equipment)))}
+            item["set"] = {"multiplayer data.spawn time": spawn_time(e, len(weapons) + len(equipment))}
             if lift:
                 item["set"].update(NOT_AT_REST)
+            if families != all_families(halo2):
+                # Placed hidden under its set's label, as the spawn points
+                # only some game types use are: the loader adds the label's
+                # filter in the game types that play with it.
+                item["set"]["multiplayer data.megalo label"] = set_label(object_sets, families)
+                item["set"]["multiplayer data.spawn flags"] = HIDE_UNLESS_REQUIRED
+                hidden_items += 1
             (weapons if section == "weapons" else equipment).append(item)
+
+    # The object sets, now with the pickups' beside the spawn points'.
+    if len(object_sets) > SPAWN_SET_POOL:
+        raise SystemExit(f"{len(object_sets)} spawn and pickup sets; the variants carry {SPAWN_SET_POOL} labels for them")
+    spawn_sets = [{"label": label, "families": sorted(families)} for families, label in object_sets.items()]
+
+    # What a player spawns holding (the scenario's starting equipment). CE's
+    # staging keeps it beside the placements, written from the map by
+    # ce_starting_equipment.py.
+    staged_kits = placement.get("starting_equipment")
+    kit_grenades, kit_fallback, kit_generic = STARTING_GRENADES, None, None
+    sidecar = a.starting_equipment or os.path.join(a.staging, "starting_equipment.json")
+    if staged_kits is None and os.path.exists(sidecar):
+        staged = json.load(open(sidecar, encoding="utf-8"))
+        staged_kits = staged["starting_equipment"]
+        kit_grenades = tuple(staged.get("grenades", STARTING_GRENADES))
+        kit_fallback = staged.get("fallback_weapons")
+        kit_generic = staged.get("generic_weapons")
+    kits = starting_kits(staged_kits, halo2, resolve, palette.get("trait_weapons", []), kit_grenades, kit_fallback)
+    generic = generic_kit(kit_generic, resolve, palette.get("trait_weapons", []), kit_grenades)
 
     # The vehicle set labels: by type and team, the vehicles default in the
     # most game types first, then CE's order; the k-th of each team share
@@ -1921,9 +2133,14 @@ def main():
     if vehicle_sets:
         level["vehicle_sets"] = vehicle_sets
     if spawn_sets:
-        # The hidden spawn points' labels and the families each serves; the
-        # loader adds a filter for each label the match's game type is in.
+        # The labels of the hidden spawn points and pickups, and the
+        # families each set serves; the loader adds a filter for each label
+        # the match's game type is in.
         level["spawn_sets"] = spawn_sets
+    if kits:
+        level["starting_equipment"] = kits
+    if generic:
+        level["generic_equipment"] = generic
     foliage = json.load(open(a.foliage, encoding="utf-8")) if a.foliage else {}
     if foliage.get("groups"):
         # The game's grass, tufts and shore stones (scatter_foliage.py), with
@@ -1945,10 +2162,18 @@ def main():
         f.write("\n")
     print(
         f"{name}: {len(starts)} starts ({len(spawns)} spawn points, {hidden_spawns} hidden, "
-        f"{len(spawn_sets)} spawn sets), {len(vehicles)} vehicles, {len(weapons)} weapons, "
-        f"{len(equipment)} equipment, {len(teleporters)} teleporter ends, {len(flag_stands)} flag stands, "
+        f"{len(spawn_sets)} spawn and pickup sets), {len(vehicles)} vehicles, {len(weapons)} weapons, "
+        f"{len(equipment)} equipment ({hidden_items} pickups in some game types only), "
+        f"{len(teleporters)} teleporter ends, {len(flag_stands)} flag stands, "
         f"{len(markers)} markers, {len(decor)} decor ({len(flares)} lens flares), {len(health_spots)} health packs"
     )
+    for kit in kits:
+        print(f"  starting equipment for {', '.join(kit['families'])}: {' + '.join(kit['weapons']) or 'no weapon'}, "
+              f"{kit['frag_grenades']} frag, {kit['plasma_grenades']} plasma"
+              f"{' (the scenario profile)' if kit['profile'] else ''}")
+    if generic:
+        print(f"  generic starting equipment: {' + '.join(generic['weapons'])}, {generic['frag_grenades']} frag, "
+              f"{generic['plasma_grenades']} plasma")
     for what, n in sorted(dropped.items()):
         print(f"  dropped {n:3} x {what}")
 

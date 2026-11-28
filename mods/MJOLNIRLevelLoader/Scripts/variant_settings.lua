@@ -197,8 +197,12 @@ function VariantSettings.forMode(settings, mode, descriptor)
     for key, value in pairs(settings or {}) do
         -- `vehicles.*` are the vehicle sets (vehicle_sets.lua), and `bots`
         -- `bot_type` and `bot_level` MJOLNIRHud's bots, not fields.
+        -- `kit` is the host's starting equipment, which picks a kit of
+        -- the level's (kitSettings, kitTraits).
         local bots = key == "bots" or key == "bot_type" or key == "bot_level"
-        if key:sub(1, 6) ~= "score." and key:sub(1, 9) ~= "vehicles." and not bots then out[key] = value end
+        if key:sub(1, 6) ~= "score." and key:sub(1, 9) ~= "vehicles." and not bots and key ~= "kit" then
+            out[key] = value
+        end
     end
     out.score = (settings or {})["score." .. tostring(mode)] or (settings or {}).score
     for key, value in pairs((descriptor or {}).fixedSettings or {}) do out[key] = value end
@@ -232,6 +236,41 @@ function VariantSettings.exactVariant(text, code, slot, installed)
             .. "cannot follow the match: update MJOLNIR in the launcher. Falling back to the slot's game type"
     end
     return id
+end
+
+--- The settings a map's starting kit makes for a game type of `family`
+--- ("slayer", "ctf", ...; vehicle_sets.lua's spawnFamily): the base player
+--- traits of the first entry of the level's `starting_equipment` that lists
+--- the family, as `trait.<name>` keys (docs/ce_map_conversion.md, "Starting
+--- equipment"). The level generator worked the values out from the source
+--- map's tags: 254 is "the map's starting profile", which the map's
+--- scenario carries, and any other weapon value is a place in the game's
+--- multiplayer weapon list. nil for a map with no kit, or none for this
+--- family: the variant's own traits then stand.
+function VariantSettings.kitSettings(startingEquipment, family)
+    if type(startingEquipment) ~= "table" then return nil end
+    for _, kit in ipairs(startingEquipment) do
+        local listed = false
+        for _, f in ipairs(type(kit) == "table" and type(kit.families) == "table" and kit.families or {}) do
+            if f == family then listed = true end
+        end
+        if listed then return VariantSettings.kitTraits(kit) end
+    end
+    return nil
+end
+
+--- One kit's `traits` as `trait.<name>` settings, and the kit; nil for a kit
+--- without them. Also what the level's `generic_equipment` is read with: CE's
+--- "generic" starting equipment, the one kit its Pro game types hand out on
+--- every map, which a host chooses in GAME SETTINGS (`kit=1` on the settings
+--- line) in place of the map's.
+function VariantSettings.kitTraits(kit)
+    if type(kit) ~= "table" or type(kit.traits) ~= "table" then return nil end
+    local out = {}
+    for name, value in pairs(kit.traits) do
+        if type(name) == "string" and type(value) == "number" then out["trait." .. name] = value end
+    end
+    return out, kit
 end
 
 --- `settings` as one line, keys sorted so equal settings give equal text.

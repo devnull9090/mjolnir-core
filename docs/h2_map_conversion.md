@@ -269,7 +269,13 @@ units and axes, so every later step reads them unchanged:
   black above the fog).
 - **Placements.** Halo 2 spawns every multiplayer pickup and vehicle through
   netgame equipment (item and vehicle collections): each becomes halo2ue's
-  `netgame_equipment` or `vehicle` entry naming the collection's item.
+  `netgame_equipment` or `vehicle` entry naming the collection's item,
+  with the game types that place it, its own and its collection's spawn
+  times, what starts its respawn timer, a vehicle's respawn on empty time and
+  every permutation of its collection. The scenario's starting equipment is
+  staged beside them (`starting_equipment`). What the level generator does
+  with both is in [ce_map_conversion.md](ce_map_conversion.md), "Pickups by
+  game type" and "Starting equipment".
   Netgame flags take CE's names where CE has the thing (`CtfFlag`,
   `OddballSpawn`, `HillFlag` with its hill index, `TeleportFrom`/`TeleportTo`
   paired by identifier); assault, territories and headhunter keep names the
@@ -687,9 +693,19 @@ units and axes, so every later step reads them unchanged:
 - **Render models** (the sky, props) store positions and texture
   coordinates in -1..1 across the model's compression bounds; read raw,
   Lockout's sky was a 3 m knot at the origin and drew nothing.
-- **Weapons the game lacks** take the nearest role (`defs/level/h2-tag-map.json`):
-  the battle rifle the assault rifle, the brute shot the fuel rod gun, the
-  carbine, brute plasma rifle and sentinel beam the plasma rifle.
+- **Weapons** (`defs/level/h2-tag-map.json`). The game ships most of Halo
+  2's under paths of its own: the battle rifle, the SMG, the Brute plasma
+  rifle (`plasma_rifle_red`), the sentinel beam (`sentinel_gun`), the beam
+  rifle, the energy sword. The two it lacks take the nearest role: the
+  carbine the needle rifle, the brute shot the fuel rod gun. Battle rifle,
+  shotgun and needler ammo are the game's own pickups; it has no SMG ammo
+  (its SMG reloads from the ammo box alone), so Halo 2's becomes an ammo box.
+  Until 2026-11-28 the map still dated from before the battle rifle was
+  found in the game: every battle rifle became an assault rifle (a weapon
+  Halo 2's multiplayer does not have), the Brute plasma rifle and sentinel
+  beam plasma rifles, battle rifle and SMG ammo assault rifle ammo, and
+  shotgun and needler ammo were dropped. The Gauss Warthog still spawns as
+  the chaingun one (the vehicle variant is staged, not used).
 
 ## Specular
 

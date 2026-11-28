@@ -213,6 +213,36 @@ no working collision for converted terrain (`../ce_terrain_collision.md`).
 CE collision alone, `mjolnir level collision --own-bsp`, step 2 of
 `tools/level/convert_ce_map.sh`, since 2026-10-01, d17b0a7d.)
 
+## What a player spawns holding (2026-11-28, static and in game)
+
+The spawn (`0x189e90`) builds the unit's kit in `0x189b50`:
+
+1. A loadout starts as primary -2, secondary -2, ability -2, grenades 1:
+   "the map's" for all four.
+2. `0x1899c0` copies the player's applied traits over it: a weapon or
+   ability trait unless it is -3 or -2, a grenade trait above 1. A loadout
+   the variant enables (none of ours does) then does the same.
+3. `0x608e00` fills the kit from the scenario's `player starting profile`:
+   both weapons with their loaded and total rounds, the two `starting
+   grenades` entries (a grenade type name and a count each) and the starting
+   equipment. The profile's index comes from `0x1898e0`: 0 under the Megalo
+   engine, the script's choice in the campaign (`player_set_profile`). The
+   two legacy count bytes before the grenade array are not read.
+4. Each loadout weapon that is not -3 or -2 then replaces the profile's:
+   `0x30c9a0` resolves an index into the object type list's `weapons`, -4 a
+   weighted draw, -1 none. Rounds of -1 take the weapon tag's own (its first
+   magazine's loaded maximum and initial total). A grenade trait other than
+   0 or 1 replaces the grenades.
+
+The base traits reach the applied traits through `0x3f0ca0`, which copies a
+weapon value from -2 to 63 or -4 and leaves the rest. So our variants' zeros
+named `weapons[0]`, the assault rifle, for both slots, and the grenades (a
+zero trait) already came from the canvas mission's profile 0: four
+fragmentation grenades. With -2 in both weapon traits and 1 in the grenade
+trait, a spawn is exactly the scenario's profile 0. Seen on Lockout with an
+SMG and two fragmentation grenades baked there: first spawn and respawn both
+held an SMG, 60 loaded and 240 in reserve, and two grenades.
+
 ## A variant from a file: Slayer (2026-09-30, offline)
 
 The default variant the switch produces has an empty script, so nothing

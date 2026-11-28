@@ -99,6 +99,16 @@ Settings.OPTIONS = {
         help = "How well the bots aim, as on the campaign's difficulties.",
     },
     {
+        -- CE's STARTING EQUIPMENT. CUSTOM is the kit the map's own tags give
+        -- each game type, which CE's standard game types play; GENERIC is
+        -- the one kit its Pro game types hand out on every map (the level's
+        -- `generic_equipment`; MJOLNIRLevelLoader writes it into the variant).
+        id = "start_equipment", page = 3, label = "STARTING EQUIPMENT",
+        choices = choices({ 0, 1 }, function(v) return v == 1 and "GENERIC" or "CUSTOM" end), default = 0,
+        help = "CUSTOM: the weapons the map's designers gave each game type. GENERIC: an assault rifle, a pistol "
+            .. "and grenades on every Halo 1 map; a Halo 2 map keeps its own.",
+    },
+    {
         id = "grenades", page = 3, label = "GRENADES ON MAP",
         choices = choices({ 1, 0 }, yesNo), default = 1,
         help = "Whether the map's grenade pickups appear. Players still spawn with grenades.",
@@ -257,6 +267,9 @@ function Settings.variantLine()
     f.bots = Settings.value(Settings.option("bots"))
     f.bot_type = Settings.value(Settings.option("bot_type"))
     f.bot_level = Settings.value(Settings.option("bot_level"))
+    -- Written only when GENERIC: a loader from before the key refuses a
+    -- line that carries it, and CUSTOM is what a line without it means.
+    if Settings.value(Settings.option("start_equipment")) == 1 then f.kit = 1 end
     -- Each team's vehicle set, and its counts when it is CUSTOM.
     for _, team in ipairs({ "red", "blue" }) do
         local set = Settings.value(Settings.option("vehicles." .. team))
@@ -309,6 +322,7 @@ function Settings.describe(line, mode)
     values.bots = f.bots
     values.bot_type = f.bot_type
     values.bot_level = f.bot_level
+    values.start_equipment = f.kit == 1 and 1 or 0
     if f["trait.shields"] then values.shields = f["trait.shields"] == 1 and 0 or 1 end
     if f["trait.camo"] then values.invisible = f["trait.camo"] ~= 0 and 1 or 0 end
     if f.map_flags then

@@ -107,9 +107,21 @@ sky with nine mipmaps is 699,052 bytes, the levels down to 1 x 1.
 0x70, weapons 0x90, player starts 0x100 (0x34: position, facing, i16 team,
 i16 BSP, four i16 game types), netgame flags 0x118 (0x20: position, facing,
 i16 type, i16 team, i16 identifier, flags), netgame equipment 0x120 (0x90:
-flags (bit 0 levitate), four game types, i16 team, i16 spawn time at 0x0E,
-classification 0x14, position 0x40, yaw/pitch/roll 0x4C, item or vehicle
-collection reference 0x58), structure BSPs 0x210 (0x44: sbsp reference
+flags (bit 0 levitate, bit 1 destroy the old object when a new one spawns),
+four game types at 0x04, i16 spawn time in seconds at 0x0E (0 takes the
+collection's, and 0 there 30; negative never spawns again), i16 respawn on
+empty time 0x10 (a vehicle left empty away from its spot that long is
+replaced; 0 never), i16 respawn timer starts 0x12 (0 when the item is taken
+or moved, 1 when the object is gone), classification 0x14 (0 weapon, 1-7
+vehicle classes, 8 grenade, 9 powerup: what the game variant's vehicle and
+weapon settings key on), position 0x40, yaw/pitch/roll 0x4C, item or vehicle
+collection reference 0x58; halo2.dll 0x699a30 runs them and 0x68a7b0 spawns
+one), starting equipment 0x128 (0x9C: flags (bit 0 no starting grenades, bit
+1 they are plasma), four game types at 0x04, item collections 1-6 at 0x3C, 8
+bytes apart; halo2.dll 0x6aa460), player starting profiles 0xF8 (0x44: name,
+starting health and shield damage 0x20, primary weapon 0x28 with rounds
+loaded and total 0x30, secondary 0x34 with rounds 0x3C, grenade counts 0x40;
+not read in multiplayer), structure BSPs 0x210 (0x44: sbsp reference
 0x10, ltmp 0x18), crates 0x328 / palette 0x330. Placements share a 0x34-byte
 header (palette index, name index, flags, position 0x08, yaw/pitch/roll 0x14,
 scale 0x20, 0 meaning 1). Scenery +0x5A is the multiplayer game types it
@@ -118,6 +130,18 @@ yaw, i8 pitch, position 0x04) / palette 0x140 (`deca` references); a
 `deca`: u16 flags, u16 type (0 scratch, 1 splatter, 2 burn, 3 painted
 sign), u16 layer 0x04 (1 lit alpha blend: every decal on Zanzibar), radius
 0x10 (world units), bitmap 0x88.
+
+Game types (player starts, netgame equipment, starting equipment): 1 CTF, 2
+Slayer, 3 Oddball, 4 King of the Hill, 5 Race, 6 Headhunter, 7 Juggernaut, 8
+Territories, 9 Assault, 12 all, 13 all except CTF, 14 all except CTF and
+Race. The engine reads a slot of 1 or 9 as both CTF and Assault, and 14 as
+13 (halo2.dll 0x698ff0).
+
+**itmc** and **vehc** (item and vehicle collections): permutations 0x00
+(0x10: f32 weight, object reference 0x04, variant name string id 0x0C: a
+vehicle's model variant, `gauss` for the Gauss Warthog), i16 spawn time in
+seconds 0x08. One permutation is that object; more are drawn from by weight
+at each spawn (halo2.dll 0x6ab640).
 
 Netgame flag types: 0 CTF flag spawn, 1 CTF flag return, 2 assault bomb
 spawn, 3 assault bomb return, 4 oddball, 5 unused, 6 race checkpoint, 7
