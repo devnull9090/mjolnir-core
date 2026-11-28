@@ -36,6 +36,7 @@ local modules = {
     presence = { init = function() end, registerModes = function() end },
     class_lifetime = { new = function() return function() end end },
     ui_polish = { new = function() return {} end },
+    player_card = { new = function() return { armRightClick = function() end } end },
     gametype = { new = function() return {} end },
     postgame = { new = function() return {} end },
     games = {

@@ -1452,7 +1452,8 @@ local function drawLobby()
     local teams = mode and mode.teams
     setText(Lobby.PlayersHeading, "PLAYERS  /  " .. tostring(#roster))
     setText(Lobby.MatchFormat, Pick.format(mode))
-    setText(Lobby.TeamHint, teams and "Teams are assigned by the game when the match starts." or "Every Spartan for themselves.")
+    setText(Lobby.TeamHint, (teams and "Teams are assigned by the game when the match starts." or "Every Spartan for themselves.")
+        .. "  Right-click a player for profile & actions.")
     -- A fireteam client sees the host's choice; only the host changes it or
     -- starts the game.
     local host = Net.isHost()
@@ -1512,13 +1513,27 @@ local function drawLobby()
     end
     if status ~= "" and status ~= listingStatus then setText(Lobby.Status, status) end
     listingStatus = status
+    local okMine, mineName = pcall(function()
+        local pc = UI.playerController()
+        return UI.valid(pc) and pc.PlayerState:GetPlayerName():ToString() or nil
+    end)
+    local mine = okMine and mineName or nil
+    local cardSlots = {}
     for _, group in ipairs({ "FFA", "Red", "Blue", "Unassigned" }) do
         local members = {}
         for _, player in ipairs(roster) do
             if (not teams and group == "FFA") or (teams and player.team == group) then
                 -- The hub account, once known (docs/player_identity.md).
                 local hub = Identity.lookup(player.name)
-                members[#members + 1] = { name = hub and hub.name or player.name, id = hub and hub.id }
+                local isLocal = mine ~= nil and player.name == mine
+                members[#members + 1] = {
+                    name = hub and hub.name or player.name,
+                    rawName = player.name,
+                    id = hub and hub.id,
+                    reports = hub and hub.reports or 0,
+                    isLocal = isLocal,
+                    isHost = host and isLocal,
+                }
             end
         end
         setShown(Lobby[group .. "Roster"], (group == "FFA" and not teams) or
@@ -1528,6 +1543,17 @@ local function drawLobby()
         setText(Lobby[group .. "Heading"], title .. "  /  " .. tostring(#members))
         for i = 0, ROSTER_ROWS - 1 do
             local member = members[i + 1]
+            if member then
+                cardSlots[group .. ":" .. i] = {
+                    name = member.rawName,
+                    hubName = member.name,
+                    userId = member.id,
+                    reports = member.reports,
+                    group = group,
+                    isLocal = member.isLocal,
+                    isHost = member.isHost,
+                }
+            end
             setText(Lobby[group .. "Player" .. i], member and member.name or "")
             setShown(Lobby[group .. "Player" .. i], member ~= nil)
             -- A UI container with hub avatars has a row around the name: it
@@ -1538,6 +1564,9 @@ local function drawLobby()
                 Report.showAvatar(Lobby[group .. "PlayerAvatar" .. i], member and member.id)
             end
         end
+    end
+    if Pick.playerCard and Pick.playerCard.setRoster then
+        Pick.playerCard.setRoster(cardSlots)
     end
 end
 
@@ -2810,6 +2839,9 @@ local function onScreenEvent(isLobby, event, source)
     if isLobby == "gametype" then return Pick.gameType.onEvent(event, source) end
     if isLobby == "find" then return onFindEvent(event) end
     if isLobby == "settings" then return onSettingsEvent(event) end
+    if isLobby == true and Pick.playerCard and Pick.playerCard.onEvent and Pick.playerCard.onEvent(event) then
+        return
+    end
     local verb, index = event:match("^(%a+):(%d+)$")
     if verb then
         local i = tonumber(index) + 1
@@ -2910,6 +2942,10 @@ local function adoptLobby(screen)
     setText(Lobby.Watermark, BuildLine.text(MODS_DIR))
     pcall(function() Lobby.LogoButton:SetVisibility(0) end)
     UI.polish.adopt(Lobby, LOBBY_CLASS)
+    if Pick.playerCard then
+        if Pick.playerCard.armRightClick then Pick.playerCard.armRightClick() end
+        if Pick.playerCard.close then Pick.playerCard.close() end
+    end
     -- The cooked footer warns, in gold, that the mods are not running; the
     -- status lines below replace it, in the footer's usual grey.
     pcall(function()
@@ -4555,6 +4591,36 @@ local function kick(player, why, code)
     log(string.format("host: %s %s (%s)", ok and "sent back" or "could not send back", player.name, why))
     return ok
 end
+
+Pick.playerCard = (function(m)
+    return m and m.new and m.new({
+        valid = UI.valid,
+        alive = alive,
+        log = log,
+        getLobby = function() return Lobby end,
+        isHost = Net.isHost,
+        showAvatar = Report.showAvatar,
+        launchUrl = Pick.launch,
+        hubCall = Games.call,
+        explain = Games.explain,
+        remotePlayers = remotePlayers,
+        kick = kick,
+        ban = function(player, rp)
+            if not (player and player.name) then return false end
+            loadBans()[string.lower(player.name)] = { name = player.name, at = os.time() }
+            saveBans()
+            if rp then return kick(rp, "You were banned by the host.") end
+            return true
+        end,
+        delay = ExecuteInGameThreadWithDelay,
+        onOpenCard = function(widget)
+            if UI.polish and UI.polish.previewPop then UI.polish.previewPop(widget) end
+        end,
+        onRightClickOpen = function()
+            if UI.polish and UI.polish.sound then UI.polish.sound("Open") end
+        end,
+    }) or nil
+end)(dofile(MOD_DIR .. "\\Scripts\\player_card.lua"))
 
 --- The host, starting `code`: send every guest without it back to their own
 --- menu (Live.lacking and those still deciding or downloading), since one

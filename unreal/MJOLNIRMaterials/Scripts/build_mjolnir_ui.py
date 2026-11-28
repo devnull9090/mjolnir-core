@@ -1080,24 +1080,41 @@ def build_lobby():
         strip.set_editor_property("brush_color", unreal.LinearColor(*color[:3], 0.18))
         text_style(widget(bp, unreal.TextBlock, group + "Heading", group + "Strip"), title, 20, color)
         for i in range(ROSTER_ROWS):
-            # A player: their hub avatar (`<group>PlayerAvatar<i>`, hidden
-            # until Lua has the picture) and name. Lua shows and hides the
-            # whole row (`<group>PlayerRow<i>`).
+            # A player: `<group>PlayerRow<i>` stays the outer row container so
+            # older MJOLNIRLobby releases still show/hide it, while newer ones
+            # get a clickable/right-clickable glass button (`<group>PlayerBtn<i>`)
+            # inside with circular avatar, hub name, and role badge.
             line = widget(bp, unreal.HorizontalBox, f"{group}PlayerRow{i}", group + "Roster")
-            line.get_editor_property("slot").set_padding(unreal.Margin(14, 8, 14, 4))
+            line.get_editor_property("slot").set_padding(unreal.Margin(0, 4, 0, 0))
             line.set_visibility(unreal.SlateVisibility.COLLAPSED)
-            face = sized(bp, f"{group}PlayerAvatarSize{i}", line.get_name(), width=ROSTER_AVATAR, height=ROSTER_AVATAR)
+            btn = widget(bp, unreal.Button, f"{group}PlayerBtn{i}", line.get_name())
+            row_button_style(btn, padding=(12, 7, 14, 7))
+            fill(btn, 1)
+            events += [
+                (btn.get_name(), "OnClicked", f"roster_click:{group}:{i}"),
+                (btn.get_name(), "OnHovered", f"roster_hover:{group}:{i}"),
+                (btn.get_name(), "OnUnhovered", f"roster_unhover:{group}:{i}"),
+            ]
+            inner = widget(bp, unreal.HorizontalBox, f"{group}PlayerInner{i}", btn.get_name())
+            unpadded(inner)
+            inner.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+            face = sized(bp, f"{group}PlayerAvatarSize{i}", inner.get_name(), width=ROSTER_AVATAR, height=ROSTER_AVATAR)
             face.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 12, 0))
             middle(face)
             image = widget(bp, unreal.Image, f"{group}PlayerAvatar{i}", face.get_name())
+            round_image(image, ROSTER_AVATAR)
             image.set_visibility(unreal.SlateVisibility.HIDDEN)
-            row = widget(bp, unreal.TextBlock, f"{group}Player{i}", line.get_name())
-            text_style(row, "", 24, WHITE)
+            row = widget(bp, unreal.TextBlock, f"{group}Player{i}", inner.get_name())
+            text_style(row, "", 23, WHITE)
             row.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
             middle(row)
             fill(row, 1)
+            badge = widget(bp, unreal.TextBlock, f"{group}PlayerBadge{i}", inner.get_name())
+            text_style(badge, "", 14, ACCENT, "Bold")
+            badge.get_editor_property("slot").set_padding(unreal.Margin(10, 0, 0, 0))
+            middle(badge)
     hint = widget(bp, unreal.TextBlock, "TeamHint", "RosterStack")
-    text_style(hint, "", 19, GREY)
+    text_style(hint, "", 18, (0.64, 0.78, 0.87, 1.0))
     wrapped(hint)
     gap(hint, top=12)
     # The main menu pushes this screen without Lua, but only MJOLNIRLobby
@@ -1106,9 +1123,12 @@ def build_lobby():
     # The usual cause is UE4SS giving up at startup (UE4SS.log ends in
     # "Fatal Error: AOB scans could not be completed"), which a restart
     # often gets past.
-    text_style(footer(bp, hints=(("ENTER", "SELECT"), ("ESC", "BACK"))), "MJOLNIR MODS DID NOT START, SO THESE BUTTONS DO NOTHING   /   RESTART THE GAME. "
+    text_style(footer(bp, hints=(("ENTER", "SELECT"), ("RMB", "PLAYER PROFILE"), ("ESC", "BACK"))),
+               "MJOLNIR MODS DID NOT START, SO THESE BUTTONS DO NOTHING   /   RESTART THE GAME. "
                "IF IT KEEPS HAPPENING, CHECK MJOLNIRLOBBY IS ON IN THE LAUNCHER AND SEND US ue4ss\\UE4SS.log",
                20, GOLD)
+    events += player_card_panel(bp)
+    events += report_panel(bp)
 
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile (widget tree)")
@@ -1116,6 +1136,126 @@ def build_lobby():
         fail("MJ_Event")
     bind_events(bp, events)
     finish_screen(bp, name)
+
+
+def player_card_panel(bp):
+    """Lobby player service record & context action overlay (right-click or
+    click any roster player): avatar, hub identity, live career stats from the
+    hub, VIEW PROFILE, REPORT PLAYER, and host KICK / BAN controls."""
+    events = []
+    backdrop = widget(bp, unreal.Button, "PlayerCardBackdrop", "Root")
+    flat_style(backdrop, (0.0, 0.006, 0.015, 0.58), (0.0, 0.006, 0.015, 0.58), (0.0, 0.006, 0.015, 0.58))
+    stretch(backdrop)
+    backdrop.get_editor_property("slot").set_z_order(14)
+    backdrop.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    events.append(("PlayerCardBackdrop", "OnClicked", "pcard_close"))
+
+    card = panel(bp, "PlayerCard", "Root", alpha=0.96, padding=(38, 32, 38, 32))
+    place(card, (0.5, 0.5), (0.5, 0.5))
+    card.get_editor_property("slot").set_z_order(15)
+    card.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    sized(bp, "PlayerCardSize", "PlayerCard", width=920)
+    widget(bp, unreal.VerticalBox, "PlayerCardStack", "PlayerCardSize")
+
+    head = widget(bp, unreal.HorizontalBox, "PlayerCardHead", "PlayerCardStack")
+    gap(head, bottom=22)
+    av_box = sized(bp, "PlayerCardAvatarBox", head.get_name(), width=104, height=104)
+    av_box.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 26, 0))
+    middle(av_box)
+    emblem = medallion(bp, "PlayerCardEmblem", av_box.get_name(), padding=10)
+    av = widget(bp, unreal.Image, "PlayerCardAvatar", emblem.get_name())
+    round_image(av, 84)
+    av.set_visibility(unreal.SlateVisibility.HIDDEN)
+
+    ident = widget(bp, unreal.VerticalBox, "PlayerCardIdent", head.get_name())
+    fill(ident, 1)
+    middle(ident)
+    kicker = widget(bp, unreal.TextBlock, "PlayerCardKicker", ident.get_name())
+    text_style(kicker, "SPARTAN SERVICE RECORD", 17, ACCENT, "Bold")
+    name_txt = widget(bp, unreal.TextBlock, "PlayerCardName", ident.get_name())
+    text_style(name_txt, "", 40, WHITE)
+    name_txt.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+    gap(name_txt, top=4, bottom=6)
+    sub_txt = widget(bp, unreal.TextBlock, "PlayerCardSub", ident.get_name())
+    text_style(sub_txt, "", 18, (0.64, 0.78, 0.87, 1.0))
+    wrapped(sub_txt)
+
+    gap(rule(bp, "PlayerCardStatsRule", "PlayerCardStack"), bottom=18)
+    stats_head = widget(bp, unreal.HorizontalBox, "PlayerCardStatsHead", "PlayerCardStack")
+    gap(stats_head, bottom=12)
+    sk = widget(bp, unreal.TextBlock, "PlayerCardStatsKicker", stats_head.get_name())
+    text_style(sk, "CAREER RECORD", 16, ACCENT, "Bold")
+    fill(sk, 1)
+    sn = widget(bp, unreal.TextBlock, "PlayerCardStatsNote", stats_head.get_name())
+    text_style(sn, "LOADING...", 15, (0.64, 0.78, 0.87, 1.0))
+
+    stats_row = widget(bp, unreal.HorizontalBox, "PlayerCardStatsRow", "PlayerCardStack")
+    gap(stats_row, bottom=24)
+    for idx, label in enumerate(("MATCHES", "WIN RATE", "K / D", "TOP WEAPON")):
+        tile = widget(bp, unreal.Border, f"PlayerCardStat{idx}", stats_row.get_name())
+        if CHROME.get("PanelSubtle"):
+            tile.set_editor_property("background", box_brush(CHROME["PanelSubtle"], (0.08, 0.12, 0.08, 0.12)))
+            tile.set_editor_property("brush_color", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
+        else:
+            tile.set_editor_property("brush_color", unreal.LinearColor(0.02, 0.05, 0.08, 0.75))
+        tile.set_editor_property("padding", unreal.Margin(18, 14, 18, 14))
+        fill(tile, 1)
+        tile.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 12 if idx < 3 else 0, 0))
+        col = widget(bp, unreal.VerticalBox, f"PlayerCardStat{idx}Col", tile.get_name())
+        lbl = widget(bp, unreal.TextBlock, f"PlayerCardStat{idx}Label", col.get_name())
+        text_style(lbl, label, 14, ACCENT, "Bold")
+        val = widget(bp, unreal.TextBlock, f"PlayerCardStat{idx}Value", col.get_name())
+        text_style(val, "—", 28, WHITE, "Bold")
+        val.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+        gap(val, top=6, bottom=4)
+        sub = widget(bp, unreal.TextBlock, f"PlayerCardStat{idx}Sub", col.get_name())
+        text_style(sub, "", 14, (0.64, 0.78, 0.87, 1.0))
+        sub.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
+
+    gap(rule(bp, "PlayerCardActionsRule", "PlayerCardStack"), bottom=20)
+    actions = widget(bp, unreal.HorizontalBox, "PlayerCardActions", "PlayerCardStack")
+    for idx, (key, label, ev, primary) in enumerate((
+            ("PlayerCardProfile", "VIEW PROFILE", "pcard_profile", True),
+            ("PlayerCardReport", "REPORT PLAYER", "pcard_report", False),
+            ("PlayerCardClose", "CLOSE", "pcard_close", False))):
+        btn = widget(bp, unreal.Button, key, actions.get_name())
+        button_style(btn, primary=primary, padding=(30, 15, 30, 15))
+        lbl = widget(bp, unreal.TextBlock, key + "Label", btn.get_name())
+        text_style(lbl, label, 22, GOLD if primary else WHITE)
+        lbl.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
+        fill(btn, 1)
+        btn.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14 if idx < 2 else 0, 0))
+        events += [
+            (key, "OnClicked", ev),
+            (key, "OnHovered", f"btn_hover:{key}"),
+            (key, "OnUnhovered", f"btn_unhover:{key}"),
+        ]
+
+    host_row = widget(bp, unreal.HorizontalBox, "PlayerCardHostActions", "PlayerCardStack")
+    gap(host_row, top=12)
+    host_row.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    for idx, (key, label, ev, color) in enumerate((
+            ("PlayerCardKick", "KICK FROM LOBBY", "pcard_kick", GOLD),
+            ("PlayerCardBan", "BAN FROM MY GAMES", "pcard_ban", RED))):
+        btn = widget(bp, unreal.Button, key, host_row.get_name())
+        row_button_style(btn, padding=(24, 12, 24, 12))
+        lbl = widget(bp, unreal.TextBlock, key + "Label", btn.get_name())
+        text_style(lbl, label, 20, color, "Bold")
+        lbl.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
+        fill(btn, 1)
+        btn.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14 if idx == 0 else 0, 0))
+        events += [
+            (key, "OnClicked", ev),
+            (key, "OnHovered", f"btn_hover:{key}"),
+            (key, "OnUnhovered", f"btn_unhover:{key}"),
+        ]
+
+    status = widget(bp, unreal.TextBlock, "PlayerCardStatus", "PlayerCardStack")
+    text_style(status, "", 17, GOLD)
+    wrapped(status)
+    gap(status, top=14)
+    status.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    return events
 
 
 MODE_TILES = 7     # the families in MJOLNIRLobby's modes.lua, Forge among them

@@ -62,19 +62,22 @@ function M.cueForEvent(event)
     if type(event) ~= "string" or event == "" then return nil end
     if event:find("^btn_unhover:") or event == "unhover" or event:find("^unhover:")
         or event:find("^modeunhover:") or event:find("^vunhover:")
-        or event == "search" then
+        or event:find("^roster_unhover:") or event == "search" then
         return nil
     end
     if event:find("^btn_hover:") or event:find("^hover:") or event:find("^modehover:")
-        or event:find("^vhover:") then
+        or event:find("^vhover:") or event:find("^roster_hover:") then
         return "Hover"
     end
+    if event:find("^roster_click:") then
+        return "Open"
+    end
     if event == "start" or event == "select" or event == "join" or event == "quickjoin"
-        or event == "download" then
+        or event == "download" or event == "pcard_profile" then
         return "Primary"
     end
     if event == "back" or event == "lobby" or event == "cancel" or event == "report_cancel"
-        or event == "search_clear" then
+        or event == "search_clear" or event == "pcard_close" then
         return "Back"
     end
     if event:find("^vote:") then
@@ -145,7 +148,34 @@ local SCREEN_FONTS = {
         { "RedPlayer", "NormativePro", "Medium", 0, nil, 16 },
         { "BluePlayer", "NormativePro", "Medium", 0, nil, 16 },
         { "UnassignedPlayer", "NormativePro", "Medium", 0, nil, 16 },
+        { "FFAPlayerBadge", "Oxanium", "Bold", 90, nil, 16 },
+        { "RedPlayerBadge", "Oxanium", "Bold", 90, nil, 16 },
+        { "BluePlayerBadge", "Oxanium", "Bold", 90, nil, 16 },
+        { "UnassignedPlayerBadge", "Oxanium", "Bold", 90, nil, 16 },
         { "TeamHint", "NormativePro", "Regular", 0 },
+        { "PlayerCardKicker", "Oxanium", "Bold", 140 },
+        { "PlayerCardName", "Oxanium", "SemiBold", 45 },
+        { "PlayerCardSub", "NormativePro", "Regular", 0 },
+        { "PlayerCardStatsKicker", "Oxanium", "Bold", 130 },
+        { "PlayerCardStatsNote", "Oxanium", "Medium", 80 },
+        { "PlayerCardStat", "Oxanium", "Bold", 110, "Label", 4 },
+        { "PlayerCardStat", "Oxanium", "ExtraBold", 30, "Value", 4 },
+        { "PlayerCardStat", "NormativePro", "Regular", 0, "Sub", 4 },
+        { "PlayerCardProfileLabel", "Oxanium", "Bold", 85 },
+        { "PlayerCardReportLabel", "Oxanium", "SemiBold", 80 },
+        { "PlayerCardCloseLabel", "Oxanium", "SemiBold", 80 },
+        { "PlayerCardKickLabel", "Oxanium", "Bold", 80 },
+        { "PlayerCardBanLabel", "Oxanium", "Bold", 80 },
+        { "PlayerCardStatus", "Oxanium", "Medium", 75 },
+        { "ReportKicker", "Oxanium", "Bold", 140 },
+        { "ReportName", "Oxanium", "SemiBold", 40 },
+        { "ReportCount", "NormativePro", "Regular", 0 },
+        { "ReasonKicker", "Oxanium", "Bold", 130 },
+        { "Reason", "Oxanium", "SemiBold", 70, "Label", 7 },
+        { "DetailKicker", "Oxanium", "Bold", 130 },
+        { "ReportStatus", "NormativePro", "Regular", 0 },
+        { "ReportSendLabel", "Oxanium", "Bold", 90 },
+        { "ReportCancelLabel", "Oxanium", "SemiBold", 80 },
     },
     mapselect = {
         { "ListCount", "Oxanium", "Bold", 120 },
@@ -598,6 +628,7 @@ function M.new(deps)
     function self.hoverButton(screen, key, entered, kind)
         if not (valid(screen) and key) then return end
         local sidebar = (kind == nil or kind == "lobby" or kind == "settings")
+            and not key:find("^PlayerCard")
         if not sidebar then
             local okBtn, btn = pcall(function() return screen[key] end)
             if not (okBtn and valid(btn)) then return end
