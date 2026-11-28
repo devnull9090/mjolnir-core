@@ -70,61 +70,66 @@ def draw_l_brackets(draw: ImageDraw.ImageDraw, x0: int, y0: int, x1: int, y1: in
 
 def draw_panel_glass() -> Image.Image:
     """256x256 9-slice translucent UNSC glass panel with luminous cyan top
-    hairline, subtle micro-dot grid, soft top edge bloom, and L-brackets.
-    Designed for SlateBrush BOX margin = 48/256 (0.1875)."""
+    hairline, subtle micro-dot grid, clipped soft top bloom, and flush corner
+    L-brackets. Designed for SlateBrush BOX margin = 0.14 (~36px)."""
     size = 256
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     inset = 6
     x0, y0, x1, y1 = inset, inset, size - 1 - inset, size - 1 - inset
 
     # Deep translucent teal-navy gradient body
-    draw_vertical_gradient(img, (*NAVY_TOP, 212), (*NAVY_BOT, 224), (x0, y0, x1 + 1, y1 + 1))
+    draw_vertical_gradient(img, (*NAVY_TOP, 214), (*NAVY_BOT, 226), (x0, y0, x1 + 1, y1 + 1))
 
     # Faint UNSC tactical micro-dot grid (matches Campaign Evolved's Last Played box)
     dots = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(dots)
-    for y in range(y0 + 10, y1 - 8, 12):
-        for x in range(x0 + 10, x1 - 8, 12):
+    for y in range(y0 + 14, y1 - 12, 12):
+        for x in range(x0 + 14, x1 - 12, 12):
             d.point((x, y), fill=(*CYAN_MID, 16))
     img = Image.alpha_composite(img, dots)
 
-    # Soft cyan edge bloom just below the top rail
+    # Soft cyan edge bloom strictly clipped inside the panel bounds
     def top_bloom(draw):
-        draw.rectangle((x0 + 6, y0, x1 - 6, y0 + 5), fill=(*CYAN_BRIGHT, 115))
-    img = add_glow_layer(img, top_bloom, radius=10)
+        draw.rectangle((x0 + 8, y0, x1 - 8, y0 + 5), fill=(*CYAN_BRIGHT, 115))
+    bloom_raw = add_glow_layer(Image.new("RGBA", (size, size), (0, 0, 0, 0)), top_bloom, radius=10)
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).rectangle((x0, y0, x1, y1), fill=255)
+    bloom_clipped = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    bloom_clipped.paste(bloom_raw, (0, 0), mask)
+    img = Image.alpha_composite(img, bloom_clipped)
 
     # Crisp 1px luminous frame border + 2px glowing top edge
     frame = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     fd = ImageDraw.Draw(frame)
-    fd.rectangle((x0, y0, x1, y1), outline=(*CYAN_DIM, 115), width=1)
-    fd.rectangle((x0, y0, x1, y0 + 1), fill=(*CYAN_BRIGHT, 220))
+    fd.rectangle((x0, y0, x1, y1), outline=(*CYAN_DIM, 130), width=1)
+    fd.rectangle((x0, y0, x1, y0 + 1), fill=(*CYAN_BRIGHT, 225))
     # Subtle bottom hairline
-    fd.rectangle((x0 + 24, y1, x1 - 24, y1), fill=(*CYAN_MID, 95))
+    fd.rectangle((x0 + 24, y1, x1 - 24, y1), fill=(*CYAN_MID, 105))
     img = Image.alpha_composite(img, frame)
 
-    # Corner L-brackets with soft glow
+    # Corner L-brackets flush on the panel corners (no floating gap)
     def brackets_glow(draw):
-        draw_l_brackets(draw, x0 - 2, y0 - 2, x1 + 2, y1 + 2, 18, 2, (*CYAN_BRIGHT, 140))
+        draw_l_brackets(draw, x0, y0, x1, y1, 18, 2, (*CYAN_BRIGHT, 145))
     img = add_glow_layer(img, brackets_glow, radius=3)
 
     crisp = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw_l_brackets(ImageDraw.Draw(crisp), x0 - 2, y0 - 2, x1 + 2, y1 + 2, 18, 2, (*CYAN_BRIGHT, 235))
+    draw_l_brackets(ImageDraw.Draw(crisp), x0, y0, x1, y1, 18, 2, (*CYAN_BRIGHT, 240))
     return Image.alpha_composite(img, crisp)
 
 
 def draw_panel_subtle() -> Image.Image:
-    """256x256 9-slice secondary inner glass card (lobby tiles, variant cards,
-    settings box). Designed for BOX margin = 32/256 (0.125)."""
+    """256x256 9-slice secondary inner glass card (lobby tiles, map sub-card,
+    search bar). Designed for BOX margin = 0.08."""
     size = 256
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     inset = 2
     x0, y0, x1, y1 = inset, inset, size - 1 - inset, size - 1 - inset
-    draw_vertical_gradient(img, (11, 31, 46, 165), (6, 18, 29, 185), (x0, y0, x1 + 1, y1 + 1))
+    draw_vertical_gradient(img, (13, 36, 54, 172), (7, 21, 34, 192), (x0, y0, x1 + 1, y1 + 1))
 
     frame = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     fd = ImageDraw.Draw(frame)
-    fd.rectangle((x0, y0, x1, y1), outline=(*CYAN_DIM, 88), width=1)
-    fd.rectangle((x0 + 1, y0, x1 - 1, y0), fill=(*CYAN_MID, 145))
+    fd.rectangle((x0, y0, x1, y1), outline=(*CYAN_MID, 108), width=1)
+    fd.rectangle((x0 + 1, y0, x1 - 1, y0), fill=(*CYAN_BRIGHT, 160))
     return Image.alpha_composite(img, frame)
 
 
@@ -136,19 +141,22 @@ def draw_halo_button(
     pip_rgba: tuple | None = None,
     glow_rgba: tuple | None = None,
     left_bar_rgba: tuple | None = None,
+    mx: int = 7,
+    my: int = 4,
+    left_bar_w: int = 4,
 ) -> Image.Image:
     """256x76 9-slice Campaign Evolved button matching MJOLNIR's natural button
-    height (~68-80px) so twin edge pips stay crisp at 1:1. Margin = (36/256, 18/76)."""
+    height (~68-80px) so twin edge pips stay crisp at 1:1.
+    Action buttons use mx=7 (margin 0.09); flush rows/tiles use mx=2 (margin 0.06)."""
     w, h = 256, 76
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    mx, my = 10, 4
     x0, y0, x1, y1 = mx, my, w - 1 - mx, h - 1 - my
 
     # Optional outer glow halo
     if glow_rgba:
         def outer_glow(draw):
-            draw.rectangle((x0, y0, x1, y1), outline=glow_rgba, width=4)
-        img = add_glow_layer(img, outer_glow, radius=6)
+            draw.rectangle((x0, y0, x1, y1), outline=glow_rgba, width=3)
+        img = add_glow_layer(img, outer_glow, radius=5 if mx >= 6 else 2)
 
     # Interior vertical gradient
     body = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -160,7 +168,6 @@ def draw_halo_button(
         def inner_bloom(draw):
             draw.ellipse((x0 + 28, y0 - 14, x1 - 28, y0 + 28), fill=(glow_rgba[0], glow_rgba[1], glow_rgba[2], 65))
         bloom = add_glow_layer(Image.new("RGBA", (w, h), (0, 0, 0, 0)), inner_bloom, radius=14)
-        # Clip bloom strictly inside button bounds
         mask = Image.new("L", (w, h), 0)
         ImageDraw.Draw(mask).rectangle((x0, y0, x1, y1), fill=255)
         clipped = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -173,30 +180,29 @@ def draw_halo_button(
     ld.rectangle((x0, y0, x1, y1), outline=border_rgba, width=1)
     ld.rectangle((x0 + 1, y0, x1 - 1, y0 + 1), fill=top_edge_rgba)
     if left_bar_rgba:
-        ld.rectangle((x0, y0, x0 + 4, y1), fill=left_bar_rgba)
+        ld.rectangle((x0, y0, x0 + left_bar_w - 1, y1), fill=left_bar_rgba)
     img = Image.alpha_composite(img, lines)
 
-    # Signature Campaign Evolved twin horizontal focus pips (left & right edges)
+    # Signature Campaign Evolved twin horizontal focus pips (left & right edges),
+    # kept compact (x0-4 .. x0+5) so button labels never overlap them.
     if pip_rgba:
         cy = (y0 + y1) // 2
 
         def draw_pips(draw, color, pad=0):
-            # Left diamond-pill pip straddling x0
             draw.polygon([
-                (x0 - 5 - pad, cy),
-                (x0, cy - 4 - pad),
-                (x0 + 6 + pad, cy),
-                (x0, cy + 4 + pad),
+                (x0 - 4 - pad, cy),
+                (x0, cy - 3 - pad),
+                (x0 + 5 + pad, cy),
+                (x0, cy + 3 + pad),
             ], fill=color)
-            # Right diamond-pill pip straddling x1
             draw.polygon([
-                (x1 - 6 - pad, cy),
-                (x1, cy - 4 - pad),
-                (x1 + 5 + pad, cy),
-                (x1, cy + 4 + pad),
+                (x1 - 5 - pad, cy),
+                (x1, cy - 3 - pad),
+                (x1 + 4 + pad, cy),
+                (x1, cy + 3 + pad),
             ], fill=color)
 
-        img = add_glow_layer(img, lambda dr: draw_pips(dr, (*pip_rgba[:3], 180), pad=2), radius=5)
+        img = add_glow_layer(img, lambda dr: draw_pips(dr, (*pip_rgba[:3], 175), pad=2), radius=4)
         crisp = Image.new("RGBA", (w, h), (0, 0, 0, 0))
         draw_pips(ImageDraw.Draw(crisp), pip_rgba, pad=0)
         img = Image.alpha_composite(img, crisp)
@@ -344,47 +350,71 @@ ASSETS = {
     "PanelGlass": draw_panel_glass,
     "PanelSubtle": draw_panel_subtle,
     "BtnCyanIdle": lambda: draw_halo_button(
-        (12, 33, 49, 130), (7, 21, 33, 148),
-        (*CYAN_DIM, 82), (*CYAN_MID, 125),
+        (16, 44, 66, 165), (9, 26, 41, 182),
+        (*CYAN_MID, 145), (*CYAN_BRIGHT, 175),
+        left_bar_rgba=(*CYAN_MID, 165),
+        left_bar_w=2,
     ),
     "BtnCyanHover": lambda: draw_halo_button(
-        (24, 78, 108, 210), (14, 52, 74, 222),
-        (*CYAN_BRIGHT, 235), (210, 246, 255, 245),
-        pip_rgba=(220, 248, 255, 255),
+        (26, 84, 118, 215), (15, 56, 80, 228),
+        (*CYAN_BRIGHT, 240), (215, 248, 255, 248),
+        pip_rgba=(225, 250, 255, 255),
         glow_rgba=(*CYAN_BRIGHT, 145),
         left_bar_rgba=(*CYAN_BRIGHT, 240),
     ),
     "BtnCyanPress": lambda: draw_halo_button(
-        (38, 110, 145, 235), (22, 74, 104, 242),
-        (215, 248, 255, 255), (240, 252, 255, 255),
+        (40, 116, 152, 238), (24, 78, 108, 244),
+        (220, 248, 255, 255), (242, 252, 255, 255),
         pip_rgba=(255, 255, 255, 255),
         glow_rgba=(*CYAN_BRIGHT, 200),
-        left_bar_rgba=(235, 252, 255, 255),
+        left_bar_rgba=(238, 252, 255, 255),
     ),
     "BtnGoldIdle": lambda: draw_halo_button(
-        (92, 69, 22, 178), (58, 42, 13, 198),
-        (*GOLD_MID, 195), (*GOLD_BRIGHT, 225),
-        pip_rgba=(*GOLD_BRIGHT, 215),
-        glow_rgba=(*GOLD_MID, 90),
-        left_bar_rgba=(*GOLD_BRIGHT, 225),
+        (96, 72, 23, 185), (60, 44, 14, 205),
+        (*GOLD_MID, 205), (*GOLD_BRIGHT, 235),
+        pip_rgba=(*GOLD_BRIGHT, 225),
+        glow_rgba=(*GOLD_MID, 95),
+        left_bar_rgba=(*GOLD_BRIGHT, 230),
     ),
     "BtnGoldHover": lambda: draw_halo_button(
-        (142, 106, 32, 225), (96, 70, 20, 235),
-        (*GOLD_BRIGHT, 250), (255, 242, 190, 255),
-        pip_rgba=(255, 248, 215, 255),
+        (146, 110, 34, 228), (98, 72, 22, 238),
+        (*GOLD_BRIGHT, 252), (255, 244, 196, 255),
+        pip_rgba=(255, 248, 218, 255),
         glow_rgba=(*GOLD_BRIGHT, 185),
-        left_bar_rgba=(255, 242, 190, 255),
+        left_bar_rgba=(255, 244, 196, 255),
     ),
     "BtnGoldPress": lambda: draw_halo_button(
-        (178, 134, 42, 242), (125, 92, 28, 246),
-        (255, 246, 205, 255), (255, 252, 230, 255),
+        (180, 136, 44, 244), (126, 94, 30, 248),
+        (255, 248, 210, 255), (255, 252, 235, 255),
         pip_rgba=(255, 255, 245, 255),
         glow_rgba=(*GOLD_BRIGHT, 220),
-        left_bar_rgba=(255, 252, 230, 255),
+        left_bar_rgba=(255, 252, 235, 255),
     ),
     "BtnDisabled": lambda: draw_halo_button(
-        (10, 16, 22, 95), (7, 12, 17, 105),
-        (45, 65, 80, 60), (55, 80, 98, 70),
+        (10, 18, 25, 105), (7, 13, 19, 118),
+        (52, 74, 92, 72), (62, 88, 108, 82),
+    ),
+    # Flush 9-slice row/tile/chip chrome (mx=2, my=2, no protruding pips) tuned
+    # so Lua's SetBackgroundColor(CHOSEN) lights up unmistakably as UNSC cyan glass.
+    "RowCyanIdle": lambda: draw_halo_button(
+        (20, 52, 74, 138), (13, 35, 51, 156),
+        (*CYAN_MID, 112), (*CYAN_BRIGHT, 138),
+        left_bar_rgba=(*CYAN_MID, 145),
+        mx=2, my=2, left_bar_w=2,
+    ),
+    "RowCyanHover": lambda: draw_halo_button(
+        (30, 92, 126, 212), (18, 62, 88, 226),
+        (*CYAN_BRIGHT, 235), (212, 246, 255, 245),
+        glow_rgba=(*CYAN_BRIGHT, 120),
+        left_bar_rgba=(*CYAN_BRIGHT, 245),
+        mx=2, my=2, left_bar_w=3,
+    ),
+    "RowCyanPress": lambda: draw_halo_button(
+        (46, 128, 166, 238), (28, 86, 118, 244),
+        (220, 248, 255, 255), (242, 252, 255, 255),
+        glow_rgba=(*CYAN_BRIGHT, 180),
+        left_bar_rgba=(240, 252, 255, 255),
+        mx=2, my=2, left_bar_w=4,
     ),
     "HeaderRuleFade": draw_header_rule_fade,
     "LeftRail": draw_left_rail,

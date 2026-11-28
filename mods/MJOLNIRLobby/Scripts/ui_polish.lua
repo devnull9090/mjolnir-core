@@ -150,9 +150,12 @@ local SCREEN_FONTS = {
     mapselect = {
         { "ListCount", "Oxanium", "Bold", 120 },
         { "SearchClearLabel", "Oxanium", "Bold", 80 },
-        { "FilterGameLabel", "Oxanium", "Bold", 90 },
-        { "FilterSourceLabel", "Oxanium", "Bold", 90 },
-        { "FilterInstalledLabel", "Oxanium", "Bold", 90 },
+        { "FilterGameCaption", "Oxanium", "Bold", 90 },
+        { "FilterGameValue", "Oxanium", "SemiBold", 50 },
+        { "FilterSourceCaption", "Oxanium", "Bold", 90 },
+        { "FilterSourceValue", "Oxanium", "SemiBold", 50 },
+        { "FilterInstalledCaption", "Oxanium", "Bold", 90 },
+        { "FilterInstalledValue", "Oxanium", "SemiBold", 50 },
         { "MapTitle", "Oxanium", "SemiBold", 45 },
         { "MapTags", "Oxanium", "Medium", 80 },
         { "MapDescription", "NormativePro", "Regular", 0 },
@@ -189,19 +192,25 @@ local SCREEN_FONTS = {
     findgames = {
         { "ListCount", "Oxanium", "Bold", 120 },
         { "ListOrder", "Oxanium", "Medium", 80 },
-        { "FilterGameCaption", "Oxanium", "Bold", 90 },
-        { "FilterGameValue", "Oxanium", "SemiBold", 50 },
-        { "FilterModeCaption", "Oxanium", "Bold", 90 },
-        { "FilterModeValue", "Oxanium", "SemiBold", 50 },
-        { "FilterOpenLabel", "Oxanium", "Bold", 85 },
-        { "FilterInstalledLabel", "Oxanium", "Bold", 85 },
-        { "FilterCompatibleLabel", "Oxanium", "Bold", 85 },
+        { "FilterTypeCaption", "Oxanium", "Bold", 90 },
+        { "FilterTypeValue", "Oxanium", "SemiBold", 50 },
+        { "FilterMapCaption", "Oxanium", "Bold", 90 },
+        { "FilterMapValue", "Oxanium", "SemiBold", 50 },
+        { "FilterFullLabel", "Oxanium", "Bold", 85 },
+        { "FilterMatchLabel", "Oxanium", "Bold", 85 },
+        { "FilterHaveLabel", "Oxanium", "Bold", 85 },
         { "HeadNameLabel", "Oxanium", "Bold", 100 },
         { "HeadMapLabel", "Oxanium", "Bold", 100 },
         { "HeadTypeLabel", "Oxanium", "Bold", 100 },
         { "HeadPlayersLabel", "Oxanium", "Bold", 100 },
         { "HeadPingLabel", "Oxanium", "Bold", 100 },
         { "HeadStateLabel", "Oxanium", "Bold", 100 },
+        { "HeadNameSort", "Oxanium", "Bold", 0 },
+        { "HeadMapSort", "Oxanium", "Bold", 0 },
+        { "HeadTypeSort", "Oxanium", "Bold", 0 },
+        { "HeadPlayersSort", "Oxanium", "Bold", 0 },
+        { "HeadPingSort", "Oxanium", "Bold", 0 },
+        { "HeadStateSort", "Oxanium", "Bold", 0 },
         { "GameKicker", "Oxanium", "Bold", 130 },
         { "GameTitle", "Oxanium", "SemiBold", 45 },
         { "GameHost", "NormativePro", "Medium", 0 },
@@ -229,6 +238,11 @@ local SCREEN_FONTS = {
         { "GamePlayers", "Oxanium", "SemiBold", 30, nil, 40 },
         { "GamePing", "Oxanium", "SemiBold", 25, nil, 40 },
         { "GameState", "Oxanium", "Bold", 60, nil, 40 },
+        { "GameNameNote", "NormativePro", "Regular", 0, nil, 40 },
+        { "GameMapNote", "NormativePro", "Regular", 0, nil, 40 },
+        { "GameTypeNote", "NormativePro", "Regular", 0, nil, 40 },
+        { "GamePlayersNote", "NormativePro", "Regular", 0, nil, 40 },
+        { "GameStateNote", "NormativePro", "Regular", 0, nil, 40 },
     },
     settings = {
         { "ModeLine", "Oxanium", "Bold", 120 },
@@ -252,11 +266,13 @@ local SCREEN_FONTS = {
         { "ScoreH", "Oxanium", "Bold", 110 },
         { "KillsH", "Oxanium", "Bold", 110 },
         { "DeathsH", "Oxanium", "Bold", 110 },
+        { "MedalsH", "Oxanium", "Bold", 110 },
         { "Marker", "Oxanium", "Bold", 90, nil, 20 },
         { "Name", "NormativePro", "Medium", 0, nil, 20 },
         { "Score", "Oxanium", "SemiBold", 25, nil, 20 },
         { "Kills", "Oxanium", "Regular", 20, nil, 20 },
         { "Deaths", "Oxanium", "Regular", 20, nil, 20 },
+        { "Medals", "Oxanium", "SemiBold", 20, nil, 20 },
         { "ResultsHint", "Oxanium", "Medium", 80 },
         { "VoteKicker", "Oxanium", "Bold", 140 },
         { "VoteTimer", "Oxanium", "SemiBold", 50 },
@@ -268,20 +284,51 @@ local SCREEN_FONTS = {
         { "Vote", "Oxanium", "Bold", 50, "Label", 4 },
         { "VoteMode", "Oxanium", "Medium", 75, nil, 4 },
         { "VoteTagText", "Oxanium", "Bold", 90, nil, 4 },
+        { "VoteMineText", "Oxanium", "Bold", 90, nil, 4 },
         { "VoteCount", "Oxanium", "Bold", 30, nil, 4 },
+        { "MineKicker", "Oxanium", "Bold", 130 },
+        { "Mine", "NormativePro", "Medium", 0, "Cap", 9 },
+        { "MineNote", "NormativePro", "Regular", 0 },
         { "ChartKicker", "Oxanium", "Bold", 130 },
+        { "ChartMax", "Oxanium", "Medium", 20 },
+        { "ChartStart", "Oxanium", "Medium", 20 },
+        { "ChartEnd", "Oxanium", "Medium", 20 },
+        { "Legend", "NormativePro", "Medium", 0, nil, 4 },
         { "BarsKicker", "Oxanium", "Bold", 130 },
+        { "BarsNote", "NormativePro", "Regular", 0 },
+        { "BarsStart", "Oxanium", "Medium", 20 },
+        { "BarsEnd", "Oxanium", "Medium", 20 },
         { "Best", "Oxanium", "Bold", 110, "Label", 4 },
         { "Best", "Oxanium", "ExtraBold", 30, "Value", 4 },
         { "Best", "NormativePro", "Medium", 0, "Name", 4 },
         { "Pod", "Oxanium", "Bold", 80, "Place", 3 },
         { "Pod", "NormativePro", "Bold", 0, "Name", 3 },
         { "Pod", "Oxanium", "Bold", 30, "Score", 3 },
+        { "Pod", "NormativePro", "Regular", 0, "Line", 3 },
+        { "ReportKicker", "Oxanium", "Bold", 140 },
+        { "ReportName", "Oxanium", "SemiBold", 40 },
+        { "ReportCount", "NormativePro", "Regular", 0 },
+        { "ReasonKicker", "Oxanium", "Bold", 130 },
+        { "Reason", "Oxanium", "SemiBold", 70, "Label", 7 },
+        { "DetailKicker", "Oxanium", "Bold", 130 },
+        { "ReportStatus", "NormativePro", "Regular", 0 },
+        { "ReportSendLabel", "Oxanium", "Bold", 90 },
+        { "ReportCancelLabel", "Oxanium", "SemiBold", 80 },
     },
     download = {
         { "Kicker", "Oxanium", "Bold", 140 },
         { "MapTitle", "Oxanium", "SemiBold", 50 },
         { "Reason", "NormativePro", "Regular", 0 },
+        { "InfoAuthorLabel", "Oxanium", "Bold", 100 },
+        { "InfoAuthorValue", "NormativePro", "Medium", 0 },
+        { "InfoRatingLabel", "Oxanium", "Bold", 100 },
+        { "InfoRatingValue", "Oxanium", "SemiBold", 35 },
+        { "InfoDownloadsLabel", "Oxanium", "Bold", 100 },
+        { "InfoDownloadsValue", "Oxanium", "SemiBold", 35 },
+        { "InfoSizeLabel", "Oxanium", "Bold", 100 },
+        { "InfoSizeValue", "Oxanium", "SemiBold", 35 },
+        { "InfoVersionLabel", "Oxanium", "Bold", 100 },
+        { "InfoVersionValue", "Oxanium", "Medium", 35 },
         { "MapDescription", "NormativePro", "Regular", 0 },
         { "ProgressText", "Oxanium", "SemiBold", 55 },
         { "DownloadLabel", "Oxanium", "Bold", 90 },
@@ -545,9 +592,33 @@ function M.new(deps)
         end
     end
 
-    --- Tactile horizontal glide on a hovered button's label.
-    function self.hoverButton(screen, key, entered)
+    --- Tactile hover micro-motion: horizontal label glide on left-aligned sidebar
+    --- buttons (Lobby / Game Settings), gentle scale lift on centered action buttons
+    --- so centered labels stay dead-center between their twin focus pips.
+    function self.hoverButton(screen, key, entered, kind)
         if not (valid(screen) and key) then return end
+        local sidebar = (kind == nil or kind == "lobby" or kind == "settings")
+        if not sidebar then
+            local okBtn, btn = pcall(function() return screen[key] end)
+            if not (okBtn and valid(btn)) then return end
+            local t = now()
+            pcall(function() btn:SetRenderTransformPivot({ X = 0.5, Y = 0.5 }) end)
+            local k = trackKey(btn, "hover_scale")
+            local existing = tracks[k]
+            local curS = 1.0
+            if existing then
+                local p = clamp01((t - existing.at) / existing.dur)
+                curS = existing.sx0 + (existing.sx1 - existing.sx0) * easeOutCubic(p)
+            else
+                curS = entered and 1.0 or 1.022
+            end
+            setTrack(btn, "hover_scale", {
+                at = t, dur = M.HOVER_DURATION,
+                sx0 = curS, sx1 = entered and 1.022 or 1.0,
+                sy0 = curS, sy1 = entered and 1.022 or 1.0,
+            })
+            return
+        end
         local okL, target = pcall(function() return screen[key .. "Label"] end)
         if not (okL and valid(target)) then return end
         local t = now()
@@ -638,12 +709,12 @@ function M.new(deps)
         local hoverKey = event:match("^btn_hover:(.+)$")
         if hoverKey then
             self.sound("Hover")
-            self.hoverButton(screen, hoverKey, true)
+            self.hoverButton(screen, hoverKey, true, kind)
             return true
         end
         local unhoverKey = event:match("^btn_unhover:(.+)$")
         if unhoverKey then
-            self.hoverButton(screen, unhoverKey, false)
+            self.hoverButton(screen, unhoverKey, false, kind)
             return true
         end
 

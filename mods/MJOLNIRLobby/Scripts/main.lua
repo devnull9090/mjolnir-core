@@ -2702,8 +2702,8 @@ end
 -- on the right. Every change is saved at once and reaches the fireteam with
 -- the next lobby message.
 
-local SELECTED_PAGE = { R = 0.12, G = 0.32, B = 0.43, A = 0.85 }
-local NORMAL_PAGE = { R = 0.025, G = 0.06, B = 0.09, A = 0.28 }
+local SELECTED_PAGE = { R = 2.6, G = 3.4, B = 3.8, A = 1 }
+local NORMAL_PAGE = { R = 1, G = 1, B = 1, A = 1 }
 
 local function settingsOptions()
     return Settings.page(Tweak.page, Game.mode and Game.mode.id)

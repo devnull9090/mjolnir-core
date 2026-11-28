@@ -20,10 +20,10 @@ local ICONS = { slayer = "Slayer", team_slayer = "TeamSlayer", ctf = "Ctf", assa
 local ICON_STAND_INS = { Juggernaut = "Slayer", Race = "Ctf" }
 local OLD_TILES, FAMILY_TILES, VARIANT_BUTTONS = 6, 7, 5
 local NORMAL = { R = 1, G = 1, B = 1, A = 1 }
-local CHOSEN = { R = 2.0, G = 2.8, B = 3.0, A = 1 }
+local CHOSEN = { R = 2.6, G = 3.6, B = 4.0, A = 1 }
 local WHITE = { R = 0.88, G = 0.95, B = 1, A = 1 }
-local CYAN = { R = 0.46, G = 0.79, B = 0.94, A = 1 }
-local GREY = { R = 0.46, G = 0.61, B = 0.70, A = 1 }
+local CYAN = { R = 0.56, G = 0.88, B = 1.0, A = 1 }
+local GREY = { R = 0.64, G = 0.78, B = 0.87, A = 1 }
 local GOLD = { R = 1, G = 0.80, B = 0.35, A = 1 }
 local function text(w, value)
     pcall(function() w:SetText(FText(value or "")) end)
