@@ -7322,6 +7322,30 @@ local function loadMegaloSwitch()
             -- simulation loads, so every machine runs the same rules.
             local settingsText = readFile(MOD_DIR .. "\\variant_settings.txt")
             local parsed = VariantSettings.parse(settingsText)
+            -- The map's starting kit, which the source map's tags give per
+            -- game type (level.starting_equipment): the variant's weapon and
+            -- grenade traits for this match's family, written before the
+            -- host's settings so a host's own choice still wins. The level
+            -- file is the same on every machine, so each stages the same
+            -- variant. A map without a kit keeps the variant's own traits.
+            if bytes then
+                local kitMode = (Teams.descriptors[name] or {}).vehicleMode or name
+                local kit, entry = VariantSettings.kitSettings(level.starting_equipment,
+                    VehicleSets.spawnFamily(kitMode, level.game))
+                if kit then
+                    local patched, why = VariantSettings.apply(bytes, kit)
+                    if patched then
+                        bytes = patched
+                        Log(string.format("multiplayer switch: starting kit %s, %d frag, %d plasma%s",
+                            #(entry.weapons or {}) > 0 and table.concat(entry.weapons, " + ") or "no weapon",
+                            entry.frag_grenades or 0, entry.plasma_grenades or 0,
+                            entry.profile and " (the map's starting profile)" or ""))
+                    else
+                        Log("multiplayer switch: starting kit not applied (" .. tostring(why)
+                            .. "); the variant's own weapons stand")
+                    end
+                end
+            end
             if bytes and settingsText and settingsText:match("%S") then
                 local settings = VariantSettings.forMode(parsed, name, Teams.descriptors[name])
                 local patched, why = VariantSettings.apply(bytes, settings)
