@@ -984,6 +984,19 @@ whether the timer starts when the pickup is taken or when it is gone (the
 tag's spawn timer type), and Halo 2's flag that deletes the old object when
 the new one spawns.
 
+The game's battle rifle is the one weapon whose tag differs from the rest
+there: its multiplayer object is of type "ordinary" with the timer starting
+"on death", where every other weapon is of type "weapon" and starts "on
+disturbance". Measured on Lockout (2026-11-28): a sniper rifle taken from its
+spot had a new one there 42 seconds later, its spawn time, while the first
+was still in hand. A battle rifle taken from its spot had none after 90
+seconds in hand; once it was dropped and destroyed, a new one was there
+within 45 seconds. Halo 2 starts the timer of most of its battle rifles on
+pickup, so a map here has fewer battle rifles in play than Halo 2's while
+players hold them. That is a property of the game's tag, the same on every
+map; changing it means shipping the weapon tag with the other weapons'
+multiplayer object settings in the runtime pack, which is not done.
+
 A collection of several permutations is drawn from by weight at every spawn
 (Coagulation's two `group_all_powerups`: overshield 90, camouflage 70). One
 placement here is one object, so the likeliest goes in; the staging keeps the
@@ -1015,7 +1028,13 @@ halo2.dll 0x68ab10 and 0x6aa460):
   entries at all). Halo 2 has no such rule, and each of its 25 maps has one
   entry for every game.
 - A game variant can replace either weapon. Only the map's own kit is
-  converted: CE's "custom" starting equipment, Halo 2's "map default".
+  converted: CE's "custom" starting equipment, Halo 2's "map default". That
+  is what the stock game types play. CE skips the scenario's kit only when
+  the variant's flag 0x20 is set (halo1.dll 0xaa6084), and of the 38 variants
+  MCC ships for Halo 1 (`halo1/game_variants`, flags at +0x38) only six set
+  it: Classic Slayer Pro, CTF Pro and King Pro, Classic Rockets and Snipers,
+  and Team Oddball. Slayer, CTF, King, Oddball, Juggernaut, Race and Assault,
+  and their Classic forms, all take the map's.
 
 Halo 2's kits: the SMG on 22 maps; the plasma rifle on Midship (plasma
 grenades) and Waterworks; the battle rifle and SMG on Tombstone; no grenades
@@ -1076,6 +1095,13 @@ installed releases:
   a plasma pistol and no grenades.
 - Backwash's energy sword, which Halo 2 places in CTF, Slayer, Oddball and
   Juggernaut, was absent in King and present in Slayer ("spawn sets 1").
+- Wizard, whose tags stack two layouts: CTF placed its 2 assault rifles, 4
+  pistols, 2 plasma rifles, 2 rocket launchers, 2 shotguns and 2 active
+  camouflages, and gave the host a shotgun and no grenades; Slayer placed 1
+  assault rifle, 2 pistols, 2 needlers, 1 plasma rifle, 2 active camouflages
+  and 2 overshields, and gave a plasma pistol and no grenades. Neither placed
+  the other's. That is a set holding `ctf`, filtered beside the CTF variant's
+  own six.
 - The pickups the tag map newly names all came in with Unreal actors of
   their own: the battle rifle, the red plasma rifle, the needle rifle, the
   sentinel gun, the ammo box, and battle rifle and shotgun ammo.
