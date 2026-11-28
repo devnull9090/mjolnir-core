@@ -4,37 +4,56 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Blocks,
   BookOpen,
-  Gamepad2,
-  Map as MapIcon,
-  Menu,
-  Package,
-  X,
   Download,
+  Gamepad2,
   KeyRound,
   LogOut,
+  Map as MapIcon,
+  Menu,
   Newspaper,
+  Package,
+  Radio,
   ScrollText,
   ShieldCheck,
-  Wrench,
   Swords,
+  Trophy,
   UserRound,
+  Wrench,
+  X,
 } from "lucide-react";
 import { DiscordIcon, GitHubIcon } from "./icons";
 import { useHub } from "./HubKit";
 import { isActive } from "./nav";
 
-const navLinks = [
-  { href: "/multiplayer", label: "Multiplayer", icon: Gamepad2 },
-  { href: "/docs", label: "Docs", icon: BookOpen },
-  { href: "/mods", label: "Mods", icon: Package },
-  { href: "/maps", label: "Maps", icon: MapIcon },
-  { href: "/games", label: "Games", icon: Gamepad2 },
-  { href: "/matches", label: "Matches", icon: Swords },
-  { href: "/tools", label: "Tools", icon: Wrench },
-  { href: "/changelog", label: "Changelog", icon: ScrollText },
-  { href: "/blog", label: "Blog", icon: Newspaper },
-  { href: "/download", label: "Download", icon: Download },
+const navSections = [
+  {
+    heading: "Play",
+    links: [
+      { href: "/multiplayer", label: "Multiplayer", icon: Gamepad2 },
+      { href: "/games", label: "Live Games", icon: Radio },
+      { href: "/matches", label: "Matches", icon: Swords },
+      { href: "/leaderboards", label: "Players", icon: Trophy },
+    ],
+  },
+  {
+    heading: "Workshop",
+    links: [
+      { href: "/maps", label: "Maps", icon: MapIcon },
+      { href: "/mods", label: "Mods", icon: Package },
+      { href: "/forge", label: "Forge Packs", icon: Blocks },
+    ],
+  },
+  {
+    heading: "Create & News",
+    links: [
+      { href: "/docs", label: "Docs", icon: BookOpen },
+      { href: "/tools", label: "Tools", icon: Wrench },
+      { href: "/blog", label: "Blog", icon: Newspaper },
+      { href: "/changelog", label: "Changelog", icon: ScrollText },
+    ],
+  },
 ];
 
 const externalLinks = [
@@ -188,25 +207,32 @@ export function MobileNav() {
           )}
           {ready && <div className="border-t border-border my-4" />}
 
-          {navLinks.map(({ href, label, icon: Icon }) => {
-            const active = isActive(href, pathname);
-            return (
-              <Link
-                key={href}
-                href={href}
-                onClick={close}
-                aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium transition-colors ${
-                  active
-                    ? "bg-gold/10 text-gold"
-                    : "text-text-muted hover:text-foreground hover:bg-surface-raised"
-                }`}
-              >
-                {Icon && <Icon aria-hidden className="w-5 h-5" />}
-                {label}
-              </Link>
-            );
-          })}
+          {navSections.map((section, sIdx) => (
+            <div key={section.heading} className={sIdx > 0 ? "pt-3" : undefined}>
+              <p className="px-3 pb-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-text-dim">
+                {section.heading}
+              </p>
+              {section.links.map(({ href, label, icon: Icon }) => {
+                const active = isActive(href, pathname);
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    onClick={close}
+                    aria-current={active ? "page" : undefined}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-base font-medium transition-colors ${
+                      active
+                        ? "bg-gold/10 text-gold"
+                        : "text-text-muted hover:text-foreground hover:bg-surface-raised"
+                    }`}
+                  >
+                    <Icon aria-hidden className="w-5 h-5" />
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
 
           <div className="border-t border-border my-4" />
 
