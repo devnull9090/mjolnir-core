@@ -36,6 +36,11 @@ end
 local MOD_DIR = modDirectory()
 local Json = dofile(MOD_DIR .. "\\Scripts\\json.lua")
 local UI = dofile(MOD_DIR .. "\\Scripts\\ui.lua")
+UI.polish = dofile(MOD_DIR .. "\\Scripts\\ui_polish.lua").new({
+    valid = UI.valid,
+    playerController = UI.playerController,
+    log = UI.log,
+})
 local Net = dofile(MOD_DIR .. "\\Scripts\\net.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local SquadPanel = dofile(MOD_DIR .. "\\Scripts\\squadpanel.lua")
@@ -682,6 +687,7 @@ local function pushScreen(classPath)
     setText(screen.Watermark, BuildLine.text(MODS_DIR))
     -- The emblem opens the site (Pick.openSite); it is cooked unclickable.
     pcall(function() screen.LogoButton:SetVisibility(0) end)
+    UI.polish.adopt(screen, classPath)
     return screen
 end
 
@@ -1147,6 +1153,7 @@ local function hook()
         local okE, event = pcall(function() return name:get():ToString() end)
         if not okE then return end
         ExecuteInGameThread(function()
+            if UI.polish.onEvent(Dl.screen, event, "download") then return end
             local handler = EVENTS[event]
             if handler then
                 local ok, err = pcall(handler)
@@ -2783,6 +2790,13 @@ end
 
 --- One event from a screen: "start", "map:3", "hover:3", "mode:1" ...
 local function onScreenEvent(isLobby, event, source)
+    local activeScreen = (isLobby == true and Lobby) or (isLobby == false and Select)
+        or (isLobby == "find" and Find) or (isLobby == "settings" and Tweak.screen)
+        or (isLobby == "gametype" and source) or nil
+    local screenKind = (isLobby == true and "lobby") or (isLobby == false and "mapselect")
+        or (isLobby == "find" and "findgames") or (isLobby == "settings" and "settings")
+        or (isLobby == "gametype" and "gametype") or nil
+    if UI.polish.onEvent(activeScreen, event, screenKind) then return end
     if event == "logo" then
         local screens = { [true] = { Lobby, "lobby" }, [false] = { Select, "map-select" },
             find = { Find, "find-games" }, settings = { Tweak.screen, "game-settings" },
@@ -2893,6 +2907,7 @@ local function adoptLobby(screen)
     hookScreenEvents()
     setText(Lobby.Watermark, BuildLine.text(MODS_DIR))
     pcall(function() Lobby.LogoButton:SetVisibility(0) end)
+    UI.polish.adopt(Lobby, LOBBY_CLASS)
     -- The cooked footer warns, in gold, that the mods are not running; the
     -- status lines below replace it, in the footer's usual grey.
     pcall(function()
@@ -3634,6 +3649,10 @@ local function drawVote()
                 Post.voteBar = width
                 pcall(function() s.VoteBarFillSize:SetWidthOverride(width) end)
             end
+            UI.polish.trackVote(s, { active = true, left = left, leftAt = os.clock(),
+                total = VOTE_SECONDS, held = v.held == true, barWidth = BAR })
+        else
+            UI.polish.trackVote(s, nil)
         end
         Post.voteCountdown = countdown
     end
@@ -3893,6 +3912,7 @@ local function hookPostGame()
             if not okE then return end
             ExecuteInGameThread(function()
                 local okH, err = pcall(function()
+                    if UI.polish.onEvent(Post and Post.screen, event, "postgame") then return end
                     local v = Post and Post.vote
                     local index = tonumber(event:match("^vote:(%d+)$") or "")
                     if event == "logo" then

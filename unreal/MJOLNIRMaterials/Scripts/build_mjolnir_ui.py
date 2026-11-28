@@ -569,9 +569,70 @@ def sized(bp, name, parent, width=None, height=None):
     return box
 
 
-def panel(bp, name, parent, alpha=0.78, padding=(32, 28, 32, 28)):
+# UNSC glass chrome textures (tools/ue/draw_ui_chrome.py), imported as
+# T_MJChrome_<Name> under /Game/MJOLNIR/UI/Chrome, and original procedural UI
+# SoundWaves (tools/ue/gen_ui_sounds.py) under /Game/MJOLNIR/UI/Sounds.
+CHROME = {}
+SOUNDS = {}
+
+
+def import_ui_sounds(art="UISounds", root=f"{ROOT}/Sounds"):
+    """Import original Halo-inspired UI SoundWaves as one-shot ADPCM assets."""
+    src = os.path.join(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir()), "Art", art)
+    if not os.path.isdir(src):
+        unreal.log_warning(f"MJOLNIR UI: no {src}, skipping UI sounds")
+        return {}
+    names = sorted(os.path.splitext(f)[0] for f in os.listdir(src) if f.lower().endswith(".wav"))
+    if not names:
+        return {}
+    tasks = []
+    for n in names:
+        task = unreal.AssetImportTask()
+        task.set_editor_property("filename", os.path.join(src, n + ".wav"))
+        task.set_editor_property("destination_path", root)
+        task.set_editor_property("destination_name", n)
+        task.set_editor_property("replace_existing", True)
+        task.set_editor_property("automated", True)
+        task.set_editor_property("save", False)
+        tasks.append(task)
+    assets.import_asset_tasks(tasks)
+    waves = {}
+    for n in names:
+        wave = eal.load_asset(f"{root}/{n}.{n}")
+        if not wave:
+            fail(f"UI sound {n} did not import")
+        wave.set_editor_property("looping", False)
+        wave.set_editor_property("sound_asset_compression_type", unreal.SoundAssetCompressionType.ADPCM)
+        eal.save_loaded_asset(wave)
+        waves[n] = wave
+    unreal.log(f"MJOLNIR UI: {len(waves)} UI SoundWave(s) under {root}")
+    return waves
+
+
+def box_brush(tex, margin=(0.16, 0.16, 0.16, 0.16), tint=(1.0, 1.0, 1.0, 1.0)):
+    brush = unreal.SlateBrush()
+    brush.set_editor_property("resource_object", tex)
+    brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.BOX)
+    brush.set_editor_property("margin", unreal.Margin(*margin))
+    brush.set_editor_property("tint_color", unreal.SlateColor(unreal.LinearColor(*tint)))
+    return brush
+
+
+def image_brush(tex, tint=(1.0, 1.0, 1.0, 1.0)):
+    brush = unreal.SlateBrush()
+    brush.set_editor_property("resource_object", tex)
+    brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.IMAGE)
+    brush.set_editor_property("tint_color", unreal.SlateColor(unreal.LinearColor(*tint)))
+    return brush
+
+
+def panel(bp, name, parent, alpha=0.78, padding=(32, 28, 32, 28), glass=True):
     border = widget(bp, unreal.Border, name, parent)
-    border.set_editor_property("brush_color", unreal.LinearColor(0.005, 0.018, 0.03, alpha))
+    if glass and CHROME.get("PanelGlass"):
+        border.set_editor_property("background", box_brush(CHROME["PanelGlass"], (0.16, 0.16, 0.16, 0.16)))
+        border.set_editor_property("brush_color", unreal.LinearColor(1.0, 1.0, 1.0, min(1.0, alpha + 0.14)))
+    else:
+        border.set_editor_property("brush_color", unreal.LinearColor(0.005, 0.018, 0.03, alpha))
     border.set_editor_property("padding", unreal.Margin(*padding))
     return border
 
@@ -584,20 +645,44 @@ def gap(w, top=0, bottom=0):
     w.get_editor_property("slot").set_padding(unreal.Margin(0, top, 0, bottom))
 
 
-def rule(bp, name, parent, color=LINE, height=1):
+def rule(bp, name, parent, color=LINE, height=1, fade=False):
     box = sized(bp, name, parent, height=height)
     line = widget(bp, unreal.Border, name + "Ink", name)
-    line.set_editor_property("brush_color", unreal.LinearColor(*color))
+    if fade and CHROME.get("HeaderRuleFade"):
+        line.set_editor_property("background", image_brush(CHROME["HeaderRuleFade"]))
+        line.set_editor_property("brush_color", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
+    else:
+        line.set_editor_property("brush_color", unreal.LinearColor(*color))
     line.set_editor_property("padding", unreal.Margin(0))
     return box
 
 
-def button_style(button):
+def chrome_button_style(button, idle_key, hover_key, press_key, padding=(24, 18, 24, 18),
+                        margin=(0.14, 0.22, 0.14, 0.22)):
+    """Apply 9-slice Halo UNSC chrome button brushes (with glowing twin edge pips)."""
+    style = button.get_editor_property("widget_style")
+    for state, key in (("normal", idle_key), ("hovered", hover_key),
+                       ("pressed", press_key), ("disabled", "BtnDisabled")):
+        tex = CHROME.get(key)
+        if tex:
+            style.set_editor_property(state, box_brush(tex, margin))
+    style.set_editor_property("normal_padding", unreal.Margin(*padding))
+    style.set_editor_property("pressed_padding",
+                              unreal.Margin(padding[0], padding[1] + 1, padding[2], max(0, padding[3] - 1)))
+    button.set_editor_property("widget_style", style)
+
+
+def button_style(button, primary=False):
+    if CHROME.get("BtnCyanIdle"):
+        if primary:
+            chrome_button_style(button, "BtnGoldIdle", "BtnGoldHover", "BtnGoldPress")
+        else:
+            chrome_button_style(button, "BtnCyanIdle", "BtnCyanHover", "BtnCyanPress")
+        return
     style = button.get_editor_property("widget_style")
     for state, rgba in (("normal", (0.025, 0.06, 0.09, 0.28)), ("hovered", (0.12, 0.32, 0.43, 0.8)),
                         ("pressed", (0.20, 0.48, 0.60, 0.95)), ("disabled", (0.03, 0.04, 0.05, 0.35))):
         brush = style.get_editor_property(state)
-        # Remove the stock rounded/bevelled button image entirely.
         brush.set_editor_property("resource_object", None)
         brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.IMAGE)
         brush.set_editor_property("tint_color", unreal.SlateColor(unreal.LinearColor(*rgba)))
@@ -607,15 +692,30 @@ def button_style(button):
     button.set_editor_property("widget_style", style)
 
 
-def menu_button(bp, name, label, parent, size=30):
-    """A button with a text label (`<name>Label`), returned with its events
-    still to bind (bind_events, after the tree is compiled)."""
+def menu_button(bp, name, label, parent, size=30, events=None):
+    """A button with a text label (`<name>Label`), styled with Halo UNSC glass
+    and twin focus pips (Spartan gold for primary actions)."""
+    primary = name in ("Start", "Select", "Join", "Download")
     button = widget(bp, unreal.Button, name, parent)
-    button_style(button)
+    button_style(button, primary=primary)
     block = widget(bp, unreal.TextBlock, f"{name}Label", name)
-    text_style(block, label, size, GOLD if name in ("Start", "Select", "Join", "Download") else WHITE)
+    text_style(block, label, size, GOLD if primary else WHITE)
     block.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_LEFT)
+    if events is not None:
+        events += [(name, "OnHovered", f"btn_hover:{name}"), (name, "OnUnhovered", f"btn_unhover:{name}")]
     return button
+
+
+def medallion(bp, name, parent, padding=16):
+    """A circular Halo concentric cyan tech medallion backing a mode icon or countdown clock."""
+    border = widget(bp, unreal.Border, name, parent)
+    if CHROME.get("MedallionRing"):
+        border.set_editor_property("background", image_brush(CHROME["MedallionRing"]))
+        border.set_editor_property("brush_color", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
+        border.set_editor_property("padding", unreal.Margin(padding, padding, padding, padding))
+    else:
+        rounded(border, 85, (0.06, 0.16, 0.22, 0.60), padding=padding)
+    return border
 
 
 def bind_events(bp, events):
@@ -651,8 +751,8 @@ def screen_header(bp, title, subtitle, discord=False):
     heading = widget(bp, unreal.TextBlock, "Title", "Header")
     text_style(heading, title, 72, WHITE)
     gap(heading, top=10, bottom=18)
-    sized(bp, "HeaderRuleWidth", "Header", width=225)
-    rule(bp, "HeaderRule", "HeaderRuleWidth", ACCENT, 3)
+    sized(bp, "HeaderRuleWidth", "Header", width=480)
+    rule(bp, "HeaderRule", "HeaderRuleWidth", ACCENT, 10, fade=True)
     brand = widget(bp, unreal.HorizontalBox, "Brand", "Root")
     place(brand, (0.94, 0.045), (1.0, 0.0))
     if discord:
@@ -680,15 +780,46 @@ def screen_header(bp, title, subtitle, discord=False):
     image.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
 
 
-def footer(bp):
-    watermark(bp)
+def footer(bp, hints=()):
     foot = sized(bp, "FooterSize", "Root", width=2250)
-    place(foot, (0.06, 0.88), (0, 0))
+    place(foot, (0.06, 0.875), (0, 0))
     widget(bp, unreal.VerticalBox, "Footer", "FooterSize")
-    gap(rule(bp, "FooterRule", "Footer"), bottom=18)
+    gap(rule(bp, "FooterRule", "Footer"), bottom=14)
     status = widget(bp, unreal.TextBlock, "Status", "Footer")
-    text_style(status, "", 22, GREY)
+    text_style(status, "", 20, GREY)
     wrapped(status)
+
+    # Full-width native-style bottom hotkey bar matching Halo Campaign Evolved's main menu.
+    bar_wrap = sized(bp, "FooterBarWrap", "Root", width=2560, height=66)
+    place(bar_wrap, (0.0, 1.0), (0.0, 1.0), (0.0, 0.0))
+    bar = widget(bp, unreal.Border, "FooterBar", bar_wrap.get_name())
+    if CHROME.get("FooterBar"):
+        bar.set_editor_property("background", box_brush(CHROME["FooterBar"], (0.05, 0.15, 0.05, 0.15)))
+        bar.set_editor_property("brush_color", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
+    else:
+        bar.set_editor_property("brush_color", unreal.LinearColor(0.005, 0.018, 0.03, 0.85))
+    bar.set_editor_property("padding", unreal.Margin(154, 0, 154, 0))
+    row = widget(bp, unreal.HorizontalBox, "FooterBarRow", bar.get_name())
+    row.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
+    for idx, (key, action) in enumerate(hints):
+        chip = widget(bp, unreal.HorizontalBox, f"Hint{idx}", row.get_name())
+        chip.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 34, 0))
+        middle(chip)
+        cap = widget(bp, unreal.Border, f"HintCap{idx}", chip.get_name())
+        if CHROME.get("Keycap"):
+            cap.set_editor_property("background", box_brush(CHROME["Keycap"], (0.20, 0.25, 0.20, 0.25)))
+            cap.set_editor_property("brush_color", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
+        else:
+            rounded(cap, 4, (0.04, 0.11, 0.17, 0.85))
+        cap.set_editor_property("padding", unreal.Margin(12, 4, 12, 4))
+        middle(cap)
+        ktxt = widget(bp, unreal.TextBlock, f"HintKey{idx}", cap.get_name())
+        text_style(ktxt, key, 15, ACCENT, "Bold")
+        act = widget(bp, unreal.TextBlock, f"HintAct{idx}", chip.get_name())
+        text_style(act, action, 16, WHITE)
+        act.get_editor_property("slot").set_padding(unreal.Margin(10, 0, 0, 0))
+        middle(act)
+    watermark(bp)
     return status
 
 
@@ -738,11 +869,14 @@ RULE_ROWS = 5             # lines of the lobby card's game settings, two setting
 
 
 def lobby_tile(bp, key, parent, padding):
-    """One of the lobby card's two tiles: a flat Button `key` holding the
-    VerticalBox `<key>Stack`, which the caller fills (a picture, then
-    tile_words)."""
+    """One of the lobby card's two tiles: a translucent glass Button `key`
+    holding the VerticalBox `<key>Stack`."""
     button = widget(bp, unreal.Button, key, parent)
-    flat_style(button, (0.02, 0.05, 0.075, 0.5), (0.10, 0.27, 0.36, 0.75), (0.16, 0.40, 0.52, 0.9))
+    if CHROME.get("PanelSubtle"):
+        chrome_button_style(button, "PanelSubtle", "BtnCyanHover", "BtnCyanPress",
+                            padding=(0, 0, 0, 0), margin=(0.12, 0.12, 0.12, 0.12))
+    else:
+        flat_style(button, (0.02, 0.05, 0.075, 0.5), (0.10, 0.27, 0.36, 0.75), (0.16, 0.40, 0.52, 0.9))
     fill(button, 1)
     button.get_editor_property("slot").set_padding(unreal.Margin(*padding))
     stack = widget(bp, unreal.VerticalBox, key + "Stack", key)
@@ -785,18 +919,26 @@ def build_lobby():
     screen_canvas(bp)
     screen_header(bp, "MULTIPLAYER", "CUSTOM GAME", discord=True)
 
+    # Signature Campaign Evolved vertical left cyan guide rail beside the menu.
+    if CHROME.get("LeftRail"):
+        rail_size = sized(bp, "MenuRailSize", "Root", width=10, height=620)
+        place(rail_size, (0.048, 0.285), (0.5, 0.0))
+        rail_img = widget(bp, unreal.Image, "MenuRail", rail_size.get_name())
+        rail_img.set_brush_from_texture(CHROME["LeftRail"], False)
+        rail_img.set_visibility(unreal.SlateVisibility.HIT_TEST_INVISIBLE)
+
     menu = sized(bp, "MenuSize", "Root", width=470)
     place(menu, (0.06, 0.28), (0.0, 0.0))
     widget(bp, unreal.VerticalBox, "Menu", "MenuSize")
     gap(rule(bp, "MenuRule", "Menu", ACCENT, 2), bottom=12)
-    events = [("Discord", "OnClicked", "discord")]
+    events = [("Discord", "OnClicked", "discord"), ("Discord", "OnHovered", "btn_hover:Discord")]
     # Listing: the host's game private (fireteam and invites only) or
     # public (listed on the hub for FIND GAMES); Lua sets its label.
     # GameSettings: the host's game settings (WBP_MJOLNIRGameSettings).
     for key, label in (("Start", "START GAME"), ("Invite", "INVITE FRIENDS"), ("ChangeMap", "CHANGE MAP"),
                        ("GameType", "GAME TYPE"), ("GameSettings", "GAME SETTINGS"), ("Listing", "PRIVATE GAME"),
                        ("FindGames", "FIND GAMES"), ("Back", "BACK")):
-        gap(menu_button(bp, key, label, "Menu", size=26), bottom=5)
+        gap(menu_button(bp, key, label, "Menu", size=26, events=events), bottom=5)
         events.append((key, "OnClicked", key.lower()))
         if key == "Listing":
             events += max_players_row(bp, "Menu")
@@ -816,10 +958,12 @@ def build_lobby():
     widget(bp, unreal.HorizontalBox, "Tiles", "CardStack")
     lobby_tile(bp, "MapTile", "Tiles", (0, 0, 16, 0))
     events.append(("MapTile", "OnClicked", "changemap"))
+    events.append(("MapTile", "OnHovered", "btn_hover:MapTile"))
     map_image(bp, "MapImage", "MapTileStack", *LOBBY_TILE)
     tile_words(bp, "MapTile", "MapKicker", "MAP", "MapTitle", "MapMeta", GREY)
     lobby_tile(bp, "ModeTile", "Tiles", (16, 0, 0, 0))
     events.append(("ModeTile", "OnClicked", "gametype"))
+    events.append(("ModeTile", "OnHovered", "btn_hover:ModeTile"))
     # The picker's glyph on a dark field the size of the map's picture. Lua
     # shows the emblem only once its texture loads.
     art = sized(bp, "ModeArtSize", "ModeTileStack", *LOBBY_TILE)
@@ -829,22 +973,26 @@ def build_lobby():
     slot = back.get_editor_property("slot")
     slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
     slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
-    mode_icon_box = sized(bp, "ModeIconBox", frame.get_name(), width=170, height=170)
+    mode_icon_box = sized(bp, "ModeIconBox", frame.get_name(), width=176, height=176)
     slot = mode_icon_box.get_editor_property("slot")
     slot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
     slot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
     mode_icon_box.set_visibility(unreal.SlateVisibility.COLLAPSED)
-    emblem = rounded(widget(bp, unreal.Border, "ModeEmblem", mode_icon_box.get_name()), 85,
-                     (0.06, 0.16, 0.22, 0.60), padding=24)
+    emblem = medallion(bp, "ModeEmblem", mode_icon_box.get_name(), padding=28)
     icon = widget(bp, unreal.Image, "ModeIcon", emblem.get_name())
     icon.set_visibility(unreal.SlateVisibility.HIDDEN)
     tile_words(bp, "ModeTile", "ModeKicker", "GAME TYPE", "ModeTitle", "MatchFormat", ACCENT)
 
     gap(rule(bp, "RulesRule", "CardStack"), top=26, bottom=12)
     rules_button = widget(bp, unreal.Button, "RulesButton", "CardStack")
-    flat_style(rules_button, (0, 0, 0, 0), (0.10, 0.27, 0.36, 0.45), (0.16, 0.40, 0.52, 0.7),
-               padding=(18, 12, 18, 14))
+    if CHROME.get("PanelSubtle"):
+        chrome_button_style(rules_button, "PanelSubtle", "BtnCyanHover", "BtnCyanPress",
+                            padding=(18, 12, 18, 14), margin=(0.12, 0.16, 0.12, 0.16))
+    else:
+        flat_style(rules_button, (0, 0, 0, 0), (0.10, 0.27, 0.36, 0.45), (0.16, 0.40, 0.52, 0.7),
+                   padding=(18, 12, 18, 14))
     events.append(("RulesButton", "OnClicked", "gamesettings"))
+    events.append(("RulesButton", "OnHovered", "btn_hover:RulesButton"))
     rules_box = widget(bp, unreal.VerticalBox, "RulesBox", "RulesButton")
     rules_box.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
     rules_box.set_visibility(unreal.SlateVisibility.COLLAPSED)
@@ -903,7 +1051,7 @@ def build_lobby():
                                  ("Blue", "BLUE TEAM", BLUE), ("Unassigned", "AWAITING ASSIGNMENT", GREY)):
         section = widget(bp, unreal.VerticalBox, group + "Roster", "RosterScroll")
         gap(section, bottom=16)
-        strip = panel(bp, group + "Strip", group + "Roster", padding=(14, 10, 14, 10))
+        strip = panel(bp, group + "Strip", group + "Roster", padding=(14, 10, 14, 10), glass=False)
         strip.set_editor_property("brush_color", unreal.LinearColor(*color[:3], 0.18))
         text_style(widget(bp, unreal.TextBlock, group + "Heading", group + "Strip"), title, 20, color)
         for i in range(ROSTER_ROWS):
@@ -933,9 +1081,9 @@ def build_lobby():
     # The usual cause is UE4SS giving up at startup (UE4SS.log ends in
     # "Fatal Error: AOB scans could not be completed"), which a restart
     # often gets past.
-    text_style(footer(bp), "MJOLNIR MODS DID NOT START, SO THESE BUTTONS DO NOTHING   /   RESTART THE GAME. "
+    text_style(footer(bp, hints=(("ENTER", "SELECT"), ("ESC", "BACK"))), "MJOLNIR MODS DID NOT START, SO THESE BUTTONS DO NOTHING   /   RESTART THE GAME. "
                "IF IT KEEPS HAPPENING, CHECK MJOLNIRLOBBY IS ON IN THE LAUNCHER AND SEND US ue4ss\\UE4SS.log",
-               22, GOLD)
+               20, GOLD)
 
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile (widget tree)")
@@ -1174,12 +1322,13 @@ def build_map_select():
     fill(widget(bp, unreal.Spacer, "DetailsSpace", "DetailsStack"), 1)
     actions = widget(bp, unreal.HorizontalBox, "Actions", "DetailsStack")
     for key, label in (("Select", "SELECT"), ("Back", "BACK")):
-        button = menu_button(bp, key, label, actions.get_name(), size=28)
+        button = menu_button(bp, key, label, actions.get_name(), size=28, events=events)
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
         events.append((key, "OnClicked", key.lower()))
     # MJOLNIRLobby from mods-v0.39.0 on writes the search hint here; an
     # older one cannot search, so the cooked line does not offer it.
-    text_style(footer(bp), "CHOOSE A MAP AND GAME TYPE   /   SELECT TO CONFIRM", 22, GREY)
+    text_style(footer(bp, hints=(("ENTER", "SELECT MAP"), ("ESC", "BACK"))),
+               "CHOOSE A MAP AND GAME TYPE   /   SELECT TO CONFIRM", 20, GREY)
 
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile (widget tree)")
@@ -1227,8 +1376,11 @@ def build_game_type_select(icons):
     for i in range(GAME_TYPE_BUTTONS):
         key = f"Mode{i}"
         button = widget(bp, unreal.Button, key, "ModeList")
-        flat_style(button, (0.025, 0.06, 0.09, 0.38), (0.12, 0.32, 0.43, 0.8),
-                   (0.20, 0.48, 0.60, 0.95), padding=(22, 10, 22, 10))
+        if CHROME.get("BtnCyanIdle"):
+            chrome_button_style(button, "BtnCyanIdle", "BtnCyanHover", "BtnCyanPress", padding=(22, 10, 22, 10))
+        else:
+            flat_style(button, (0.025, 0.06, 0.09, 0.38), (0.12, 0.32, 0.43, 0.8),
+                       (0.20, 0.48, 0.60, 0.95), padding=(22, 10, 22, 10))
         gap(button, bottom=6)
         if i >= 6:
             button.set_visibility(unreal.SlateVisibility.COLLAPSED)
@@ -1268,8 +1420,7 @@ def build_game_type_select(icons):
     emblem_size = sized(bp, "EmblemSize", hero.get_name(), width=220, height=220)
     emblem_size.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 36, 0))
     middle(emblem_size)
-    emblem = rounded(widget(bp, unreal.Border, "Emblem", emblem_size.get_name()), 110,
-                     (0.06, 0.16, 0.22, 0.60), padding=16)
+    emblem = medallion(bp, "Emblem", emblem_size.get_name(), padding=26)
     icon = widget(bp, unreal.Image, "ModeIcon", emblem.get_name())
     icon.set_visibility(unreal.SlateVisibility.HIDDEN)
     words = widget(bp, unreal.VerticalBox, "ModeWords", hero.get_name())
@@ -1302,8 +1453,11 @@ def build_game_type_select(icons):
     for i in range(GAME_TYPE_VARIANTS):
         key = f"Variant{i}"
         button = widget(bp, unreal.Button, key, variants.get_name())
-        flat_style(button, (0.025, 0.06, 0.09, 0.38), (0.12, 0.32, 0.43, 0.8),
-                   (0.20, 0.48, 0.60, 0.95), padding=(18, 12, 18, 12))
+        if CHROME.get("BtnCyanIdle"):
+            chrome_button_style(button, "BtnCyanIdle", "BtnCyanHover", "BtnCyanPress", padding=(18, 12, 18, 12))
+        else:
+            flat_style(button, (0.025, 0.06, 0.09, 0.38), (0.12, 0.32, 0.43, 0.8),
+                       (0.20, 0.48, 0.60, 0.95), padding=(18, 12, 18, 12))
         fill(button, 1)
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 10, 0))
         button.set_visibility(unreal.SlateVisibility.COLLAPSED)
@@ -1339,10 +1493,11 @@ def build_game_type_select(icons):
     actions = widget(bp, unreal.HorizontalBox, "Actions", "Root")
     place(actions, (0.39, 0.80), (0.0, 0.0))
     for key, label in (("Select", "SELECT"), ("Back", "BACK")):
-        button = menu_button(bp, key, label, actions.get_name())
+        button = menu_button(bp, key, label, actions.get_name(), events=events)
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 20, 0))
         events.append((key, "OnClicked", key.lower()))
-    text_style(footer(bp), "CHOOSE A GAME TYPE   /   SELECT TO CONFIRM", 22, GREY)
+    text_style(footer(bp, hints=(("ENTER", "SELECT"), ("ESC", "BACK"))),
+               "CHOOSE A GAME TYPE   /   SELECT TO CONFIRM", 20, GREY)
 
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile (widget tree)")
@@ -1670,16 +1825,16 @@ def build_find_games():
     wrapped(info)
     gap(info, top=14, bottom=22)
     gap(rule(bp, "ActionsRule", "DetailsStack"), bottom=18)
-    join = menu_button(bp, "Join", "JOIN", "DetailsStack", size=30)
+    join = menu_button(bp, "Join", "JOIN", "DetailsStack", size=30, events=events)
     events.append(("Join", "OnClicked", "join"))
     gap(join, bottom=12)
     actions = widget(bp, unreal.HorizontalBox, "Actions", "DetailsStack")
     for key, label, event in (("QuickJoin", "QUICK JOIN", "quickjoin"), ("Refresh", "REFRESH", "refresh"),
                               ("Back", "BACK", "back")):
-        button = menu_button(bp, key, label, actions.get_name(), size=22)
+        button = menu_button(bp, key, label, actions.get_name(), size=22, events=events)
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 12, 0))
         events.append((key, "OnClicked", event))
-    footer(bp)
+    footer(bp, hints=(("ENTER", "JOIN GAME"), ("ESC", "BACK")))
 
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile (widget tree)")
@@ -1720,6 +1875,7 @@ def vote_tile(bp, i, parent, events):
     rounded_style(button, 4, (0.02, 0.05, 0.075, 0.7), (*ACCENT[:3], 0.7), (*ACCENT[:3], 0.95),
                   padding=(VOTE_RIM,) * 4)
     events.append((f"Vote{i}", "OnClicked", f"vote:{i}"))
+    events.append((f"Vote{i}", "OnHovered", f"btn_hover:Vote{i}"))
     # A fixed size: the band's words never widen the tile.
     size = sized(bp, f"VoteTileSize{i}", button.get_name(), *VOTE_COVER)
     unpadded(size)
@@ -1738,8 +1894,7 @@ def vote_tile(bp, i, parent, events):
     middle(emblem_size)
     emblem_size.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 14, 0))
     emblem_size.set_visibility(unreal.SlateVisibility.COLLAPSED)
-    emblem = rounded(widget(bp, unreal.Border, f"VoteEmblem{i}", emblem_size.get_name()), 27,
-                     (0.06, 0.16, 0.22, 0.95), padding=10)
+    emblem = medallion(bp, f"VoteEmblem{i}", emblem_size.get_name(), padding=10)
     icon = widget(bp, unreal.Image, f"VoteModeIcon{i}", emblem.get_name())
     icon.set_visibility(unreal.SlateVisibility.HIDDEN)
     words = widget(bp, unreal.VerticalBox, f"VoteWords{i}", info.get_name())
@@ -2053,6 +2208,7 @@ def build_post_game(icons):
         text_style(text, label, 20, GREY)
         gap(swatch(bp, f"TabInk{i}", f"TabStack{i}", None, 3, ACCENT), top=6)
         events.append((f"Tab{i}", "OnClicked", f"tab:{i}"))
+        events.append((f"Tab{i}", "OnHovered", f"btn_hover:Tab{i}"))
     gap(rule(bp, "TableRule", "ResultsStack"), bottom=14)
     sized(bp, "PagesSize", "ResultsStack", height=POST_PAGE)
     widget(bp, unreal.VerticalBox, "Pages", "PagesSize")
@@ -2123,16 +2279,19 @@ def build_post_game(icons):
     middle(clock)
     clock.get_editor_property("slot").set_padding(unreal.Margin(24, 0, 0, 0))
     clock.set_visibility(unreal.SlateVisibility.COLLAPSED)
-    disc = rounded(widget(bp, unreal.Border, "VoteClock", clock.get_name()), 48, (0.06, 0.16, 0.22, 0.85))
+    disc = medallion(bp, "VoteClock", clock.get_name(), padding=8)
     disc.set_editor_property("horizontal_alignment", unreal.HorizontalAlignment.H_ALIGN_CENTER)
     disc.set_editor_property("vertical_alignment", unreal.VerticalAlignment.V_ALIGN_CENTER)
     seconds = widget(bp, unreal.TextBlock, "VoteSeconds", disc.get_name())
     text_style(seconds, "", 42, WHITE, face="Bold")
     seconds.set_editor_property("justification", unreal.TextJustify.CENTER)
-    bar = sized(bp, "VoteBarSize", "VoteStack", width=VOTE_WIDTH, height=6)
-    gap(bar, top=18)
+    bar = sized(bp, "VoteBarSize", "VoteStack", width=VOTE_WIDTH, height=28)
+    gap(bar, top=10)
     bar.set_visibility(unreal.SlateVisibility.COLLAPSED)
-    track = widget(bp, unreal.Border, "VoteBarTrack", bar.get_name())
+    bar_overlay = widget(bp, unreal.Overlay, "VoteBarOverlay", bar.get_name())
+    track_size = sized(bp, "VoteBarTrackSize", bar_overlay.get_name(), width=VOTE_WIDTH, height=6)
+    overlay_slot(track_size, unreal.HorizontalAlignment.H_ALIGN_FILL, unreal.VerticalAlignment.V_ALIGN_CENTER)
+    track = widget(bp, unreal.Border, "VoteBarTrack", track_size.get_name())
     track.set_editor_property("brush_color", unreal.LinearColor(*DIM[:3], 0.6))
     track.set_editor_property("padding", unreal.Margin(0))
     track.set_editor_property("horizontal_alignment", unreal.HorizontalAlignment.H_ALIGN_LEFT)
@@ -2140,6 +2299,12 @@ def build_post_game(icons):
     ink = widget(bp, unreal.Border, "VoteBarFill", fill_size.get_name())
     ink.set_editor_property("brush_color", unreal.LinearColor(*ACCENT))
     ink.set_editor_property("padding", unreal.Margin(0))
+    if CHROME.get("VoteBarSpark"):
+        spark_size = sized(bp, "VoteBarSparkSize", bar_overlay.get_name(), width=96, height=28)
+        overlay_slot(spark_size, unreal.HorizontalAlignment.H_ALIGN_LEFT, unreal.VerticalAlignment.V_ALIGN_CENTER)
+        spark = widget(bp, unreal.Image, "VoteBarSpark", spark_size.get_name())
+        spark.set_brush_from_texture(CHROME["VoteBarSpark"], False)
+        spark.set_visibility(unreal.SlateVisibility.COLLAPSED)
 
     grid = widget(bp, unreal.VerticalBox, "VoteGrid", "VoteStack")
     gap(grid, top=20)
@@ -2154,7 +2319,7 @@ def build_post_game(icons):
     gap(rule(bp, "ActionsRule", "VoteStack"), top=22, bottom=18)
     actions = widget(bp, unreal.HorizontalBox, "Actions", "VoteStack")
     for key, label, event in (("Start", "START NOW", "start"), ("Lobby", "LOBBY", "lobby")):
-        button = menu_button(bp, key, label, actions.get_name(), size=28)
+        button = menu_button(bp, key, label, actions.get_name(), size=28, events=events)
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
         events.append((key, "OnClicked", event))
     hint = widget(bp, unreal.TextBlock, "VoteHint", actions.get_name())
@@ -2163,7 +2328,7 @@ def build_post_game(icons):
     fill(hint, 1)
     middle(hint)
     hint.get_editor_property("slot").set_padding(unreal.Margin(8, 0, 0, 0))
-    footer(bp)
+    footer(bp, hints=(("ENTER", "VOTE"), ("ESC", "LOBBY")))
     events += report_panel(bp)
 
     if not ui.compile_widget(bp):
@@ -2338,11 +2503,12 @@ def build_map_download():
     gap(rule(bp, "ActionsRule", "Side"), bottom=18)
     actions = widget(bp, unreal.HorizontalBox, "Actions", "Side")
     for key, label in (("Download", "DOWNLOAD"), ("Cancel", "CANCEL")):
-        button = menu_button(bp, key, label, actions.get_name(), size=28)
+        button = menu_button(bp, key, label, actions.get_name(), size=28, events=events)
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
         events.append((key, "OnClicked", key.lower()))
-    text_style(footer(bp), "MAPS COME FROM MJOLNIRCORE.COM, SIGNED BY THEIR AUTHORS AND CHECKED BEFORE THEY INSTALL",
-               22, GREY)
+    text_style(footer(bp, hints=(("ENTER", "DOWNLOAD"), ("ESC", "CANCEL"))),
+               "MAPS COME FROM MJOLNIRCORE.COM, SIGNED BY THEIR AUTHORS AND CHECKED BEFORE THEY INSTALL",
+               20, GREY)
 
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile (widget tree)")
@@ -2376,11 +2542,11 @@ def build_game_settings():
     widget(bp, unreal.VerticalBox, "Pages", "PagesSize")
     gap(rule(bp, "PagesRule", "Pages", ACCENT, 2), bottom=12)
     for i in range(SETTINGS_PAGES):
-        gap(menu_button(bp, f"Page{i}", "", "Pages", size=28), bottom=8)
+        gap(menu_button(bp, f"Page{i}", "", "Pages", size=28, events=events), bottom=8)
         events.append((f"Page{i}", "OnClicked", f"page:{i}"))
     gap(rule(bp, "ActionsRule", "Pages"), top=20, bottom=12)
     for key, label in (("Reset", "RESET"), ("Back", "DONE")):
-        gap(menu_button(bp, key, label, "Pages", size=28), bottom=8)
+        gap(menu_button(bp, key, label, "Pages", size=28, events=events), bottom=8)
         events.append((key, "OnClicked", key.lower()))
 
     # Widths are UI units (the screen is 2560 wide at any resolution), not
@@ -2429,7 +2595,7 @@ def build_game_settings():
     help_text = widget(bp, unreal.TextBlock, "HelpText", "HelpStack")
     text_style(help_text, "", 26, GREY)
     wrapped(help_text)
-    text_style(footer(bp), "", 22, GREY)
+    text_style(footer(bp, hints=(("ENTER", "CHANGE"), ("ESC", "DONE"))), "", 20, GREY)
 
     if not ui.compile_widget(bp):
         fail(f"{name} does not compile (widget tree)")
@@ -3029,6 +3195,8 @@ def build_label():
 
 
 BRAND.update(import_hud_icons("Brand", f"{ROOT}/Brand", "T_MJBrand_", mips=True))
+CHROME.update(import_hud_icons("UIChrome", f"{ROOT}/Chrome", "T_MJChrome_", mips=False))
+SOUNDS.update(import_ui_sounds())
 build_hello()
 HUD_ICONS = import_hud_icons()
 build_kill_feed(HUD_ICONS)
