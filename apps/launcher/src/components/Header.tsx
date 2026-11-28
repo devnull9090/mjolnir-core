@@ -36,8 +36,13 @@ export default function Header({
     })();
   }, []);
 
+  // `relative z-20`: backdrop-blur makes the header its own stacking context,
+  // so the account menu's z-50 only counts inside it. Without a z-index of its
+  // own the header ties with the page below (the view's entrance transform,
+  // Home's `relative isolate` hero), which paints later and covers the menu.
+  // Dialogs are fixed at z-50 and up, so they still sit over the header.
   return (
-    <header className="h-14 shrink-0 bg-surface-secondary/85 backdrop-blur-md border-b border-border-subtle flex items-center justify-between gap-4 px-6">
+    <header className="relative z-20 h-14 shrink-0 bg-surface-secondary/85 backdrop-blur-md border-b border-border-subtle flex items-center justify-between gap-4 px-6">
       {/* Versions sit with the game name, so the right side is live status + account. */}
       <div className="flex items-center gap-2.5 min-w-0">
         <span className="w-2 h-2 rounded-full bg-accent-green animate-pulse shrink-0" />
