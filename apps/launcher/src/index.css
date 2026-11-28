@@ -8,16 +8,16 @@
 @theme {
   --color-mjolnir-gold: #d4a843;
   --color-mjolnir-gold-dim: #a67c2e;
-  --color-surface-primary: #0a0e17;
-  --color-surface-secondary: #111827;
-  --color-surface-card: #1a2332;
-  --color-surface-hover: #243044;
-  --color-border-subtle: #2a3a50;
+  --color-surface-primary: #070a12;
+  --color-surface-secondary: #0e1420;
+  --color-surface-card: #151e2e;
+  --color-surface-hover: #1e2a3f;
+  --color-border-subtle: #243146;
   --color-text-primary: #e5e7eb;
   --color-text-secondary: #9ca3af;
-  --color-accent-green: #22c55e;
-  --color-accent-red: #ef4444;
-  --color-accent-blue: #3b82f6;
+  --color-accent-green: #3fb950;
+  --color-accent-red: #f85149;
+  --color-accent-blue: #58a6ff;
 
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
@@ -31,10 +31,10 @@
   --mj-surface-raised: var(--color-surface-card);
   --mj-surface-hover: var(--color-surface-hover);
   --mj-border: var(--color-border-subtle);
-  --mj-border-bright: var(--color-border-subtle);
+  --mj-border-bright: #33435c;
   --mj-text: var(--color-text-primary);
   --mj-text-muted: var(--color-text-secondary);
-  --mj-text-dim: var(--color-text-secondary);
+  --mj-text-dim: #848d97;
   --mj-gold: var(--color-mjolnir-gold);
   --mj-green: var(--color-accent-green);
   --mj-blue: var(--color-accent-blue);
@@ -51,4 +51,161 @@ html, body {
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Keyboard focus ring matching the hub website. */
+@layer base {
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-mjolnir-gold);
+    outline-offset: 2px;
+  }
+}
+
+/* Custom sleek dark scrollbars for WebView2 on Windows. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #243146;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a4c68;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* ── Launcher Motion & Tactical Polish ───────────────────────────────── */
+
+@keyframes launcher-view-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.launcher-view {
+  animation: launcher-view-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes launcher-hero-drift {
+  0% { transform: scale(1.04) translate3d(0%, 0%, 0); }
+  50% { transform: scale(1.1) translate3d(-1.2%, -0.6%, 0); }
+  100% { transform: scale(1.04) translate3d(0%, 0%, 0); }
+}
+
+.launcher-hero-drift {
+  animation: launcher-hero-drift 30s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes launcher-live-ring {
+  0% { transform: scale(0.95); opacity: 0.75; }
+  70% { transform: scale(2.4); opacity: 0; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+.launcher-live-ring {
+  animation: launcher-live-ring 2.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+
+.launcher-card {
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease, box-shadow 220ms ease;
+}
+
+.launcher-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px -18px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(212, 168, 67, 0.16);
+}
+
+.launcher-sheen {
+  position: relative;
+  overflow: hidden;
+}
+
+.launcher-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 25%, rgba(255, 255, 255, 0.32) 48%, transparent 72%);
+  transform: translateX(-140%) skewX(-18deg);
+  transition: transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.launcher-sheen:hover::after {
+  transform: translateX(180%) skewX(-18deg);
+}
+
+.launcher-hud-corners {
+  position: relative;
+}
+
+.launcher-hud-corners::before,
+.launcher-hud-corners::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.launcher-hud-corners::before {
+  top: 0;
+  left: 0;
+  border-top: 2px solid rgba(212, 168, 67, 0.7);
+  border-left: 2px solid rgba(212, 168, 67, 0.7);
+  border-top-left-radius: 14px;
+}
+
+.launcher-hud-corners::after {
+  bottom: 0;
+  right: 0;
+  border-bottom: 2px solid rgba(212, 168, 67, 0.7);
+  border-right: 2px solid rgba(212, 168, 67, 0.7);
+  border-bottom-right-radius: 14px;
+}
+
+@keyframes launcher-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.launcher-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(21, 30, 46, 0.65) 25%,
+    rgba(36, 49, 70, 0.65) 50%,
+    rgba(21, 30, 46, 0.65) 75%
+  );
+  background-size: 200% 100%;
+  animation: launcher-shimmer 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launcher-view,
+  .launcher-hero-drift,
+  .launcher-live-ring,
+  .launcher-card,
+  .launcher-sheen::after,
+  .launcher-skeleton {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
 }

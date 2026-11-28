@@ -30,6 +30,8 @@ import type {
   MapMetadataPatch,
   MapQuery,
   MatchChatLog,
+  MatchList,
+  MatchQuery,
   Media,
   MediaOwner,
   MediaStatus,
@@ -329,6 +331,25 @@ export class HubClient {
   /** What joining a listed game takes. Signed in. */
   joinLobby(id: string): Promise<{ connection_string: string; map_code: string; game_type: string }> {
     return this.call({ method: "GET", path: `/lobbies/${encodeURIComponent(id)}/join` });
+  }
+
+  // ── Matches ─────────────────────────────────────────────────────────
+
+  /** Recent public matches, newest first. */
+  listMatches(query: MatchQuery = {}): Promise<MatchList> {
+    return this.call({
+      method: "GET",
+      path: "/matches",
+      query: {
+        map: query.map,
+        game_type: query.game_type,
+        player: query.player,
+        user: query.user,
+        before: query.before,
+        limit: query.limit,
+        real: query.real === undefined ? undefined : query.real ? "1" : "0",
+      },
+    });
   }
 
   async listMedia(owner: MediaOwner): Promise<Media[]> {

@@ -14,6 +14,7 @@ import {
   GAME_TYPE_NAMES,
   MAP_MODES,
   SearchIcon,
+  Select,
   Spinner,
   useHub,
   type MapListing,
@@ -232,20 +233,17 @@ export function MapBrowser({
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-2 text-xs text-text-secondary">
-          Players
-          <select
-            value={players}
-            onChange={(e) => setPlayers(Number(e.target.value))}
-            className="px-2 py-1 rounded-lg bg-surface-secondary border border-border-subtle text-text-primary focus:border-mjolnir-gold/60 focus:outline-none"
-          >
-            {PLAYERS.map((n) => (
-              <option key={n} value={n}>
-                {n === 0 ? "Any" : `Fits ${n}`}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="flex items-center gap-2 text-xs text-text-secondary">
+          <span id="map-players-label">Players</span>
+          <Select
+            value={String(players)}
+            onChange={(v) => setPlayers(Number(v))}
+            ariaLabelledBy="map-players-label"
+            size="sm"
+            options={PLAYERS.map((n) => ({ value: String(n), label: n === 0 ? "Any" : `Fits ${n}` }))}
+            className="w-24"
+          />
+        </div>
       </div>
 
       {offline && (

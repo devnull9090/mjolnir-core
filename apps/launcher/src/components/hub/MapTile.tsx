@@ -50,10 +50,10 @@ export function isHaloCeMap(listing: MapListing): boolean {
 }
 
 const BADGE: Record<MapStatus, { label: string; className: string }> = {
-  installed: { label: "Installed", className: "bg-emerald-500/15 text-emerald-400" },
-  update: { label: "Update", className: "bg-mjolnir-gold/15 text-mjolnir-gold" },
-  "missing-files": { label: "Files missing", className: "bg-red-500/15 text-red-400" },
-  "not-installed": { label: "Not installed", className: "bg-surface-hover text-text-secondary" },
+  installed: { label: "Installed", className: "bg-surface-primary/85 text-emerald-400 border-emerald-400/35" },
+  update: { label: "Update", className: "bg-surface-primary/85 text-mjolnir-gold border-mjolnir-gold/45" },
+  "missing-files": { label: "Files missing", className: "bg-surface-primary/85 text-red-400 border-red-400/40" },
+  "not-installed": { label: "Not installed", className: "bg-surface-primary/85 text-text-secondary border-white/10" },
 };
 
 function versionTitle(
@@ -113,30 +113,48 @@ export function MapTile({
 }) {
   const latest = map.release?.version;
   const details = facts(map);
-  const cover = map.cover_url ? (
-    <img
-      src={map.cover_url.startsWith("/") ? `${HUB_SITE}${map.cover_url}` : map.cover_url}
-      alt={map.title}
-      loading="lazy"
-      className="w-full aspect-video object-cover bg-surface-hover"
-    />
-  ) : (
-    <div className="w-full aspect-video bg-surface-hover flex items-center justify-center">
-      <span className="font-mono text-2xl text-text-secondary/40">{map.code}</span>
+  const cover = (
+    <div className="relative w-full aspect-video overflow-hidden bg-surface-hover">
+      {map.cover_url ? (
+        <img
+          src={map.cover_url.startsWith("/") ? `${HUB_SITE}${map.cover_url}` : map.cover_url}
+          alt={map.title}
+          loading="lazy"
+          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+        />
+      ) : (
+        <div className="w-full h-full bg-gradient-to-br from-surface-card to-surface-primary flex items-center justify-center">
+          <span className="font-mono text-2xl font-bold tracking-widest text-text-secondary/40">
+            {map.code}
+          </span>
+        </div>
+      )}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-surface-secondary/80 to-transparent"
+      />
+      <span className="absolute left-2.5 top-2.5 rounded bg-surface-primary/80 px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider text-text-secondary backdrop-blur-sm border border-white/10">
+        {map.code}
+      </span>
+      <span
+        className={`absolute right-2.5 top-2.5 text-[10px] font-semibold px-2 py-0.5 rounded-full backdrop-blur-sm border border-white/10 ${BADGE[status].className}`}
+      >
+        {BADGE[status].label}
+      </span>
     </div>
   );
 
   return (
     <div
-      className={`bg-surface-secondary border border-border-subtle rounded-xl overflow-hidden flex flex-col ${
-        onSelect ? "hover:border-mjolnir-gold/40 transition-colors" : ""
+      className={`group launcher-card bg-surface-secondary border border-border-subtle rounded-xl overflow-hidden flex flex-col ${
+        onSelect ? "hover:border-mjolnir-gold/45" : ""
       }`}
     >
       {onSelect ? (
         <button
           type="button"
           onClick={onSelect}
-          className="block text-left cursor-pointer"
+          className="block text-left cursor-pointer w-full"
           title={`Open ${map.title}`}
         >
           {cover}
@@ -144,30 +162,23 @@ export function MapTile({
       ) : (
         cover
       )}
-      <div className="p-3 flex-1 flex flex-col">
+      <div className="p-3.5 flex-1 flex flex-col">
         <div className="flex items-center justify-between gap-2">
           {onSelect ? (
             <button
               type="button"
               onClick={onSelect}
-              className="font-semibold truncate text-left hover:text-mjolnir-gold cursor-pointer"
+              className="font-bold text-sm truncate text-left transition-colors group-hover:text-mjolnir-gold cursor-pointer"
             >
               {map.title}
             </button>
           ) : (
-            <span className="font-semibold truncate">{map.title}</span>
+            <span className="font-bold text-sm truncate">{map.title}</span>
           )}
           <span
-            className={`text-[11px] px-1.5 py-0.5 rounded shrink-0 ${BADGE[status].className}`}
+            className="shrink-0 text-[11px] font-mono text-text-secondary tabular-nums"
+            title={versionTitle(status, have, latest)}
           >
-            {BADGE[status].label}
-          </span>
-        </div>
-        <div className="flex items-center justify-between gap-2 mt-1 text-xs text-text-secondary">
-          <span className="truncate">
-            {map.modes.map((mode) => GAME_TYPE_NAMES[mode] ?? mode).join(" · ")}
-          </span>
-          <span className="shrink-0 tabular-nums" title={versionTitle(status, have, latest)}>
             {status === "update" && have && latest ? (
               <>
                 v{have.version} <span className="text-mjolnir-gold">→ v{latest}</span>
@@ -179,13 +190,16 @@ export function MapTile({
             ) : null}
           </span>
         </div>
+        <p className="mt-1 text-xs text-text-secondary truncate">
+          {map.modes.map((mode) => GAME_TYPE_NAMES[mode] ?? mode).join(" · ")}
+        </p>
         {(details.length > 0 || showOwner) && (
-          <div className="flex items-center justify-between gap-2 mt-1 text-xs text-text-secondary/80">
+          <div className="flex items-center justify-between gap-2 mt-1 text-[11px] text-text-secondary/80">
             <span className="truncate">{details.join(" · ")}</span>
             {showOwner && <span className="truncate shrink-0 max-w-[45%]">by {map.owner}</span>}
           </div>
         )}
-        {action && <div className="mt-3 flex items-center gap-2">{action}</div>}
+        {action && <div className="mt-3 pt-2.5 border-t border-border-subtle/50 flex items-center gap-2">{action}</div>}
       </div>
     </div>
   );

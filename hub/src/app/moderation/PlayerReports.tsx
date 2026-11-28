@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Ban, Check, ChevronDown, ChevronRight, MessageSquare, X } from "lucide-react";
 import { AvatarImage } from "../components/ui/AvatarImage";
+import { Select } from "../components/HubKit";
 
 import type {
   BannedPlayer,
@@ -175,17 +176,14 @@ function BanForm({
         placeholder="Why (the player sees this)"
         className="flex-1 min-w-48 rounded-lg border border-border bg-surface-card px-3 py-1.5 text-xs text-foreground placeholder:text-text-dim focus:outline-none focus:border-gold"
       />
-      <select
-        value={duration}
-        onChange={(e) => setDuration(Number(e.target.value))}
-        className="rounded-lg border border-border bg-surface-card px-2 py-1.5 text-xs text-foreground"
-      >
-        {DURATIONS.map(([label], i) => (
-          <option key={label} value={i}>
-            {label}
-          </option>
-        ))}
-      </select>
+      <Select
+        value={String(duration)}
+        onChange={(v) => setDuration(Number(v))}
+        options={DURATIONS.map(([label], i) => ({ value: String(i), label }))}
+        ariaLabel="Ban duration"
+        size="sm"
+        className="w-32"
+      />
       <button
         type="submit"
         disabled={busy || !reason.trim()}

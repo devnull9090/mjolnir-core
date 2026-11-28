@@ -25,3 +25,25 @@
   --mj-red: #f85149;
   --mj-amber: #d29922;
 }
+
+@keyframes mj-dropdown-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -4px, 0) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.mj-dropdown-menu {
+  transform-origin: top center;
+  animation: mj-dropdown-in 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mj-dropdown-menu {
+    animation: none;
+  }
+}

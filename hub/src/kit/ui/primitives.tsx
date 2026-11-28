@@ -172,10 +172,10 @@ export function ActionButton({
   children: ReactNode;
 }) {
   const tones = {
-    gold: "border-[var(--mj-gold)]/40 text-[var(--mj-gold)] hover:bg-[var(--mj-gold)]/10",
+    gold: "border-[var(--mj-gold)]/40 bg-[var(--mj-gold)]/5 text-[var(--mj-gold)] hover:bg-[var(--mj-gold)]/15 hover:border-[var(--mj-gold)]/65",
     neutral:
-      "border-[var(--mj-border-bright)] text-[var(--mj-text-muted)] hover:text-[var(--mj-text)]",
-    danger: "border-[var(--mj-red)]/30 text-[var(--mj-red)] hover:bg-[var(--mj-red)]/10",
+      "border-[var(--mj-border-bright)] bg-[var(--mj-surface-raised)]/40 text-[var(--mj-text-muted)] hover:text-[var(--mj-text)] hover:border-[var(--mj-text-dim)]/60 hover:bg-[var(--mj-surface-hover)]/60",
+    danger: "border-[var(--mj-red)]/30 bg-[var(--mj-red)]/5 text-[var(--mj-red)] hover:bg-[var(--mj-red)]/15 hover:border-[var(--mj-red)]/55",
   };
   const sizes = { sm: "px-2.5 py-1 text-xs", md: "px-3 py-1.5 text-sm" };
   return (
@@ -184,7 +184,7 @@ export function ActionButton({
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center gap-1.5 rounded-lg border font-medium transition-colors disabled:opacity-40 disabled:cursor-default cursor-pointer ${tones[tone]} ${sizes[size]}`}
+      className={`inline-flex items-center gap-1.5 rounded-lg border font-medium transition-all duration-150 active:scale-[0.98] disabled:opacity-40 disabled:cursor-default disabled:active:scale-100 cursor-pointer motion-reduce:transition-none motion-reduce:active:scale-100 ${tones[tone]} ${sizes[size]}`}
     >
       {children}
     </button>

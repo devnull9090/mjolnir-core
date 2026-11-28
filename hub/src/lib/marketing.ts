@@ -9,9 +9,137 @@ export const MULTIPLAYER_RELEASE_PATH = "/blog/classic-multiplayer-alpha";
 // Absolute URLs let local previews use the published media, too.
 export const MULTIPLAYER_IMAGES = {
   bloodGulch: SITE_URL + "/api/v1/media/a5f46d72-16af-4e0e-866d-226645d19df1",
-  dangerCanyon: SITE_URL + "/api/v1/media/4a528587-20d4-4503-acc8-73567f30b464",
+  dangerCanyon: SITE_URL + "/api/v1/media/71b2d054-a629-4081-b6f4-094ddf7ac39e",
   chillOut: SITE_URL + "/api/v1/media/0408e37f-635c-42f0-a978-3b74da4965fb",
+  sidewinder: SITE_URL + "/api/v1/media/bb355829-2256-4ca3-9d62-54d2d28e4dc9",
+  deathIsland: SITE_URL + "/api/v1/media/f6094fab-cd72-45dd-9678-917ae93a2fdd",
+  timberland: SITE_URL + "/api/v1/media/51aa12e4-88fb-4771-9f72-b33ff9cd3669",
+  gephyrophobia: SITE_URL + "/api/v1/media/3c4dbc54-7867-4f5c-9ef0-bfbe45432e20",
+  battleCreek: SITE_URL + "/api/v1/media/99f90742-0704-4005-b5f6-6eb7c91dc473",
+  hangEmHigh: SITE_URL + "/api/v1/media/6adbdf7d-cd36-4527-803b-b66c39ad59e4",
+  iceFields: SITE_URL + "/api/v1/media/a8cb0d75-4757-497e-acba-a002acc6a1df",
+  infinity: SITE_URL + "/api/v1/media/273a8f9d-21d3-4b5f-9c49-b3943e782126",
+  damnation: SITE_URL + "/api/v1/media/d727ce9f-d824-4abd-a4d7-126a94e57873",
+  prisoner: SITE_URL + "/api/v1/media/56052ddc-f17c-44fd-b3b1-1cca71a1e884",
+  ratRace: SITE_URL + "/api/v1/media/48f8eb14-aac0-4752-9cfd-c6096a5836e4",
+  longest: SITE_URL + "/api/v1/media/53d7cd4f-825c-4665-909f-9dbf257ada2e",
+  wizard: SITE_URL + "/api/v1/media/69855ffd-4584-4b8f-8f33-573926c3d3da",
+  derelict: SITE_URL + "/api/v1/media/0be2dd28-e87e-443f-ae9e-0ebae8d8cb28",
+  boardingAction: SITE_URL + "/api/v1/media/3ae0fad0-8894-4ab6-821d-88bca070fc6a",
+  chiron: SITE_URL + "/api/v1/media/404c4e00-cbae-4004-a220-f4c15ff70375",
 };
+
+export interface HeroScene {
+  name: string;
+  code: string;
+  slug: string;
+  image: string;
+  alt: string;
+  /** Optional custom link target; defaults to `/mods/${slug}`. */
+  href?: string;
+  /** Optional short label shown alongside the scene name (e.g. mode name). */
+  tag?: string;
+  /** CSS object-position tuning for widescreen framing. */
+  position?: string;
+}
+
+/** Curated scenic captures rotated across the homepage hero backdrop. */
+export const HERO_SCENES: HeroScene[] = [
+  {
+    name: "Blood Gulch",
+    code: "BGL",
+    slug: "ce-blood-gulch",
+    image: MULTIPLAYER_IMAGES.bloodGulch,
+    alt: "Blood Gulch canyon and bases rebuilt inside Halo Campaign Evolved",
+    position: "center 45%",
+  },
+  {
+    name: "Sidewinder",
+    code: "SDW",
+    slug: "ce-sidewinder",
+    image: MULTIPLAYER_IMAGES.sidewinder,
+    alt: "Snowy horseshoe canyon of Sidewinder rebuilt inside Halo Campaign Evolved",
+    position: "center 42%",
+  },
+  {
+    name: "Death Island",
+    code: "DTI",
+    slug: "ce-death-island",
+    image: MULTIPLAYER_IMAGES.deathIsland,
+    alt: "Coastal cliffs and Forerunner arches of Death Island in Halo Campaign Evolved",
+    position: "center 45%",
+  },
+  {
+    name: "Timberland",
+    code: "TMB",
+    slug: "ce-timberland",
+    image: MULTIPLAYER_IMAGES.timberland,
+    alt: "Pine forest valley and bases of Timberland in Halo Campaign Evolved",
+    position: "center 45%",
+  },
+  {
+    name: "Gephyrophobia",
+    code: "GPH",
+    slug: "ce-gephyrophobia",
+    image: MULTIPLAYER_IMAGES.gephyrophobia,
+    alt: "High chasm bridge and mist of Gephyrophobia in Halo Campaign Evolved",
+    position: "center 45%",
+  },
+  {
+    name: "Danger Canyon",
+    code: "DCN",
+    slug: "ce-danger-canyon",
+    image: MULTIPLAYER_IMAGES.dangerCanyon,
+    alt: "Remastered canyon cliffs, bridge, and pine valley of Danger Canyon in Halo Campaign Evolved",
+    position: "center 48%",
+  },
+];
+
+/** In-game multiplayer HUD & remastered vistas rotated across the /multiplayer hero. */
+export const MULTIPLAYER_HERO_SCENES: HeroScene[] = [
+  {
+    name: "Blood Gulch",
+    tag: "Assault",
+    code: "BGL",
+    slug: "ce-blood-gulch",
+    image: "/blog-images/weekly-update-2/assault-blood-gulch.jpg",
+    alt: "First-person Assault match on remastered Blood Gulch in Halo Campaign Evolved",
+    position: "center 45%",
+  },
+  {
+    name: "Blood Gulch",
+    tag: "King of the Hill",
+    code: "BGL",
+    slug: "ce-blood-gulch",
+    image: "/blog-images/weekly-update-2/king-on-the-hill.jpg",
+    alt: "King of the Hill zone beacon and multiplayer HUD on Blood Gulch in Halo Campaign Evolved",
+    position: "center 48%",
+  },
+  {
+    name: "Danger Canyon",
+    code: "DCN",
+    slug: "ce-danger-canyon",
+    image: MULTIPLAYER_IMAGES.dangerCanyon,
+    alt: "Remastered canyon cliffs, bridge, and pine valley of Danger Canyon in Halo Campaign Evolved",
+    position: "center 46%",
+  },
+  {
+    name: "Sidewinder",
+    code: "SDW",
+    slug: "ce-sidewinder",
+    image: MULTIPLAYER_IMAGES.sidewinder,
+    alt: "Snowy horseshoe canyon of Sidewinder rebuilt inside Halo Campaign Evolved",
+    position: "center 42%",
+  },
+  {
+    name: "Timberland",
+    code: "TMB",
+    slug: "ce-timberland",
+    image: MULTIPLAYER_IMAGES.timberland,
+    alt: "Pine forest valley and river of Timberland in Halo Campaign Evolved",
+    position: "center 45%",
+  },
+];
 
 export const MARKETING_DESCRIPTION =
   "Multiplayer modding for Halo Campaign Evolved. Play Slayer and CTF on all 19 classic Halo CE maps, create custom content, and join the MJOLNIR community.";
@@ -32,26 +160,32 @@ export function marketingMetadata(title: string, description: string, path: stri
 }
 
 // Roster from blog/2026-10-02-classic-multiplayer-alpha.md.
-export const CLASSIC_MAPS = [
-  { name: "Blood Gulch", slug: "ce-blood-gulch" },
-  { name: "Battle Creek", slug: "ce-battle-creek" },
-  { name: "Sidewinder", slug: "ce-sidewinder" },
-  { name: "Damnation", slug: "ce-damnation" },
-  { name: "Rat Race", slug: "ce-rat-race" },
-  { name: "Prisoner", slug: "ce-prisoner" },
-  { name: "Hang 'Em High", slug: "ce-hang-em-high" },
-  { name: "Chill Out", slug: "ce-chill-out" },
-  { name: "Derelict", slug: "ce-derelict" },
-  { name: "Boarding Action", slug: "ce-boarding-action" },
-  { name: "Chiron TL-34", slug: "ce-chiron-tl-34" },
-  { name: "Longest", slug: "ce-longest" },
-  { name: "Wizard", slug: "ce-wizard" },
-  { name: "Danger Canyon", slug: "ce-danger-canyon" },
-  { name: "Death Island", slug: "ce-death-island" },
-  { name: "Gephyrophobia", slug: "ce-gephyrophobia" },
-  { name: "Ice Fields", slug: "ce-ice-fields" },
-  { name: "Infinity", slug: "ce-infinity" },
-  { name: "Timberland", slug: "ce-timberland" },
+export const CLASSIC_MAPS: {
+  name: string;
+  slug: string;
+  code: string;
+  image: string;
+  origin: "xbox" | "pc";
+}[] = [
+  { name: "Blood Gulch", slug: "ce-blood-gulch", code: "BGL", image: MULTIPLAYER_IMAGES.bloodGulch, origin: "xbox" },
+  { name: "Battle Creek", slug: "ce-battle-creek", code: "BCK", image: MULTIPLAYER_IMAGES.battleCreek, origin: "xbox" },
+  { name: "Sidewinder", slug: "ce-sidewinder", code: "SDW", image: MULTIPLAYER_IMAGES.sidewinder, origin: "xbox" },
+  { name: "Damnation", slug: "ce-damnation", code: "DMN", image: MULTIPLAYER_IMAGES.damnation, origin: "xbox" },
+  { name: "Rat Race", slug: "ce-rat-race", code: "RAT", image: MULTIPLAYER_IMAGES.ratRace, origin: "xbox" },
+  { name: "Prisoner", slug: "ce-prisoner", code: "PRS", image: MULTIPLAYER_IMAGES.prisoner, origin: "xbox" },
+  { name: "Hang 'Em High", slug: "ce-hang-em-high", code: "HEH", image: MULTIPLAYER_IMAGES.hangEmHigh, origin: "xbox" },
+  { name: "Chill Out", slug: "ce-chill-out", code: "CHL", image: MULTIPLAYER_IMAGES.chillOut, origin: "xbox" },
+  { name: "Derelict", slug: "ce-derelict", code: "DRL", image: MULTIPLAYER_IMAGES.derelict, origin: "xbox" },
+  { name: "Boarding Action", slug: "ce-boarding-action", code: "BDA", image: MULTIPLAYER_IMAGES.boardingAction, origin: "xbox" },
+  { name: "Chiron TL-34", slug: "ce-chiron-tl-34", code: "PTP", image: MULTIPLAYER_IMAGES.chiron, origin: "xbox" },
+  { name: "Longest", slug: "ce-longest", code: "LNG", image: MULTIPLAYER_IMAGES.longest, origin: "xbox" },
+  { name: "Wizard", slug: "ce-wizard", code: "WIZ", image: MULTIPLAYER_IMAGES.wizard, origin: "xbox" },
+  { name: "Danger Canyon", slug: "ce-danger-canyon", code: "DCN", image: MULTIPLAYER_IMAGES.dangerCanyon, origin: "pc" },
+  { name: "Death Island", slug: "ce-death-island", code: "DTI", image: MULTIPLAYER_IMAGES.deathIsland, origin: "pc" },
+  { name: "Gephyrophobia", slug: "ce-gephyrophobia", code: "GPH", image: MULTIPLAYER_IMAGES.gephyrophobia, origin: "pc" },
+  { name: "Ice Fields", slug: "ce-ice-fields", code: "ICE", image: MULTIPLAYER_IMAGES.iceFields, origin: "pc" },
+  { name: "Infinity", slug: "ce-infinity", code: "INF", image: MULTIPLAYER_IMAGES.infinity, origin: "pc" },
+  { name: "Timberland", slug: "ce-timberland", code: "TMB", image: MULTIPLAYER_IMAGES.timberland, origin: "pc" },
 ];
 
 export const PLAY_STEPS = [

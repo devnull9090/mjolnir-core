@@ -220,43 +220,71 @@ body > * {
 
 .marketing-button-primary,
 .marketing-button-secondary {
+  position: relative;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.65rem;
   min-height: 48px;
-  padding: 0.9rem 1.3rem;
+  padding: 0.9rem 1.35rem;
   border: 1px solid transparent;
-  border-radius: 3px;
+  border-radius: 6px;
   font-size: 0.875rem;
   font-weight: 700;
   line-height: 1.5;
-  transition: background-color 160ms, border-color 160ms, color 160ms;
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms ease;
 }
 
 .marketing-button-primary {
-  background: var(--color-gold);
+  background: linear-gradient(135deg, #e2b851 0%, var(--color-gold) 55%, #b88b2e 100%);
   color: var(--color-background);
+  box-shadow: 0 10px 28px -12px rgba(212, 168, 67, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.marketing-button-primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 25%, rgba(255, 255, 255, 0.35) 48%, transparent 72%);
+  transform: translateX(-140%) skewX(-18deg);
+  transition: transform 650ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
 }
 
 .marketing-button-primary:hover {
-  background: #e8bd59;
+  background: linear-gradient(135deg, #ecc563 0%, #e0b349 55%, #c59636 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 16px 36px -12px rgba(212, 168, 67, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.marketing-button-primary:hover::after {
+  transform: translateX(180%) skewX(-18deg);
+}
+
+.marketing-button-primary:active,
+.marketing-button-secondary:active {
+  transform: translateY(0) scale(0.985);
 }
 
 .marketing-button-secondary {
-  border-color: #ffffff40;
-  background: #06080f70;
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(6, 8, 15, 0.68);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   color: #e5e7eb;
 }
 
 .marketing-button-secondary:hover {
-  border-color: var(--color-gold);
+  border-color: rgba(212, 168, 67, 0.7);
+  background: rgba(212, 168, 67, 0.08);
   color: var(--color-gold);
+  transform: translateY(-1px);
 }
 
-.marketing :is(a, summary):focus-visible {
+.marketing :is(a, summary, button):focus-visible {
   outline: 2px solid var(--color-gold);
-  outline-offset: 5px;
+  outline-offset: 4px;
 }
 
 .marketing-hero-image {
@@ -264,17 +292,212 @@ body > * {
 }
 
 .marketing-hero-shade {
-  background: linear-gradient(90deg, #06080ff5 0%, #06080fcc 35%, #06080f20 100%),
-              linear-gradient(0deg, #06080f 0%, transparent 45%, #06080f55 100%);
+  background:
+    linear-gradient(90deg, #06080ff5 0%, #06080fcc 36%, #06080f52 68%, #06080f18 100%),
+    linear-gradient(0deg, #06080f 0%, #06080f45 26%, transparent 56%, #06080f75 100%);
+}
+
+@keyframes mj-scene-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.mj-scene-progress {
+  transform-origin: left center;
+  animation: mj-scene-progress var(--scene-ms, 7500ms) linear forwards;
 }
 
 .marketing-community {
-  background: radial-gradient(ellipse at 90% 100%, #d4a84316, transparent 65%), var(--color-surface);
+  background:
+    radial-gradient(ellipse 65% 90% at 88% 100%, #d4a8431c, transparent 65%),
+    radial-gradient(ellipse 45% 60% at 10% 0%, #58a6ff0e, transparent 60%),
+    var(--color-surface);
+}
+
+/* ── Motion & Tactical Editorial Primitives ───────────────────────────── */
+
+@keyframes mj-hero-drift {
+  0% { transform: scale(1.04) translate3d(0%, 0%, 0); }
+  50% { transform: scale(1.1) translate3d(-1.4%, -0.8%, 0); }
+  100% { transform: scale(1.04) translate3d(0%, 0%, 0); }
+}
+
+.mj-hero-drift {
+  animation: mj-hero-drift 28s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes mj-rise-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.mj-rise {
+  animation: mj-rise-in 680ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.mj-rise-d1 { animation-delay: 60ms; }
+.mj-rise-d2 { animation-delay: 140ms; }
+.mj-rise-d3 { animation-delay: 220ms; }
+.mj-rise-d4 { animation-delay: 300ms; }
+.mj-rise-d5 { animation-delay: 380ms; }
+
+@keyframes mj-tab-fade {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.mj-tab-fade {
+  animation: mj-tab-fade 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes mj-live-ring {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.75;
+  }
+  70% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.mj-live-ring {
+  animation: mj-live-ring 2.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+
+/* Progressive scroll reveal: visible by default for SSR/no-JS, armed only when
+   below the fold by <Reveal>. */
+.mj-reveal {
+  transition: opacity 640ms cubic-bezier(0.22, 1, 0.36, 1), transform 640ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+.mj-reveal[data-state="hidden"] {
+  opacity: 0;
+  transform: translate3d(0, 22px, 0);
+}
+
+.mj-reveal[data-state="visible"] {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+/* Pointer-tracked warm Spartan gold spotlight on interactive cards. */
+.mj-spotlight {
+  position: relative;
+  overflow: hidden;
+  transition: border-color 220ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 260ms ease;
+}
+
+.mj-spotlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 280ms ease;
+  background: radial-gradient(
+    460px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(212, 168, 67, 0.13),
+    transparent 52%
+  );
+  z-index: 1;
+}
+
+.mj-spotlight:hover::before {
+  opacity: 1;
+}
+
+.mj-spotlight:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 42px -22px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(212, 168, 67, 0.25);
+}
+
+/* Metallic sheen sweep utility for navbar & download CTAs. */
+.mj-sheen {
+  position: relative;
+  overflow: hidden;
+}
+
+.mj-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 25%, rgba(255, 255, 255, 0.32) 48%, transparent 72%);
+  transform: translateX(-140%) skewX(-18deg);
+  transition: transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.mj-sheen:hover::after {
+  transform: translateX(180%) skewX(-18deg);
+}
+
+/* Subtle architectural tactical grid behind feature bands. */
+.mj-grid-bg {
+  background-image:
+    linear-gradient(to right, rgba(212, 168, 67, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(212, 168, 67, 0.04) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+/* Razor-thin UNSC visor corner brackets on featured media frames. */
+.mj-hud-corners {
+  position: relative;
+}
+
+.mj-hud-corners::before,
+.mj-hud-corners::after {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+  z-index: 2;
+  transition: border-color 220ms ease, width 220ms ease, height 220ms ease;
+}
+
+.mj-hud-corners::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid rgba(212, 168, 67, 0.75);
+  border-left: 2px solid rgba(212, 168, 67, 0.75);
+}
+
+.mj-hud-corners::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid rgba(212, 168, 67, 0.75);
+  border-right: 2px solid rgba(212, 168, 67, 0.75);
+}
+
+.mj-hud-corners:hover::before,
+.mj-hud-corners:hover::after {
+  width: 22px;
+  height: 22px;
+  border-color: var(--color-gold);
 }
 
 @media (max-width: 767px) {
   .marketing-hero-shade {
-    background: linear-gradient(90deg, #06080fe6, #06080f99),
+    background: linear-gradient(90deg, #06080ff0, #06080fb8),
                 linear-gradient(0deg, #06080f, transparent 70%);
   }
 }
@@ -282,9 +505,21 @@ body > * {
 @media (prefers-reduced-motion: reduce) {
   .marketing *,
   .marketing *::before,
-  .marketing *::after {
+  .marketing *::after,
+  .mj-hero-drift,
+  .mj-rise,
+  .mj-tab-fade,
+  .mj-live-ring,
+  .mj-reveal,
+  .mj-spotlight,
+  .mj-sheen::after,
+  .mj-scene-progress {
     transition: none !important;
     animation: none !important;
+    transform: none !important;
+  }
+  .mj-reveal[data-state="hidden"] {
+    opacity: 1 !important;
   }
 }
 

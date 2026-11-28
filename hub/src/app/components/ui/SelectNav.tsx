@@ -1,14 +1,14 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useId } from "react";
 
+import { Select } from "../HubKit";
+
 /**
- * A filter with too many choices for chips, as a native `<select>`: the
- * platform picker on a phone, type-to-find on a desktop. Each option is a
- * URL; choosing one navigates. Without JavaScript it is a GET form with a
- * Go button, so the filter never depends on hydration.
+ * A filter with too many choices for chips, backed by the shared MJOLNIR
+ * `<Select>` listbox. Each option maps to a URL; picking one navigates while
+ * preserving the form for progressive enhancement.
  */
 export function SelectNav({
   label,
@@ -30,34 +30,26 @@ export function SelectNav({
 }) {
   const router = useRouter();
   const id = useId();
+  const labelId = `${id}-label`;
+
   return (
     <form action={action} method="get" className="flex items-center gap-2">
-      <label htmlFor={id} className="text-sm text-text-muted whitespace-nowrap">
+      <label id={labelId} htmlFor={id} className="text-sm text-text-muted whitespace-nowrap">
         {label}
       </label>
       {Object.entries(hidden).map(([k, v]) => (v ? <input key={k} type="hidden" name={k} value={v} /> : null))}
-      <div className="relative min-w-0 flex-1 lg:flex-none">
-        <select
-          id={id}
-          name={name}
-          value={value}
-          onChange={(e) => {
-            const opt = options.find((o) => o.value === e.target.value);
-            if (opt) router.push(opt.href, { scroll: false });
-          }}
-          className="min-h-10 w-full appearance-none rounded-lg border border-border bg-surface-raised py-2 pl-3 pr-9 text-sm text-foreground hover:border-border-bright focus:border-gold/60 lg:w-56"
-        >
-          {options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        <ChevronDown
-          aria-hidden
-          className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted"
-        />
-      </div>
+      <Select
+        id={id}
+        name={name}
+        value={value}
+        ariaLabelledBy={labelId}
+        options={options}
+        onChange={(next) => {
+          const opt = options.find((o) => o.value === next);
+          if (opt) router.push(opt.href, { scroll: false });
+        }}
+        className="min-w-0 flex-1 sm:min-w-48 lg:w-56 sm:flex-none"
+      />
       <noscript>
         <button type="submit" className="min-h-10 rounded-lg border border-border px-3 text-sm text-text-muted">
           Go

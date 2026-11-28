@@ -109,7 +109,7 @@ export default function AccountChip() {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full mt-2 w-56 z-50 rounded-xl border border-border-subtle bg-surface-card shadow-lg shadow-black/40 py-1"
+          className="launcher-view absolute right-0 top-full mt-2 w-56 z-50 rounded-xl border border-border-subtle bg-surface-card shadow-xl shadow-black/50 py-1"
         >
           <div className="px-3 py-2 border-b border-border-subtle/60">
             <p className="text-sm text-text-primary truncate">{name}</p>

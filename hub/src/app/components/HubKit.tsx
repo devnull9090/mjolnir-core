@@ -26,6 +26,7 @@ export {
   RatingPanel,
   ReleaseList,
   ReportButton,
+  Select,
   Stars,
   useHub,
 } from "@mjolnir/hub-kit";
