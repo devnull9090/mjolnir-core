@@ -36,11 +36,13 @@ end
 local MOD_DIR = modDirectory()
 local Json = dofile(MOD_DIR .. "\\Scripts\\json.lua")
 local UI = dofile(MOD_DIR .. "\\Scripts\\ui.lua")
-UI.polish = dofile(MOD_DIR .. "\\Scripts\\ui_polish.lua").new({
-    valid = UI.valid,
-    playerController = UI.playerController,
-    log = UI.log,
-})
+UI.polish = (function(m)
+    return m and m.new and m.new({
+        valid = UI.valid,
+        playerController = UI.playerController,
+        log = UI.log,
+    }) or {}
+end)(dofile(MOD_DIR .. "\\Scripts\\ui_polish.lua"))
 local Net = dofile(MOD_DIR .. "\\Scripts\\net.lua")
 local BuildLine = dofile(MOD_DIR .. "\\Scripts\\buildline.lua")
 local SquadPanel = dofile(MOD_DIR .. "\\Scripts\\squadpanel.lua")
