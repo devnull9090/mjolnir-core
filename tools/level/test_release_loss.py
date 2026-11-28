@@ -84,6 +84,16 @@ class LostTest(unittest.TestCase):
             "machines in `blam.objects`", "map/vehicle_sounds.json", "objects labelled koth_hill",
             "the game type koth", "the vehicle objects\\mjolnir\\aaa\\mongoose"]))
 
+    def test_a_weapon_type_and_game_type_pickups_are_kinds(self):
+        old = {"blam": {"weapons": [{"type": "battle_rifle"}, {"type": "smg", "set": {release_loss.LABEL: "spawn_set_0"}}],
+                        "equipment": [{"type": "ammo_box"}]},
+               "starting_equipment": [{"families": ["slayer"]}]}
+        new = {"blam": {"weapons": [{"type": "assault_rifle"}, {"type": "smg"}], "equipment": [{"type": "ammo_box"}]}}
+        self.assertEqual(release_loss.lost([], old, [], new),
+                         sorted(["`starting_equipment` in the level file", "the weapon battle_rifle",
+                                 "weapons placed in some game types only"]))
+        self.assertEqual(release_loss.lost([], old, [], old), [])
+
     def test_a_shipped_level_need_not_name_its_bots(self):
         names, level = full()
         del level["blam"]["bots"]

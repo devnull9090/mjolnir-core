@@ -287,6 +287,15 @@ pub struct LevelFile {
     /// the bake.
     #[serde(default)]
     pub foliage: Option<serde_json::Value>,
+    /// What a player spawns holding, by family of game types (tools/level/
+    /// gen_ce_level.py `starting_kits`, from the source scenario's starting
+    /// equipment). The entry marked `profile` becomes the scenario's first
+    /// player starting profile, which the simulation equips a multiplayer
+    /// spawn from when the variant's weapon traits say "the map's"; every
+    /// entry's `traits` are for MJOLNIRLevelLoader, which writes those of
+    /// the match's game type into the variant it stages.
+    #[serde(default)]
+    pub starting_equipment: Vec<StartingEquipment>,
     /// Halo 2's machines that move in parts (tools/level/gen_ce_level.py
     /// `add_doors`): each placement's machines and part meshes, which the
     /// loader's doors.lua attaches together; opaque to the bake (the
@@ -1555,6 +1564,36 @@ impl ForgeLimits {
     }
 }
 
+/// One starting kit of a level's `starting_equipment`.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(dead_code)] // `traits` is the loader's
+pub struct StartingEquipment {
+    /// The families of game types that spawn with it (`slayer`, `ctf`, ...).
+    pub families: Vec<String>,
+    /// Up to two weapon types of the palette map: primary, secondary.
+    #[serde(default)]
+    pub weapons: Vec<String>,
+    #[serde(default)]
+    pub frag_grenades: u8,
+    #[serde(default)]
+    pub plasma_grenades: u8,
+    /// The kit the bake writes into the scenario's first starting profile.
+    #[serde(default)]
+    pub profile: bool,
+    /// The variant's base player traits for this kit, by trait name; read
+    /// by the loader alone.
+    #[serde(default)]
+    pub traits: BTreeMap<String, u8>,
+}
+
+/// The name of the starting profile the bake writes (a 32-byte field).
+const STARTING_PROFILE_NAME: &str = "mjolnir_starting_kit";
+/// The grenade types a starting profile counts, as the shipped scenarios
+/// name them.
+const PROFILE_FRAG: &str = "human_fragmentation";
+const PROFILE_PLASMA: &str = "covenant_plasma";
+
 #[derive(Debug, serde::Deserialize)]
 struct PaletteMap {
     vehicles: std::collections::BTreeMap<String, String>,
@@ -1683,6 +1722,20 @@ fn validate_level(level: &LevelFile) -> Result<Vec<String>> {
     for e in &level.blam.equipment {
         if e.tag.is_none() && !map.equipment.contains_key(&e.kind) {
             bail!("unknown equipment type {:?}", e.kind);
+        }
+    }
+    if level.starting_equipment.iter().filter(|k| k.profile).count() > 1 {
+        bail!("starting_equipment marks more than one kit as the scenario's profile");
+    }
+    for kit in &level.starting_equipment {
+        if kit.weapons.len() > 2 {
+            bail!("a starting kit holds at most two weapons, got {:?}", kit.weapons);
+        }
+        if let Some(w) = kit.weapons.iter().find(|w| !map.weapons.contains_key(*w)) {
+            bail!("unknown weapon type {w:?} in starting_equipment");
+        }
+        if kit.frag_grenades > 127 || kit.plasma_grenades > 127 {
+            bail!("a starting kit's grenade counts are at most 127");
         }
     }
     for o in &level.blam.objects {
@@ -2146,6 +2199,59 @@ impl Baker {
             }
         }
         println!("  players {} representation row(s)", rows.len());
+        Ok(())
+    }
+
+    /// The map's starting kit as the scenario's first player starting
+    /// profile. A multiplayer spawn starts from that profile (the simulation
+    /// reads profile 0 under the Megalo engine) and takes a weapon from the
+    /// variant's traits instead only where a trait names one, so with the
+    /// traits at "the map's" a player spawns with exactly this: the two
+    /// weapons, each with its own tag's loaded and reserve rounds (-1), and
+    /// the grenade counts. Nothing else of the canvas's profile is kept.
+    fn starting_profile(&mut self, kit: &StartingEquipment, weapons: &BTreeMap<String, String>) -> Result<()> {
+        if block_count(&self.file, "player starting profile")? == 0 {
+            self.add_element("player starting profile")?;
+        }
+        let p = |f: &str| format!("player starting profile[0].{f}");
+        set_fixed_string(&mut self.file, &p("name"), STARTING_PROFILE_NAME)?;
+        let weapon = |i: usize| -> Result<String> {
+            match kit.weapons.get(i) {
+                Some(kind) => {
+                    let path = weapons.get(kind).with_context(|| format!("unknown weapon type {kind:?}"))?;
+                    Ok(format!("weap:{path}"))
+                }
+                None => Ok("none".to_string()),
+            }
+        };
+        let grenade = |count: u8, name: &str| if count > 0 { name.to_string() } else { String::new() };
+        let fields: Vec<(String, String)> = vec![
+            (p("starting health damage"), "0".into()),
+            (p("starting shield damage"), "0".into()),
+            (p("primary weapon"), weapon(0)?),
+            (p("primaryrounds loaded"), "-1".into()),
+            (p("primaryrounds total"), "-1".into()),
+            (p("secondary weapon"), weapon(1)?),
+            (p("secondaryrounds loaded"), "-1".into()),
+            (p("secondaryrounds total"), "-1".into()),
+            (p("starting fragmentation grenade count"), kit.frag_grenades.to_string()),
+            (p("starting plasma grenade count"), kit.plasma_grenades.to_string()),
+            (p("starting grenades[0].grenade type name"), grenade(kit.frag_grenades, PROFILE_FRAG)),
+            (p("starting grenades[0].grenade count"), kit.frag_grenades.to_string()),
+            (p("starting grenades[1].grenade type name"), grenade(kit.plasma_grenades, PROFILE_PLASMA)),
+            (p("starting grenades[1].grenade count"), kit.plasma_grenades.to_string()),
+            (p("starting equipment"), "none".into()),
+        ];
+        for (path, value) in &fields {
+            apply_set(&mut self.file, path, value).with_context(|| format!("{path} = {value}"))?;
+        }
+        println!(
+            "  kit      starting profile 0: {}, {} frag, {} plasma (for {})",
+            if kit.weapons.is_empty() { "no weapon".to_string() } else { kit.weapons.join(" + ") },
+            kit.frag_grenades,
+            kit.plasma_grenades,
+            kit.families.join(", "),
+        );
         Ok(())
     }
 
@@ -4298,6 +4404,9 @@ fn bake(a: BakeArgs) -> Result<()> {
     baker.object_names(&level.blam.object_names, &level.blam.clear)?;
     baker.device_groups(&level.blam.device_groups, &level.blam.clear)?;
     baker.player_starts(&level.blam.player_starts)?;
+    if let Some(kit) = level.starting_equipment.iter().find(|k| k.profile) {
+        baker.starting_profile(kit, &palette_map()?.weapons)?;
+    }
     baker.player_representations(&level.blam.player_representations)?;
     baker.cutscene_flags(&level.blam.cutscene_flags)?;
     baker.trigger_volumes(&level.blam.trigger_volumes)?;
@@ -5630,6 +5739,46 @@ mod tests {
         assert_eq!(level.spawn_sets.unwrap(), document["spawn_sets"]);
         document["spawn_setss"] = serde_json::json!([]);
         assert!(serde_json::from_value::<LevelFile>(document).is_err());
+    }
+
+    #[test]
+    fn starting_kits_are_typed_and_checked() {
+        let kit = |weapons: serde_json::Value, profile: bool| {
+            serde_json::json!({
+                "families": ["slayer"], "weapons": weapons, "frag_grenades": 2, "plasma_grenades": 0,
+                "profile": profile,
+                "traits": {"primary_weapon": 254, "secondary_weapon": 254, "grenades": 1}
+            })
+        };
+        let document = |kits: serde_json::Value| {
+            serde_json::json!({
+                "schema_version": 1, "name": "kits",
+                "canvas": { "scenario": "b40", "origin": [0, 0, 0] },
+                "starting_equipment": kits
+            })
+        };
+        let level: LevelFile =
+            serde_json::from_value(document(serde_json::json!([kit(serde_json::json!(["battle_rifle", "smg"]), true)])))
+                .unwrap();
+        assert_eq!(level.starting_equipment[0].weapons, ["battle_rifle", "smg"]);
+        assert_eq!(level.starting_equipment[0].traits["primary_weapon"], 254);
+        validate_level(&level).unwrap();
+        // A level without kits has none, and bakes as before.
+        let none: LevelFile = serde_json::from_value(document(serde_json::json!([]))).unwrap();
+        assert!(none.starting_equipment.is_empty());
+        let refused = |kits: serde_json::Value| {
+            let level: LevelFile = serde_json::from_value(document(kits)).unwrap();
+            validate_level(&level).unwrap_err().to_string()
+        };
+        assert!(refused(serde_json::json!([kit(serde_json::json!(["smg"]), true), kit(serde_json::json!(["smg"]), true)]))
+            .contains("more than one"));
+        assert!(refused(serde_json::json!([kit(serde_json::json!(["smg", "magnum", "shotgun"]), false)]))
+            .contains("at most two"));
+        assert!(refused(serde_json::json!([kit(serde_json::json!(["bfg"]), false)])).contains("unknown weapon type"));
+        // An unknown field in a kit still fails.
+        let mut odd = kit(serde_json::json!(["smg"]), false);
+        odd["ammo"] = serde_json::json!(1);
+        assert!(serde_json::from_value::<LevelFile>(document(serde_json::json!([odd]))).is_err());
     }
 
     #[test]

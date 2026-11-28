@@ -41,7 +41,7 @@ BOTS = os.path.join(REPO, "defs", "level", "bots.json")
 # (landscape, effects, shadow_shell, flux ...).
 BAKE_KEYS = {"schema_version", "name", "title", "author", "description", "canvas", "multiplayer", "variant",
              "game", "modes", "environment", "blam", "decor", "markers", "ctf", "health_pack", "vehicle_sets",
-             "foliage"}
+             "foliage", "starting_equipment"}
 MACHINE = re.compile(r"-MJOLNIRMACH-[A-Z0-9]{3}-")
 
 
