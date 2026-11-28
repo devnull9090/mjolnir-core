@@ -626,11 +626,12 @@ def image_brush(tex, tint=(1.0, 1.0, 1.0, 1.0)):
     return brush
 
 
-def panel(bp, name, parent, alpha=0.78, padding=(32, 28, 32, 28), glass=True):
+def panel(bp, name, parent, alpha=0.78, padding=(32, 28, 32, 28), glass=True, modal=False):
     border = widget(bp, unreal.Border, name, parent)
-    if glass and CHROME.get("PanelGlass"):
-        border.set_editor_property("background", box_brush(CHROME["PanelGlass"], (0.14, 0.14, 0.14, 0.14)))
-        border.set_editor_property("brush_color", unreal.LinearColor(1.0, 1.0, 1.0, min(1.0, alpha + 0.14)))
+    key = "PanelModal" if (modal and CHROME.get("PanelModal")) else "PanelGlass"
+    if glass and CHROME.get(key):
+        border.set_editor_property("background", box_brush(CHROME[key], (0.14, 0.14, 0.14, 0.14)))
+        border.set_editor_property("brush_color", unreal.LinearColor(1.0, 1.0, 1.0, 1.0 if modal else min(1.0, alpha + 0.14)))
     else:
         border.set_editor_property("brush_color", unreal.LinearColor(0.005, 0.018, 0.03, alpha))
     border.set_editor_property("padding", unreal.Margin(*padding))
@@ -716,7 +717,7 @@ def button_style(button, primary=False, padding=(36, 16, 36, 16)):
 def menu_button(bp, name, label, parent, size=30, events=None, align="left", padding=(36, 16, 36, 16)):
     """A button with a text label (`<name>Label`), styled with Halo UNSC glass
     and twin focus pips (Spartan gold for primary actions)."""
-    primary = name in ("Start", "Select", "Join", "Download")
+    primary = name in ("Start", "Select", "Join", "Download", "ReportSend")
     button = widget(bp, unreal.Button, name, parent)
     button_style(button, primary=primary, padding=padding)
     block = widget(bp, unreal.TextBlock, f"{name}Label", name)
@@ -780,7 +781,11 @@ def screen_header(bp, title, subtitle, discord=False):
     place(brand, (0.94, 0.045), (1.0, 0.0))
     if discord:
         button = widget(bp, unreal.Button, "Discord", brand.get_name())
-        flat_style(button, (*DISCORD, 0.30), (*DISCORD, 0.65), (*DISCORD, 0.9), padding=(26, 14, 28, 14))
+        if CHROME.get("BtnDiscordIdle"):
+            chrome_button_style(button, "BtnDiscordIdle", "BtnDiscordHover", "BtnDiscordPress",
+                                padding=(26, 13, 28, 13), margin=(0.06, 0.16, 0.06, 0.16))
+        else:
+            flat_style(button, (*DISCORD, 0.30), (*DISCORD, 0.65), (*DISCORD, 0.9), padding=(26, 14, 28, 14))
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 28, 0))
         middle(button)
         button.set_visibility(unreal.SlateVisibility.COLLAPSED)
@@ -1088,7 +1093,7 @@ def build_lobby():
             line.get_editor_property("slot").set_padding(unreal.Margin(0, 4, 0, 0))
             line.set_visibility(unreal.SlateVisibility.COLLAPSED)
             btn = widget(bp, unreal.Button, f"{group}PlayerBtn{i}", line.get_name())
-            row_button_style(btn, padding=(12, 7, 14, 7))
+            row_button_style(btn, padding=(16, 8, 16, 8))
             fill(btn, 1)
             events += [
                 (btn.get_name(), "OnClicked", f"roster_click:{group}:{i}"),
@@ -1144,13 +1149,13 @@ def player_card_panel(bp):
     hub, VIEW PROFILE, REPORT PLAYER, and host KICK / BAN controls."""
     events = []
     backdrop = widget(bp, unreal.Button, "PlayerCardBackdrop", "Root")
-    flat_style(backdrop, (0.0, 0.006, 0.015, 0.58), (0.0, 0.006, 0.015, 0.58), (0.0, 0.006, 0.015, 0.58))
+    flat_style(backdrop, (0.0, 0.005, 0.014, 0.74), (0.0, 0.005, 0.014, 0.74), (0.0, 0.005, 0.014, 0.74))
     stretch(backdrop)
     backdrop.get_editor_property("slot").set_z_order(14)
     backdrop.set_visibility(unreal.SlateVisibility.COLLAPSED)
     events.append(("PlayerCardBackdrop", "OnClicked", "pcard_close"))
 
-    card = panel(bp, "PlayerCard", "Root", alpha=0.96, padding=(38, 32, 38, 32))
+    card = panel(bp, "PlayerCard", "Root", alpha=1.0, padding=(38, 32, 38, 32), modal=True)
     place(card, (0.5, 0.5), (0.5, 0.5))
     card.get_editor_property("slot").set_z_order(15)
     card.set_visibility(unreal.SlateVisibility.COLLAPSED)
@@ -1558,6 +1563,12 @@ def build_game_type_select(icons):
         unpadded(row_size)
         row_size.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
         row = widget(bp, unreal.HorizontalBox, key + "Row", row_size.get_name())
+        mark_box = sized(bp, key + "MarkSize", row.get_name(), width=4)
+        mark_box.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
+        mark_box.get_editor_property("slot").set_padding(unreal.Margin(0, 6, 14, 6))
+        mark = widget(bp, unreal.Border, key + "Mark", mark_box.get_name())
+        mark.set_editor_property("brush_color", unreal.LinearColor(*GOLD))
+        mark.set_visibility(unreal.SlateVisibility.HIDDEN)
         icon_size = sized(bp, key + "IconSize", row.get_name(), width=48, height=48)
         middle(icon_size)
         icon_size.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 20, 0))
@@ -1637,6 +1648,12 @@ def build_game_type_select(icons):
         line = widget(bp, unreal.TextBlock, key + "Line", chip.get_name())
         text_style(line, "", 15, (0.64, 0.78, 0.87, 1.0))
         gap(line, top=6)
+        vmark = widget(bp, unreal.Border, key + "Mark", chip.get_name())
+        vmark.set_editor_property("brush_color", unreal.LinearColor(*GOLD))
+        vmark.set_editor_property("padding", unreal.Margin(0, 2, 0, 1))
+        vmark.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+        gap(vmark, top=10)
+        vmark.set_visibility(unreal.SlateVisibility.HIDDEN)
         events += [(key, "OnClicked", f"variant:{i}"), (key, "OnHovered", f"vhover:{i}"),
                    (key, "OnUnhovered", f"vunhover:{i}")]
 
@@ -1865,7 +1882,7 @@ def build_find_games():
     widget(bp, unreal.VerticalBox, "ListStack", "ListSize")
     top_rule(bp, "ListRule", "ListStack")
     caption = widget(bp, unreal.HorizontalBox, "ListCaption", "ListStack")
-    caption.get_editor_property("slot").set_padding(unreal.Margin(12, 8, 12, 6))
+    caption.get_editor_property("slot").set_padding(unreal.Margin(14, 8, 18, 6))
     count = widget(bp, unreal.TextBlock, "ListCount", "ListCaption")
     text_style(count, "PUBLIC GAMES", 18, ACCENT)
     fill(count, 1)
@@ -2006,8 +2023,8 @@ def build_find_games():
     for idx, (key, label, event) in enumerate((("QuickJoin", "QUICK JOIN", "quickjoin"),
                                                ("Refresh", "REFRESH", "refresh"),
                                                ("Back", "BACK", "back"))):
-        button = menu_button(bp, key, label, actions.get_name(), size=20, events=events,
-                             align="center", padding=(18, 14, 18, 14))
+        button = menu_button(bp, key, label, actions.get_name(), size=19, events=events,
+                             align="center", padding=(14, 14, 14, 14))
         fill(button, 1)
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 10 if idx < 2 else 0, 0))
         events.append((key, "OnClicked", event))
@@ -2530,52 +2547,67 @@ def report_panel(bp):
     a reason (`Reason<k>`, MJ_Event "reason:<k>"), what happened
     (`ReportText`, a multi-line text box Lua reads), `ReportStatus`, and SEND
     REPORT / CANCEL. Returns its events."""
-    report = panel(bp, "Report", "Root", alpha=0.97, padding=(44, 34, 44, 34))
+    events = []
+    backdrop = widget(bp, unreal.Button, "ReportBackdrop", "Root")
+    flat_style(backdrop, (0.0, 0.005, 0.014, 0.74), (0.0, 0.005, 0.014, 0.74), (0.0, 0.005, 0.014, 0.74))
+    stretch(backdrop)
+    backdrop.get_editor_property("slot").set_z_order(19)
+    backdrop.set_visibility(unreal.SlateVisibility.COLLAPSED)
+    events.append(("ReportBackdrop", "OnClicked", "report_cancel"))
+
+    report = panel(bp, "Report", "Root", alpha=1.0, padding=(44, 34, 44, 36), modal=True)
     place(report, (0.5, 0.5), (0.5, 0.5))
     report.get_editor_property("slot").set_z_order(20)
     report.set_visibility(unreal.SlateVisibility.COLLAPSED)
     sized(bp, "ReportSize", "Report", width=1180)
     widget(bp, unreal.VerticalBox, "ReportStack", "ReportSize")
-    gap(rule(bp, "ReportRule", "ReportStack", RED, 2), bottom=22)
+    top_rule(bp, "ReportRule", "ReportStack", RED, 2)
     kicker = widget(bp, unreal.TextBlock, "ReportKicker", "ReportStack")
-    text_style(kicker, "REPORT A PLAYER", 18, RED)
-    gap(kicker, bottom=16)
+    text_style(kicker, "REPORT A PLAYER", 18, RED, "Bold")
+    gap(kicker, bottom=14)
     who = widget(bp, unreal.HorizontalBox, "ReportWho", "ReportStack")
-    gap(who, bottom=24)
+    gap(who, bottom=18)
     face = sized(bp, "ReportAvatarSize", "ReportWho", width=84, height=84)
     face.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 22, 0))
     image = widget(bp, unreal.Image, "ReportAvatar", face.get_name())
+    round_image(image, 84)
     image.set_visibility(unreal.SlateVisibility.HIDDEN)
     names = widget(bp, unreal.VerticalBox, "ReportNames", "ReportWho")
     middle(names)
     fill(names, 1)
-    text_style(widget(bp, unreal.TextBlock, "ReportName", "ReportNames"), "", 40, WHITE)
+    text_style(widget(bp, unreal.TextBlock, "ReportName", "ReportNames"), "", 38, WHITE)
     count = widget(bp, unreal.TextBlock, "ReportCount", "ReportNames")
-    text_style(count, "", 20, GREY)
+    text_style(count, "", 19, GREY)
     gap(count, top=6)
-    text_style(widget(bp, unreal.TextBlock, "ReasonKicker", "ReportStack"), "WHY", 18, ACCENT)
-    events = []
+    gap(rule(bp, "ReportHeadRule", "ReportStack"), bottom=18)
+    text_style(widget(bp, unreal.TextBlock, "ReasonKicker", "ReportStack"), "WHY", 17, ACCENT, "Bold")
     keys = [key for key, _ in REPORT_REASONS]
     for r, reasons in enumerate((REPORT_REASONS[:4], REPORT_REASONS[4:])):
         line = widget(bp, unreal.HorizontalBox, f"ReasonRow{r}", "ReportStack")
         gap(line, top=10 if r == 0 else 8)
-        for key, label in reasons:
+        for idx, (key, label) in enumerate(reasons):
             k = keys.index(key)
             button = widget(bp, unreal.Button, f"Reason{k}", line.get_name())
-            row_button_style(button, padding=(18, 12, 18, 12))
+            row_button_style(button, padding=(12, 12, 12, 12))
             lbl = widget(bp, unreal.TextBlock, f"Reason{k}Label", button.get_name())
-            text_style(lbl, label, 21, WHITE)
+            text_style(lbl, label, 18, WHITE)
+            lbl.set_editor_property("text_overflow_policy", unreal.TextOverflowPolicy.ELLIPSIS)
             lbl.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_CENTER)
             fill(button, 1)
-            button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 10, 0))
-            events.append((f"Reason{k}", "OnClicked", f"reason:{k}"))
+            right_gap = 0 if (r == 0 and idx == len(reasons) - 1) else 10
+            button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, right_gap, 0))
+            events += [
+                (f"Reason{k}", "OnClicked", f"reason:{k}"),
+                (f"Reason{k}", "OnHovered", f"btn_hover:Reason{k}"),
+                (f"Reason{k}", "OnUnhovered", f"btn_unhover:Reason{k}"),
+            ]
         if len(reasons) < 4:
             spacer = widget(bp, unreal.Spacer, f"ReasonFill{r}", line.get_name())
             fill(spacer, 4 - len(reasons))
     detail = widget(bp, unreal.TextBlock, "DetailKicker", "ReportStack")
-    text_style(detail, "WHAT HAPPENED", 18, ACCENT)
-    gap(detail, top=24, bottom=10)
-    box = sized(bp, "ReportTextSize", "ReportStack", height=190)
+    text_style(detail, "WHAT HAPPENED", 17, ACCENT, "Bold")
+    gap(detail, top=22, bottom=10)
+    box = sized(bp, "ReportTextSize", "ReportStack", height=180)
     text = widget(bp, unreal.MultiLineEditableTextBox, "ReportText", box.get_name())
     text.set_editor_property("hint_text",
                              unreal.Text("Tell the moderators what happened (optional, up to 1000 characters)"))
@@ -2583,30 +2615,35 @@ def report_panel(bp):
         style = text.get_editor_property("widget_style")
         for state in ("background_image_normal", "background_image_hovered", "background_image_focused",
                       "background_image_read_only"):
-            brush = style.get_editor_property(state)
-            brush.set_editor_property("resource_object", None)
-            brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.IMAGE)
-            brush.set_editor_property("tint_color", unreal.SlateColor(unreal.LinearColor(
-                0.0, 0.03, 0.05, 0.95 if state == "background_image_focused" else 0.8)))
-            style.set_editor_property(state, brush)
+            if CHROME.get("PanelSubtle"):
+                tint = (1.18, 1.32, 1.42, 1.0) if state == "background_image_focused" else (0.92, 0.96, 1.0, 1.0)
+                style.set_editor_property(state, box_brush(CHROME["PanelSubtle"], (0.06, 0.12, 0.06, 0.12), tint=tint))
+            else:
+                brush = style.get_editor_property(state)
+                brush.set_editor_property("resource_object", None)
+                brush.set_editor_property("draw_as", unreal.SlateBrushDrawType.IMAGE)
+                brush.set_editor_property("tint_color", unreal.SlateColor(unreal.LinearColor(
+                    0.0, 0.03, 0.05, 0.95 if state == "background_image_focused" else 0.8)))
+                style.set_editor_property(state, brush)
         style.set_editor_property("foreground_color", unreal.SlateColor(unreal.LinearColor(*WHITE)))
         style.set_editor_property("padding", unreal.Margin(16, 12, 16, 12))
         inner = style.get_editor_property("text_style")
         font = inner.get_editor_property("font")
-        font.set_editor_property("size", 22)
+        font.set_editor_property("size", 20)
         inner.set_editor_property("font", font)
         style.set_editor_property("text_style", inner)
         text.set_editor_property("widget_style", style)
     except Exception as e:  # a style field this engine lacks: the stock look
         unreal.log_warning(f"MJOLNIR UI: report text style: {e}")
     status = widget(bp, unreal.TextBlock, "ReportStatus", "ReportStack")
-    text_style(status, "", 20, GREY)
+    text_style(status, "", 19, GREY)
     wrapped(status)
     gap(status, top=16, bottom=18)
     actions = widget(bp, unreal.HorizontalBox, "ReportActions", "ReportStack")
     for key, label, event in (("ReportSend", "SEND REPORT", "report_send"),
                               ("ReportCancel", "CANCEL", "report_cancel")):
-        button = menu_button(bp, key, label, actions.get_name(), size=26)
+        button = menu_button(bp, key, label, actions.get_name(), size=24, events=events,
+                             align="center", padding=(34, 14, 34, 14))
         button.get_editor_property("slot").set_padding(unreal.Margin(0, 0, 16, 0))
         events.append((key, "OnClicked", event))
     return events
@@ -2725,8 +2762,33 @@ def build_game_settings():
     widget(bp, unreal.VerticalBox, "Pages", "PagesSize")
     gap(rule(bp, "PagesRule", "Pages", ACCENT, 2), bottom=12)
     for i in range(SETTINGS_PAGES):
-        gap(menu_button(bp, f"Page{i}", "", "Pages", size=26, events=events, padding=(34, 15, 34, 15)), bottom=8)
-        events.append((f"Page{i}", "OnClicked", f"page:{i}"))
+        key = f"Page{i}"
+        button = widget(bp, unreal.Button, key, "Pages")
+        button_style(button, primary=False, padding=(0, 0, 0, 0))
+        gap(button, bottom=8)
+        wrap = widget(bp, unreal.Overlay, key + "Wrap", key)
+        unpadded(wrap)
+        wrap.get_editor_property("slot").set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_FILL)
+        wrap.get_editor_property("slot").set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
+        mark_box = sized(bp, key + "MarkSize", wrap.get_name(), width=4)
+        mslot = mark_box.get_editor_property("slot")
+        mslot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_LEFT)
+        mslot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_FILL)
+        mslot.set_padding(unreal.Margin(7, 4, 0, 4))
+        mark = widget(bp, unreal.Border, key + "Mark", mark_box.get_name())
+        mark.set_editor_property("brush_color", unreal.LinearColor(*GOLD))
+        mark.set_visibility(unreal.SlateVisibility.HIDDEN)
+        block = widget(bp, unreal.TextBlock, key + "Label", wrap.get_name())
+        text_style(block, "", 26, WHITE)
+        lslot = block.get_editor_property("slot")
+        lslot.set_horizontal_alignment(unreal.HorizontalAlignment.H_ALIGN_LEFT)
+        lslot.set_vertical_alignment(unreal.VerticalAlignment.V_ALIGN_CENTER)
+        lslot.set_padding(unreal.Margin(34, 15, 34, 15))
+        events += [
+            (key, "OnClicked", f"page:{i}"),
+            (key, "OnHovered", f"btn_hover:{key}"),
+            (key, "OnUnhovered", f"btn_unhover:{key}"),
+        ]
     gap(rule(bp, "ActionsRule", "Pages"), top=20, bottom=12)
     for key, label in (("Reset", "RESET"), ("Back", "DONE")):
         gap(menu_button(bp, key, label, "Pages", size=26, events=events, padding=(34, 15, 34, 15)), bottom=8)

@@ -147,6 +147,7 @@ function M.new(deps)
                     button:SetBackgroundColor(chosen and CHOSEN or NORMAL)
                     screen["Mode" .. i .. "Label"]:SetColorAndOpacity({ SpecifiedColor = chosen and CYAN or WHITE, ColorUseRule = 0 })
                 end)
+                pcall(function() screen["Mode" .. i .. "Mark"]:SetVisibility(chosen and 3 or 2) end)
             end
         end
         local count = split and #modes or #tiles

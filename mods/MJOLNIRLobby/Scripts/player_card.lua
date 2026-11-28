@@ -174,6 +174,7 @@ function M.new(deps)
         if not valid(s) then return end
         local okR, panel = pcall(function() return s.Report end)
         if not (okR and valid(panel)) then return end
+        setShown(s.ReportBackdrop, report ~= nil)
         setShown(panel, report ~= nil)
         if not report then return end
         local p = report.player

@@ -68,7 +68,7 @@ def draw_l_brackets(draw: ImageDraw.ImageDraw, x0: int, y0: int, x1: int, y1: in
     draw.rectangle((x1 - thickness + 1, y1 - length, x1, y1), fill=color)
 
 
-def draw_panel_glass() -> Image.Image:
+def draw_panel_glass(top_alpha: int = 214, bot_alpha: int = 226) -> Image.Image:
     """256x256 9-slice translucent UNSC glass panel with luminous cyan top
     hairline, subtle micro-dot grid, clipped soft top bloom, and flush corner
     L-brackets. Designed for SlateBrush BOX margin = 0.14 (~36px)."""
@@ -78,7 +78,7 @@ def draw_panel_glass() -> Image.Image:
     x0, y0, x1, y1 = inset, inset, size - 1 - inset, size - 1 - inset
 
     # Deep translucent teal-navy gradient body
-    draw_vertical_gradient(img, (*NAVY_TOP, 214), (*NAVY_BOT, 226), (x0, y0, x1 + 1, y1 + 1))
+    draw_vertical_gradient(img, (*NAVY_TOP, top_alpha), (*NAVY_BOT, bot_alpha), (x0, y0, x1 + 1, y1 + 1))
 
     # Faint UNSC tactical micro-dot grid (matches Campaign Evolved's Last Played box)
     dots = Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -348,7 +348,28 @@ def draw_current_pill() -> Image.Image:
 
 ASSETS = {
     "PanelGlass": draw_panel_glass,
+    "PanelModal": lambda: draw_panel_glass(top_alpha=246, bot_alpha=252),
     "PanelSubtle": draw_panel_subtle,
+    "BtnDiscordIdle": lambda: draw_halo_button(
+        (30, 36, 82, 188), (18, 22, 54, 206),
+        (112, 128, 248, 170), (156, 170, 255, 220),
+        left_bar_rgba=(126, 142, 255, 215),
+        mx=2, my=2, left_bar_w=3,
+    ),
+    "BtnDiscordHover": lambda: draw_halo_button(
+        (52, 62, 134, 226), (34, 42, 96, 236),
+        (162, 176, 255, 245), (212, 220, 255, 252),
+        glow_rgba=(126, 142, 255, 155),
+        left_bar_rgba=(192, 202, 255, 248),
+        mx=2, my=2, left_bar_w=3,
+    ),
+    "BtnDiscordPress": lambda: draw_halo_button(
+        (76, 88, 184, 242), (52, 62, 138, 248),
+        (210, 218, 255, 255), (236, 240, 255, 255),
+        glow_rgba=(150, 166, 255, 205),
+        left_bar_rgba=(226, 232, 255, 255),
+        mx=2, my=2, left_bar_w=4,
+    ),
     "BtnCyanIdle": lambda: draw_halo_button(
         (16, 44, 66, 165), (9, 26, 41, 182),
         (*CYAN_MID, 145), (*CYAN_BRIGHT, 175),

@@ -1453,7 +1453,7 @@ local function drawLobby()
     setText(Lobby.PlayersHeading, "PLAYERS  /  " .. tostring(#roster))
     setText(Lobby.MatchFormat, Pick.format(mode))
     setText(Lobby.TeamHint, (teams and "Teams are assigned by the game when the match starts." or "Every Spartan for themselves.")
-        .. "  Right-click a player for profile & actions.")
+        .. "  Right-click a player for profile.")
     -- A fireteam client sees the host's choice; only the host changes it or
     -- starts the game.
     local host = Net.isHost()
@@ -2731,7 +2731,7 @@ end
 -- on the right. Every change is saved at once and reaches the fireteam with
 -- the next lobby message.
 
-local SELECTED_PAGE = { R = 2.6, G = 3.4, B = 3.8, A = 1 }
+local SELECTED_PAGE = { R = 3.2, G = 4.2, B = 4.8, A = 1 }
 local NORMAL_PAGE = { R = 1, G = 1, B = 1, A = 1 }
 
 local function settingsOptions()
@@ -2747,8 +2747,14 @@ local function drawSettings()
         local name = Settings.PAGES[i + 1]
         setShown(s["Page" .. i], name ~= nil)
         if name then
+            local active = i + 1 == Tweak.page
             setText(s["Page" .. i .. "Label"], name)
-            pcall(function() s["Page" .. i]:SetBackgroundColor(i + 1 == Tweak.page and SELECTED_PAGE or NORMAL_PAGE) end)
+            pcall(function() s["Page" .. i]:SetBackgroundColor(active and SELECTED_PAGE or NORMAL_PAGE) end)
+            pcall(function()
+                s["Page" .. i .. "Label"]:SetColorAndOpacity({
+                    SpecifiedColor = active and Pick.GOLD or WHITE, ColorUseRule = 0 })
+            end)
+            pcall(function() s["Page" .. i .. "Mark"]:SetVisibility(active and 3 or 2) end)
         end
     end
     local options = settingsOptions()
@@ -3835,6 +3841,7 @@ function Report.draw()
     local s, rep_ = Post.screen, Post.report
     local panel = s.Report
     if not UI.valid(panel) then return end
+    setShown(s.ReportBackdrop, rep_ ~= nil)
     setShown(panel, rep_ ~= nil)
     if not rep_ then return end
     local p = rep_.player
