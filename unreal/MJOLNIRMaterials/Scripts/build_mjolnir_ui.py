@@ -570,43 +570,9 @@ def sized(bp, name, parent, width=None, height=None):
 
 
 # UNSC glass chrome textures (tools/ue/draw_ui_chrome.py), imported as
-# T_MJChrome_<Name> under /Game/MJOLNIR/UI/Chrome, and original procedural UI
-# SoundWaves (tools/ue/gen_ui_sounds.py) under /Game/MJOLNIR/UI/Sounds.
+# T_MJChrome_<Name> under /Game/MJOLNIR/UI/Chrome. Menu audio uses the game's
+# own native HaloAudioUISound assets at runtime (mods/MJOLNIRLobby/Scripts/ui_polish.lua).
 CHROME = {}
-SOUNDS = {}
-
-
-def import_ui_sounds(art="UISounds", root=f"{ROOT}/Sounds"):
-    """Import original Halo-inspired UI SoundWaves as one-shot ADPCM assets."""
-    src = os.path.join(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir()), "Art", art)
-    if not os.path.isdir(src):
-        unreal.log_warning(f"MJOLNIR UI: no {src}, skipping UI sounds")
-        return {}
-    names = sorted(os.path.splitext(f)[0] for f in os.listdir(src) if f.lower().endswith(".wav"))
-    if not names:
-        return {}
-    tasks = []
-    for n in names:
-        task = unreal.AssetImportTask()
-        task.set_editor_property("filename", os.path.join(src, n + ".wav"))
-        task.set_editor_property("destination_path", root)
-        task.set_editor_property("destination_name", n)
-        task.set_editor_property("replace_existing", True)
-        task.set_editor_property("automated", True)
-        task.set_editor_property("save", False)
-        tasks.append(task)
-    assets.import_asset_tasks(tasks)
-    waves = {}
-    for n in names:
-        wave = eal.load_asset(f"{root}/{n}.{n}")
-        if not wave:
-            fail(f"UI sound {n} did not import")
-        wave.set_editor_property("looping", False)
-        wave.set_editor_property("sound_asset_compression_type", unreal.SoundAssetCompressionType.ADPCM)
-        eal.save_loaded_asset(wave)
-        waves[n] = wave
-    unreal.log(f"MJOLNIR UI: {len(waves)} UI SoundWave(s) under {root}")
-    return waves
 
 
 def box_brush(tex, margin=(0.16, 0.16, 0.16, 0.16), tint=(1.0, 1.0, 1.0, 1.0)):
@@ -3443,7 +3409,6 @@ def build_label():
 
 BRAND.update(import_hud_icons("Brand", f"{ROOT}/Brand", "T_MJBrand_", mips=True))
 CHROME.update(import_hud_icons("UIChrome", f"{ROOT}/Chrome", "T_MJChrome_", mips=False))
-SOUNDS.update(import_ui_sounds())
 build_hello()
 HUD_ICONS = import_hud_icons()
 build_kill_feed(HUD_ICONS)

@@ -50,14 +50,24 @@ check(Polish.cueForEvent("unhover:3") == nil, "unhover:3 -> silent")
 check(Polish.cueForEvent("start") == "Primary", "start -> Primary")
 check(Polish.cueForEvent("select") == "Primary", "select -> Primary")
 check(Polish.cueForEvent("join") == "Primary", "join -> Primary")
+check(Polish.cueForEvent("report_send") == "Primary", "report_send -> Primary")
 check(Polish.cueForEvent("back") == "Back", "back -> Back")
 check(Polish.cueForEvent("lobby") == "Back", "lobby -> Back")
 check(Polish.cueForEvent("vote:2") == "Vote", "vote -> Vote")
 check(Polish.cueForEvent("tab:1") == "Tab", "tab -> Tab")
 check(Polish.cueForEvent("filter:game") == "Tab", "filter -> Tab")
+check(Polish.cueForEvent("maxup") == "StepUp", "maxup -> StepUp")
+check(Polish.cueForEvent("next:0") == "StepUp", "next:0 -> StepUp")
+check(Polish.cueForEvent("maxdown") == "StepDown", "maxdown -> StepDown")
+check(Polish.cueForEvent("prev:0") == "StepDown", "prev:0 -> StepDown")
+check(Polish.cueForEvent("roster_click:FFA:0") == "Open", "roster_click -> Open")
+check(Polish.cueForEvent("pcard_report") == "Open", "pcard_report -> Open")
 check(Polish.cueForEvent("changemap") == "Select", "changemap -> Select")
+check(Polish.NATIVE_SOUNDS.Hover:find("UI_Button_Hovered") ~= nil, "Hover maps to native UI_Button_Hovered")
+check(Polish.NATIVE_SOUNDS.Select:find("UI_Button_Clicked") ~= nil, "Select maps to native UI_Button_Clicked")
+check(Polish.NATIVE_SOUNDS.Back:find("UI_Widget_Backed_Out") ~= nil, "Back maps to native UI_Widget_Backed_Out")
 
--- 2. Fonts, audio debounce, entrance choreography, hover glide & vote bar
+-- 2. Fonts, native sound debounce, Escape back sound, entrance choreography, hover glide & vote bar
 local t = 10.0
 local played = {}
 local fakeFonts = {
@@ -67,9 +77,10 @@ local fakeFonts = {
 local p = Polish.new({
     clock = function() return t end,
     noFrameHook = true,
+    noKeyBind = true,
     loadAsset = function(path) return fakeFonts[path] end,
-    playSound = function(cue, vol, pitch)
-        played[#played + 1] = { cue = cue, vol = vol, pitch = pitch }
+    playSound = function(cue, path)
+        played[#played + 1] = { cue = cue, path = path }
         return true
     end,
 })
@@ -105,16 +116,45 @@ check(not p.busy(), "polish goes idle after animations finish")
 
 -- Button hover glide + debounce + returns true to swallow pure-polish events
 check(p.onEvent(lobby, "btn_hover:Start", "lobby") == true, "btn_hover consumed")
-check(played[#played].cue == "Hover", "btn_hover plays Hover cue")
-local firstPitch = played[#played].pitch
+check(played[#played].cue == "Hover" and played[#played].path:find("UI_Button_Hovered"), "btn_hover plays native Hover cue")
 -- Second hover within debounce is suppressed
 t = t + 0.01
 p.onEvent(lobby, "btn_hover:Invite", "lobby")
 check(#played == 2, "rapid hover within debounce does not spam audio")
--- After debounce, hover plays with slight pitch step
+-- After debounce, hover plays again
 t = t + 0.06
 p.onEvent(lobby, "btn_hover:Invite", "lobby")
-check(#played == 3 and played[3].pitch ~= firstPitch, "subsequent hover varies pitch slightly")
+check(#played == 3 and played[3].cue == "Hover", "subsequent hover plays after debounce")
+
+-- Native HaloUISoundBase:Play(ctx) path & Escape Back key edge trigger
+local nativePlays = {}
+local fakeCtx = { IsValid = function() return true end }
+local nativePolish = Polish.new({
+    clock = function() return t end,
+    noFrameHook = true,
+    noKeyBind = true,
+    playerController = function() return fakeCtx end,
+    loadAsset = function(path)
+        return {
+            IsValid = function() return true end,
+            Play = function(_, ctx) nativePlays[#nativePlays + 1] = { path = path, ctx = ctx } end,
+        }
+    end,
+})
+local escScreen = fakeWidget()
+escScreen.bIsActive = true
+nativePolish.adopt(escScreen, "/Game/MJOLNIR/UI/WBP_MJOLNIRLobby.WBP_MJOLNIRLobby_C")
+check(#nativePlays == 1 and nativePlays[1].path == Polish.NATIVE_SOUNDS.Open and nativePlays[1].ctx == fakeCtx,
+    "adopt plays native Open sound via HaloUISoundBase:Play")
+-- Simulate CommonUI popping the screen on Escape
+escScreen.bIsActive = false
+t = t + 1.0
+check(nativePolish.onEscapeKey() == true, "Escape on active/just-popped screen plays native Back")
+check(#nativePlays == 2 and nativePlays[2].path == Polish.NATIVE_SOUNDS.Back, "Escape plays UI_Widget_Backed_Out")
+-- Second Escape once already back on Main Menu does not replay Back
+t = t + 1.0
+check(nativePolish.onEscapeKey() == false, "Escape once inactive does not replay Back")
+check(#nativePlays == 2, "no extra Back sound on Main Menu")
 
 -- Advance hover glide to completion
 t = t + 0.2

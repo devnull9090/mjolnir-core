@@ -1,10 +1,10 @@
--- MJOLNIR Lobby: native Halo typography, crystalline UI audio, and 60fps
--- pure-time micro-motion across all MJOLNIR menu screens.
+-- MJOLNIR Lobby: native Halo typography, native Halo UI Wwise sounds, and
+-- 60fps pure-time micro-motion across all MJOLNIR menu screens.
 --
 -- Pure-Lua helpers (easing, cue mapping, font specs, track stepping) run
 -- without Unreal so tools/tests/test_ui_polish.lua can cover them directly.
 -- Every Unreal call is guarded and degrades silently on older UI containers
--- that lack new widgets or SoundWave cues.
+-- that lack new widgets.
 
 local M = {}
 
@@ -13,20 +13,26 @@ local FONT_PATHS = {
     NormativePro = "/Game/Fonts/Font_NormativePro.Font_NormativePro",
 }
 
-local SOUND_ROOT = "/Game/MJOLNIR/UI/Sounds/SW_MJUI_"
-
-M.VOLUMES = {
-    Hover = 0.28,
-    Select = 0.42,
-    Primary = 0.52,
-    Back = 0.36,
-    Tab = 0.34,
-    Vote = 0.46,
-    Tick = 0.26,
-    Open = 0.30,
+-- Shipped Halo Campaign Evolved menu UI sounds (HaloAudioUISound assets routed
+-- through HaloAudioCategory_UI so they match the main menu and follow the
+-- player's in-game UI volume slider).
+local NATIVE_UI_ROOT = "/Game/Audio/Audio_FI/UI/Menu/"
+M.NATIVE_SOUNDS = {
+    Hover = NATIVE_UI_ROOT .. "UI_Button_Hovered.UI_Button_Hovered",
+    Select = NATIVE_UI_ROOT .. "UI_Button_Clicked.UI_Button_Clicked",
+    Primary = NATIVE_UI_ROOT .. "UI_Bound_Action.UI_Bound_Action",
+    Back = NATIVE_UI_ROOT .. "UI_Widget_Backed_Out.UI_Widget_Backed_Out",
+    Tab = NATIVE_UI_ROOT .. "UI_Toggle_On.UI_Toggle_On",
+    StepUp = NATIVE_UI_ROOT .. "UI_Slider_Increase.UI_Slider_Increase",
+    StepDown = NATIVE_UI_ROOT .. "UI_Slider_Decrease.UI_Slider_Decrease",
+    Open = NATIVE_UI_ROOT .. "UI_Tree_Expand.UI_Tree_Expand",
+    Vote = NATIVE_UI_ROOT .. "Menu_Notifications/UI_Notification_Toast_Appear.UI_Notification_Toast_Appear",
+    Tick = NATIVE_UI_ROOT .. "UI_Button_Navigated.UI_Button_Navigated",
+    Denied = NATIVE_UI_ROOT .. "UI_Navigation_Denied.UI_Navigation_Denied",
 }
 
 M.HOVER_DEBOUNCE = 0.042
+M.BACK_DEBOUNCE = 0.25
 M.ENTER_DURATION = 0.24
 M.HOVER_DURATION = 0.11
 M.PREVIEW_DURATION = 0.14
@@ -69,11 +75,11 @@ function M.cueForEvent(event)
         or event:find("^vhover:") or event:find("^roster_hover:") then
         return "Hover"
     end
-    if event:find("^roster_click:") then
+    if event:find("^roster_click:") or event == "pcard_report" then
         return "Open"
     end
     if event == "start" or event == "select" or event == "join" or event == "quickjoin"
-        or event == "download" or event == "pcard_profile" then
+        or event == "download" or event == "pcard_profile" or event == "report_send" then
         return "Primary"
     end
     if event == "back" or event == "lobby" or event == "cancel" or event == "report_cancel"
@@ -83,10 +89,15 @@ function M.cueForEvent(event)
     if event:find("^vote:") then
         return "Vote"
     end
+    if event == "maxup" or event:find("^next:") then
+        return "StepUp"
+    end
+    if event == "maxdown" or event:find("^prev:") then
+        return "StepDown"
+    end
     if event:find("^tab:") or event:find("^filter:") or event:find("^sort:")
         or event:find("^page:") or event:find("^variant:") or event:find("^mode:")
-        or event == "maxdown" or event == "maxup" or event == "maxplayers"
-        or event == "listing" or event:find("^prev:") or event:find("^next:") then
+        or event == "maxplayers" or event == "listing" then
         return "Tab"
     end
     return "Select"
@@ -405,12 +416,13 @@ function M.new(deps)
     local self = {}
     local fontCache = {}
     local soundCache = {}
-    local staticsCache = nil
     local kslCache = nil
     local lastHoverAt = -10
-    local hoverStep = 0
+    local lastBackAt = -10
     local tracks = {}          -- key -> animation track
     local adopted = {}         -- widget address -> true (fonts applied once)
+    local trackedScreens = {}  -- key -> { screen = w, wasActive = bool }
+    local backKeyBound = false
     local voteState = nil      -- { screen, left, leftAt, total, held, barWidth, lastTick }
     local pump = { scheduled = false, errors = 0 }
     local loggedInit = false
@@ -421,14 +433,6 @@ function M.new(deps)
             kslCache = ok and valid(o) and o or nil
         end
         return kslCache
-    end
-
-    local function statics()
-        if not valid(staticsCache) then
-            local ok, o = pcall(StaticFindObject, "/Script/Engine.Default__GameplayStatics")
-            staticsCache = ok and valid(o) and o or nil
-        end
-        return staticsCache
     end
 
     local function loadAsset(path)
@@ -455,9 +459,19 @@ function M.new(deps)
         local cached = soundCache[cue]
         if cached == false then return nil end
         if cached and valid(cached) then return cached end
-        local wave = loadAsset(SOUND_ROOT .. cue .. ".SW_MJUI_" .. cue)
-        soundCache[cue] = wave or false
-        return wave
+        local path = M.NATIVE_SOUNDS[cue]
+        if not path then return nil end
+        -- Most HaloAudioUISound menu assets are already resident on the Frontend.
+        local snd = nil
+        if type(StaticFindObject) == "function" and not deps.loadAsset then
+            local okF, found = pcall(StaticFindObject, path)
+            if okF and valid(found) then snd = found end
+        end
+        if not snd then
+            snd = loadAsset(path)
+        end
+        soundCache[cue] = snd or false
+        return snd
     end
 
     local function applyRoleList(screen, roles)
@@ -515,26 +529,30 @@ function M.new(deps)
         end
     end
 
-    --- Play a UI sound cue if available in chunk 984.
-    function self.sound(cue, pitchOverride)
+    --- Play one of the game's native HaloAudioUISound cues via HaloUISoundBase:Play.
+    function self.sound(cue)
         if not cue then return false end
         local t = now()
         if cue == "Hover" then
             if t - lastHoverAt < M.HOVER_DEBOUNCE then return false end
             lastHoverAt = t
-            hoverStep = (hoverStep + 1) % 5
+        elseif cue == "Back" then
+            lastBackAt = t
         end
-        local volume = M.VOLUMES[cue] or 0.35
-        local pitch = pitchOverride or (cue == "Hover" and (0.97 + hoverStep * 0.015) or 1.0)
+        local path = M.NATIVE_SOUNDS[cue]
+        if not path then return false end
         if deps.playSound then
-            return deps.playSound(cue, volume, pitch) ~= false
+            return deps.playSound(cue, path) ~= false
         end
-        local wave = getSound(cue)
-        local pc = pcFn()
-        local gs = statics()
-        if not (wave and valid(pc) and gs) then return false end
+        local snd = getSound(cue)
+        local ctx = pcFn()
+        if not valid(ctx) and type(FindFirstOf) == "function" then
+            local okP, found = pcall(FindFirstOf, "PlayerController")
+            if okP and valid(found) then ctx = found end
+        end
+        if not (snd and valid(ctx)) then return false end
         local ok = pcall(function()
-            gs:SpawnSound2D(pc, wave, volume, pitch, 0.0, nil, false, true)
+            snd:Play(ctx)
         end)
         return ok
     end
@@ -712,6 +730,50 @@ function M.new(deps)
         self.ensureFrameHook()
     end
 
+    local function isScreenActive(screen)
+        if not valid(screen) then return false end
+        local ok, a = pcall(function() return screen.bIsActive == true end)
+        return ok and a
+    end
+
+    --- Handle an Escape press: if any MJOLNIR menu screen is active (or just
+    --- popped on this press), play the game's native Back sound once.
+    function self.onEscapeKey()
+        local t = now()
+        local shouldPlay = false
+        for k, entry in pairs(trackedScreens) do
+            if not valid(entry.screen) then
+                trackedScreens[k] = nil
+            else
+                local activeNow = isScreenActive(entry.screen)
+                if activeNow or entry.wasActive then
+                    shouldPlay = true
+                end
+                entry.wasActive = activeNow
+            end
+        end
+        if shouldPlay and t - lastBackAt >= M.BACK_DEBOUNCE then
+            return self.sound("Back")
+        end
+        return false
+    end
+
+    local function armBackSound()
+        if backKeyBound or deps.noKeyBind then return backKeyBound end
+        local reg = deps.registerKeyBind or RegisterKeyBind
+        if type(reg) ~= "function" then return false end
+        local key = (Key and Key.ESCAPE) or 0x1B
+        local ok = pcall(reg, key, {}, function()
+            if type(ExecuteInGameThread) == "function" then
+                ExecuteInGameThread(function() pcall(self.onEscapeKey) end)
+            else
+                pcall(self.onEscapeKey)
+            end
+        end)
+        backKeyBound = ok
+        return ok
+    end
+
     --- Adopt a newly opened/activated screen: fonts + open sound + entrance motion.
     function self.adopt(screen, classPath)
         if not valid(screen) then return end
@@ -722,6 +784,8 @@ function M.new(deps)
             adopted[key] = true
             self.applyFonts(screen, kind)
         end
+        trackedScreens[key] = { screen = screen, wasActive = true }
+        armBackSound()
         local played = self.sound("Open")
         self.animateEnter(screen, kind)
         if not loggedInit then
@@ -812,7 +876,7 @@ function M.new(deps)
                 local sec = math.ceil(left)
                 if not vs.held and sec >= 1 and sec <= 5 and sec ~= vs.lastTick then
                     vs.lastTick = sec
-                    self.sound("Tick", 0.96 + (6 - sec) * 0.03)
+                    self.sound("Tick")
                 end
                 if left <= 0 and not vs.held then
                     voteState = nil
