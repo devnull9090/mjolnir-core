@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { GAME_TYPE_NAMES, type Lobby, type MapListing } from "@mjolnir/hub-kit";
-import { hubClient } from "../hub/client";
+import { Badge, GAME_TYPE_NAMES, RefreshIcon, type Lobby, type MapListing } from "@mjolnir/hub-kit";
+import { HUB_SITE, hubClient } from "../hub/client";
 import { usePreflight } from "../launch/preflight";
 import type { Library } from "../hub/library";
+import type { HubPulse } from "../hub/useHubPulse";
+import { LiveLobbyCard } from "./Home";
 import { MapTile, isHaloCeMap, mapGame, mapStatus, type MapStatus } from "./hub/MapTile";
 
 interface InstallProgress {
@@ -78,16 +80,24 @@ function usePackInstall(command: string, stage: string, after: () => Promise<voi
  */
 export default function Multiplayer({
   library,
+  pulse,
   onInstalled,
   onBrowseMaps,
+  onOpenMod,
+  onJoinLobby,
   joinLobby,
   onJoinDismiss,
 }: {
   library: Library;
+  pulse?: HubPulse;
   /** Lets the Updates tab drop what this run just installed. */
   onInstalled?: () => void;
   /** Browse Hub's Maps tab, where community maps are found. */
   onBrowseMaps?: () => void;
+  /** Opens a map's mod detail page inside the launcher. */
+  onOpenMod?: (slug: string) => void;
+  /** Selects a live lobby from the list below to join now. */
+  onJoinLobby?: (lobbyId: string) => void;
   /** A lobby id from a `mjolnir://join/<id>` link, to join now. */
   joinLobby?: string | null;
   onJoinDismiss?: () => void;
@@ -138,15 +148,27 @@ export default function Multiplayer({
   const statusOf = (m: MapListing) =>
     mapStatus(m, installedBySlug.get(m.slug), missingFiles.has(m.slug));
   const tiles = (list: MapListing[]) => (
-    <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+    <div className="grid grid-cols-2 xl:grid-cols-3 gap-3.5">
       {list.map((m) => (
-        <MapTile key={m.code} map={m} have={installedBySlug.get(m.slug)} status={statusOf(m)} />
+        <MapTile
+          key={m.code}
+          map={m}
+          have={installedBySlug.get(m.slug)}
+          status={statusOf(m)}
+          onSelect={onOpenMod ? () => onOpenMod(m.slug) : undefined}
+        />
       ))}
     </div>
   );
 
+  const resolveCover = (code: string) => {
+    const raw = pulse?.coversByCode.get(code) ?? null;
+    if (!raw) return null;
+    return raw.startsWith("/") ? `${HUB_SITE}${raw}` : raw;
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5 max-w-6xl mx-auto">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold">Multiplayer</h2>
@@ -172,6 +194,41 @@ export default function Multiplayer({
           onInstallMultiplayer={ce.install}
           onDismiss={() => onJoinDismiss?.()}
         />
+      )}
+
+      {pulse && pulse.lobbies.length > 0 && (
+        <section className="space-y-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-accent-green animate-pulse" />
+              <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-text-secondary">
+                Live lobbies right now
+              </h3>
+              <Badge tone="green">
+                {pulse.lobbies.length} open · {pulse.livePlayers} playing
+              </Badge>
+            </div>
+            <button
+              type="button"
+              onClick={() => void pulse.refresh()}
+              disabled={pulse.refreshing}
+              className="inline-flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary cursor-pointer disabled:opacity-50"
+            >
+              <RefreshIcon className={`w-3.5 h-3.5 ${pulse.refreshing ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {pulse.lobbies.map((lobby) => (
+              <LiveLobbyCard
+                key={lobby.id}
+                lobby={lobby}
+                coverUrl={resolveCover(lobby.map_code)}
+                onJoin={() => onJoinLobby?.(lobby.id)}
+              />
+            ))}
+          </div>
+        </section>
       )}
 
       <PackPanel

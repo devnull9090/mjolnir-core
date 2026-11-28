@@ -40,17 +40,21 @@ export function ModCard({
       {mod.cover_url && (
         // Plain <img>, not next/image: the launcher's Vite build renders
         // this card too. Decorative: the name beside it says what it is.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={client.absolute(mod.cover_url)}
-          alt=""
-          loading="lazy"
-          className="shrink-0 w-28 aspect-video rounded-lg object-cover bg-[var(--mj-surface-hover)]"
-        />
+        <div className="shrink-0 w-28 aspect-video rounded-lg overflow-hidden bg-[var(--mj-surface-hover)] border border-[var(--mj-border)]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={client.absolute(mod.cover_url)}
+            alt=""
+            loading="lazy"
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+          />
+        </div>
       )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold text-[var(--mj-text)] truncate">{mod.name}</span>
+          <span className="font-semibold text-[var(--mj-text)] truncate transition-colors group-hover:text-[var(--mj-gold)]">
+            {mod.name}
+          </span>
           <TypeBadge type={mod.type} />
           {mod.map_code && (
             <Badge tone="gold" title="Map codename" className="font-mono">
@@ -72,7 +76,7 @@ export function ModCard({
             <Avatar url={mod.author_avatar} size="xs" />
             <span className="truncate">{mod.author}</span>
           </span>
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex items-center gap-1 tabular-nums">
             <DownloadIcon className="w-3 h-3" />
             {formatCount(mod.download_count)}
           </span>
@@ -93,10 +97,10 @@ export function ModCard({
     </>
   );
 
-  const className = `w-full text-left bg-[var(--mj-surface)] border rounded-xl p-4 flex items-start gap-3 transition-colors ${
+  const className = `group w-full text-left bg-[var(--mj-surface)] border rounded-xl p-4 flex items-start gap-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_28px_-14px_rgba(0,0,0,0.7)] motion-reduce:transition-none motion-reduce:hover:translate-y-0 ${
     selected
-      ? "border-[var(--mj-gold)]/60"
-      : "border-[var(--mj-border)] hover:border-[var(--mj-gold)]/40"
+      ? "border-[var(--mj-gold)]/60 shadow-[0_0_0_1px_rgba(212,168,67,0.18)]"
+      : "border-[var(--mj-border)] hover:border-[var(--mj-gold)]/45"
   }`;
 
   if (href) {

@@ -52,7 +52,7 @@ export default function Updates({ updates }: { updates: UpdatesState }) {
     });
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 max-w-5xl mx-auto">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold">

@@ -38,37 +38,51 @@ export default function Browse({
     { key: "code", label: "Code mods", hint: "Signed UE4SS scripts from mjolnir-core" },
   ];
 
+  const activeTab = tabs.find((t) => t.key === tab) ?? tabs[0];
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="space-y-6 max-w-6xl mx-auto">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold">Browse the Hub</h2>
           <p className="text-sm text-text-secondary mt-0.5">
-            Everything published on mjolnircore.com. Installed mods are managed under My Mods.
+            {activeTab.hint}. Installed mods are managed under My Mods.
           </p>
+        </div>
+
+        <div
+          role="tablist"
+          aria-label="Browse category"
+          className="inline-flex items-center gap-1 rounded-xl border border-border-subtle bg-surface-secondary p-1"
+        >
+          {tabs.map((t) => {
+            const active = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => onTab(t.key)}
+                title={t.hint}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                  active
+                    ? "bg-mjolnir-gold/16 text-mjolnir-gold shadow-[inset_0_0_0_1px_rgba(212,168,67,0.3)]"
+                    : "text-text-secondary hover:text-text-primary hover:bg-surface-hover/50"
+                }`}
+              >
+                {t.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div className="flex items-center gap-1">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => onTab(t.key)}
-            title={t.hint}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
-              tab === t.key
-                ? "bg-surface-card text-text-primary"
-                : "text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div key={tab} className="launcher-view">
+        {tab === "content" && <ModBrowser library={library} onSelect={onOpenMod} />}
+        {tab === "maps" && <MapBrowser library={library} onSelect={onOpenMod} />}
+        {tab === "code" && <CodeModsPanel />}
       </div>
-
-      {tab === "content" && <ModBrowser library={library} onSelect={onOpenMod} />}
-      {tab === "maps" && <MapBrowser library={library} onSelect={onOpenMod} />}
-      {tab === "code" && <CodeModsPanel />}
     </div>
   );
 }

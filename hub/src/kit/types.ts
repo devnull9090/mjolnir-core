@@ -716,6 +716,69 @@ export interface LobbyQuery {
   max_ping?: number;
 }
 
+// ── Public match history (/api/v1/matches) ───────────────────────────
+
+export type MatchOutcome = "win" | "loss" | "draw";
+export type MatchEndReason = "round_over" | "game_over" | "abandoned";
+
+export interface MatchLinkedUser {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+}
+
+export interface MatchPodiumSeat {
+  index: number;
+  name: string;
+  team: "red" | "blue" | null;
+  score: number;
+  kills: number;
+  deaths: number;
+  place: number;
+  outcome: MatchOutcome | null;
+  user: MatchLinkedUser | null;
+}
+
+export interface MatchSummary {
+  id: string;
+  map_code: string;
+  map_title: string | null;
+  map_slug: string | null;
+  map_cover_url: string | null;
+  game_type: string;
+  team_game: boolean;
+  score_to_win: number | null;
+  started_at: string;
+  ended_at: string;
+  duration_ms: number;
+  end_reason: MatchEndReason;
+  red_score: number | null;
+  blue_score: number | null;
+  winner: string | null;
+  winner_name: string | null;
+  winner_user: MatchLinkedUser | null;
+  player_count: number;
+  event_count: number;
+  host: string;
+  podium: MatchPodiumSeat[];
+}
+
+export interface MatchQuery {
+  map?: string;
+  game_type?: string;
+  player?: string;
+  user?: string;
+  before?: string;
+  limit?: number;
+  /** Only matches with 2+ players where someone scored or killed. */
+  real?: boolean;
+}
+
+export interface MatchList {
+  matches: MatchSummary[];
+  next: string | null;
+}
+
 /** The display names of the game types MJOLNIR's variants implement. */
 export const GAME_TYPE_NAMES: Record<string, string> = {
   slayer: "Slayer",

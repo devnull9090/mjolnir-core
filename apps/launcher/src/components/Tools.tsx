@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { ActionButton, ErrorNote, RefreshIcon, Spinner } from "@mjolnir/hub-kit";
 
 interface ToolStatus {
   id: string;
@@ -29,6 +30,7 @@ function humanSize(bytes: number): string {
 export default function Tools() {
   const [tools, setTools] = useState<ToolStatus[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [progress, setProgress] = useState<Record<string, ToolProgress>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -36,8 +38,10 @@ export default function Tools() {
     setLoading(true);
     try {
       setTools(await invoke<ToolStatus[]>("get_tools"));
+      setLoadError(null);
     } catch (e) {
       console.error(e);
+      setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -91,25 +95,42 @@ export default function Tools() {
   }
 
   if (loading && tools.length === 0) {
-    return <p className="text-sm text-text-secondary">Checking for tools…</p>;
+    return (
+      <div className="max-w-5xl mx-auto flex items-center gap-2 text-sm text-text-secondary">
+        <Spinner className="w-4 h-4" /> Checking for tools…
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-baseline justify-between">
+    <div className="space-y-4 max-w-5xl mx-auto">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold">Tools</h2>
           <p className="text-sm text-text-secondary mt-0.5">
             Companion apps, downloaded and kept up to date by the launcher.
           </p>
         </div>
-        <button
+        <ActionButton
+          tone="neutral"
+          size="sm"
           onClick={() => void refresh()}
-          className="text-xs text-text-secondary hover:text-text-primary cursor-pointer"
+          disabled={loading}
         >
+          <RefreshIcon className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           Refresh
-        </button>
+        </ActionButton>
       </div>
+
+      {loadError && (
+        <ErrorNote>Could not load companion tools ({loadError}).</ErrorNote>
+      )}
+
+      {!loadError && tools.length === 0 && (
+        <div className="rounded-xl border border-dashed border-border-subtle bg-surface-secondary/50 p-6 text-center text-sm text-text-secondary">
+          No companion tools are available right now.
+        </div>
+      )}
 
       {tools.map((tool) => {
         const busy = progress[tool.id];
@@ -117,7 +138,7 @@ export default function Tools() {
         return (
           <div
             key={tool.id}
-            className="bg-surface-secondary border border-border-subtle rounded-xl p-4"
+            className="launcher-card bg-surface-secondary border border-border-subtle rounded-xl p-5 hover:border-mjolnir-gold/40"
           >
             <div className="flex items-start gap-4">
               <div className="flex-1 min-w-0">

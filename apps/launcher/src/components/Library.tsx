@@ -204,7 +204,7 @@ export default function Library({
   const available = signed?.mods.filter((m) => m.integrity === "not_installed") ?? [];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 max-w-6xl mx-auto">
       {/* ── What is running at all ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">

@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { WhatsNew } from "@mjolnir/hub-kit";
 import Sidebar from "./components/Sidebar";
+import Home from "./components/Home";
 import Library from "./components/Library";
 import Header from "./components/Header";
 import UpdaterBanner, { useUpdater } from "./components/UpdaterBanner";
@@ -19,17 +20,19 @@ import { UserProfile } from "./components/hub/UserProfile";
 import { HubShell } from "./hub/HubShell";
 import { hubClient } from "./hub/client";
 import { useHubLibrary } from "./hub/library";
+import { useHubPulse } from "./hub/useHubPulse";
 import { useUpdates } from "./updates/useUpdates";
 import { useWhatsNew } from "./updates/useWhatsNew";
 import { PreflightProvider } from "./launch/PreflightProvider";
 import { usePreflight } from "./launch/preflight";
 
 /**
- * Three views answer three different questions, and nothing answers two:
- * My Mods is what is installed, Browse Hub is what exists, Updates is what
- * is out of date. Multiplayer, Tools and Settings sit outside that loop.
+ * Home is the live hub command deck (live games, recent matches, newest mods,
+ * quick play). My Mods is what is installed, Browse Hub is what exists, and
+ * Updates is what is out of date. Multiplayer, Tools and Settings sit beside
+ * them.
  */
-export type View = "mods" | "multiplayer" | "tools" | "browse" | "updates" | "settings";
+export type View = "home" | "mods" | "multiplayer" | "tools" | "browse" | "updates" | "settings";
 
 /**
  * A `mjolnir://` link, as the Rust side parsed it (src-tauri/src/links.rs):
@@ -100,7 +103,7 @@ function AppBody({
   openProfile: string | null;
   setOpenProfile: (id: string | null) => void;
 }) {
-  const [activeView, setActiveView] = useState<View>("mods");
+  const [activeView, setActiveView] = useState<View>("home");
   const [openMod, setOpenMod] = useState<string | null>(null);
   const [browseTab, setBrowseTab] = useState<BrowseTab>("content");
   const [joinLobby, setJoinLobby] = useState<string | null>(null);
@@ -109,6 +112,7 @@ function AppBody({
   // Both the library and the update manager read this; keeping one instance
   // means one set of hub calls and no disagreement about what is installed.
   const library = useHubLibrary();
+  const pulse = useHubPulse();
   const whatsNew = useWhatsNew();
   // Keyed on the callback rather than on the hook's return value, which is a
   // fresh object every render: `useUpdates` keys its apply callback on this.
@@ -228,6 +232,19 @@ function AppBody({
     };
   }, []);
 
+  const joinLobbyNow = (lobbyId: string) => {
+    setOpenProfile(null);
+    setOpenMod(null);
+    setActiveView("multiplayer");
+    setJoinLobby(lobbyId);
+  };
+
+  const viewKey = openProfile
+    ? `profile:${openProfile}`
+    : openMod
+      ? `mod:${openMod}`
+      : activeView;
+
   return (
     <PreflightProvider onApplied={() => announceInstalled()} installLauncher={updater.handleInstall}>
     <UpdateLinkRunner request={updateRequest} />
@@ -238,57 +255,80 @@ function AppBody({
         onNavigate={goTo}
         updater={updater}
         updateCount={updates.items.length}
+        liveLobbies={pulse.lobbies.length}
       />
       <div className="flex flex-col flex-1 overflow-hidden">
         <UpdaterBanner updater={updater} onOpenUpdates={() => goTo("updates")} />
         <SignInBanner />
         <CrashBanner />
-        <Header />
-        <main className="flex-1 overflow-y-auto p-6">
-          {openProfile ? (
-            <UserProfile
-              userId={openProfile}
-              onBack={() => setOpenProfile(null)}
-              onOpenMod={showMod}
-            />
-          ) : openMod ? (
-            <ModDetail slug={openMod} library={library} onBack={() => setOpenMod(null)} />
-          ) : (
-            <>
-              {activeView === "mods" && (
-                <Library
-                  library={library}
-                  updateCount={updates.items.length}
-                  onOpenMod={showMod}
-                  onGoToUpdates={() => goTo("updates")}
-                  onGoToBrowse={() => goTo("browse")}
-                />
-              )}
-              {activeView === "multiplayer" && (
-                <Multiplayer
-                  library={library}
-                  onInstalled={() => void updates.refresh()}
-                  onBrowseMaps={() => {
-                    setBrowseTab("maps");
-                    goTo("browse");
-                  }}
-                  joinLobby={joinLobby}
-                  onJoinDismiss={() => setJoinLobby(null)}
-                />
-              )}
-              {activeView === "tools" && <Tools />}
-              {activeView === "browse" && (
-                <Browse
-                  library={library}
-                  onOpenMod={showMod}
-                  tab={browseTab}
-                  onTab={setBrowseTab}
-                />
-              )}
-              {activeView === "updates" && <Updates updates={updates} />}
-              {activeView === "settings" && <Settings />}
-            </>
-          )}
+        <Header
+          liveLobbies={pulse.lobbies.length}
+          livePlayers={pulse.livePlayers}
+          onOpenMultiplayer={() => goTo("multiplayer")}
+        />
+        <main className="flex-1 overflow-y-auto p-6 bg-[radial-gradient(ellipse_70%_40%_at_50%_-10%,rgba(212,168,67,0.06),transparent_65%)]">
+          <div key={viewKey} className="launcher-view">
+            {openProfile ? (
+              <UserProfile
+                userId={openProfile}
+                onBack={() => setOpenProfile(null)}
+                onOpenMod={showMod}
+              />
+            ) : openMod ? (
+              <ModDetail slug={openMod} library={library} onBack={() => setOpenMod(null)} />
+            ) : (
+              <>
+                {activeView === "home" && (
+                  <Home
+                    library={library}
+                    pulse={pulse}
+                    updateCount={updates.items.length}
+                    onOpenMod={showMod}
+                    onJoinLobby={joinLobbyNow}
+                    onGoToMods={() => goTo("mods")}
+                    onGoToMultiplayer={() => goTo("multiplayer")}
+                    onGoToBrowse={() => goTo("browse")}
+                    onGoToUpdates={() => goTo("updates")}
+                  />
+                )}
+                {activeView === "mods" && (
+                  <Library
+                    library={library}
+                    updateCount={updates.items.length}
+                    onOpenMod={showMod}
+                    onGoToUpdates={() => goTo("updates")}
+                    onGoToBrowse={() => goTo("browse")}
+                  />
+                )}
+                {activeView === "multiplayer" && (
+                  <Multiplayer
+                    library={library}
+                    pulse={pulse}
+                    onInstalled={() => void updates.refresh()}
+                    onBrowseMaps={() => {
+                      setBrowseTab("maps");
+                      goTo("browse");
+                    }}
+                    onOpenMod={showMod}
+                    onJoinLobby={joinLobbyNow}
+                    joinLobby={joinLobby}
+                    onJoinDismiss={() => setJoinLobby(null)}
+                  />
+                )}
+                {activeView === "tools" && <Tools />}
+                {activeView === "browse" && (
+                  <Browse
+                    library={library}
+                    onOpenMod={showMod}
+                    tab={browseTab}
+                    onTab={setBrowseTab}
+                  />
+                )}
+                {activeView === "updates" && <Updates updates={updates} />}
+                {activeView === "settings" && <Settings />}
+              </>
+            )}
+          </div>
         </main>
       </div>
 
