@@ -26,7 +26,10 @@
     "skull": "objects\\weapons\\multiplayer\\skull\\skull",
     "shotgun": "objects\\weapons\\rifle\\shotgun\\shotgun",
     "fuel_rod_gun": "objects\\weapons\\support_high\\flak_cannon\\flak_cannon",
-    "battle_rifle": "objects\\weapons\\rifle\\battle_rifle\\battle_rifle"
+    "battle_rifle": "objects\\weapons\\rifle\\battle_rifle\\battle_rifle",
+    "plasma_rifle_red": "objects\\weapons\\rifle\\plasma_rifle_red\\plasma_rifle_red",
+    "needle_rifle": "objects\\weapons\\rifle\\needle_rifle\\needle_rifle",
+    "sentinel_gun": "objects\\weapons\\support_low\\sentinel_gun\\sentinel_gun"
   },
   "equipment": {
     "frag_grenade": "objects\\weapons\\grenade\\frag_grenade\\frag_grenade",
@@ -39,8 +42,11 @@
     "rocket_launcher_ammo": "objects\\gear\\human\\military\\rocket_launcher_ammo\\rocket_launcher_ammo",
     "battle_rifle_ammo": "objects\\gear\\human\\military\\battle_rifle_ammo\\battle_rifle_ammo",
     "shotgun_ammo": "objects\\gear\\human\\military\\shotgun_ammo\\shotgun_ammo",
-    "needler_ammo": "objects\\gear\\human\\military\\needler_ammo\\needler_ammo"
+    "needler_ammo": "objects\\gear\\human\\military\\needler_ammo\\needler_ammo",
+    "ammo_box": "objects\\gear\\human\\military\\ammo_box\\ammo_box"
   },
+  "trait_weapons_comment": "The game's multiplayer weapon list (multiplayer\\globals multiplayer_object_type_list, `weapons`), in order, by the weapon type names above: a player trait's primary or secondary weapon is an index into it (docs/re/megalo_variant_format.md). Surveyed 2026-11-27 with mjolnir values. spike_rifle and assault_rifle_legacy are in the list but are not placement types.",
+  "trait_weapons": ["assault_rifle", "battle_rifle", "smg", "magnum", "sniper_rifle", "shotgun", "rocket_launcher", "plasma_rifle", "plasma_rifle_red", "plasma_pistol", "needler", "needle_rifle", "spike_rifle", "fuel_rod_gun", "beam_rifle", "energy_sword", "sentinel_gun", "assault_rifle_legacy"],
   "blocks": {
     "comment": "Forge building blocks every map's palette lists: group:path. Shipped tags with collision, physics, an Unreal Blueprint and a multiplayer object block (surveyed 2026-11-01, docs/forge_blocks.md); B40 loads both.",
     "covenant_crate": "bloc:objects\\props\\covenant\\crate_space_a\\crate_space_a",

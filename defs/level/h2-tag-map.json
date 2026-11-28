@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "comment": "Halo 2 tag paths (as mjolnir cache stage's placement.json names them, forward slashes) -> the level file's friendly type names (defs/level/palette-map.json). Same rules as ce-tag-map.json: each value is a list tried in order, the first type the game has wins, and an empty list drops the placement on purpose. Every item and vehicle collection the 24 MCC multiplayer maps place is listed (2026-10-21). Weapons the game lacks take the nearest role: the battle rifle the assault rifle, the brute shot the fuel rod gun, the carbine, brute plasma rifle and sentinel beam the plasma rifle; the human machine-gun turret becomes a shade, the only turret there is.",
+  "comment": "Halo 2 tag paths (as mjolnir cache stage's placement.json names them, forward slashes) -> the level file's friendly type names (defs/level/palette-map.json). Same rules as ce-tag-map.json: each value is a list tried in order, the first type the game has wins, and an empty list drops the placement on purpose. Every item and vehicle collection the 25 MCC multiplayer maps place is listed, and every weapon their starting equipment names (2026-11-27). The game ships most of Halo 2's weapons under paths of its own: the battle rifle, the SMG, the Brute plasma rifle (plasma_rifle_red) and the sentinel beam (sentinel_gun). What it lacks takes the nearest role: the carbine the needle rifle, the brute shot the fuel rod gun; the human machine-gun turret becomes a shade, the only turret there is. It has no SMG ammo pickup: its SMG reloads from the ammo box alone, so Halo 2's SMG ammo becomes one.",
   "vehicles": {
     "objects/vehicles/warthog/warthog": ["warthog"],
     "objects/vehicles/ghost/ghost": ["ghost"],
@@ -12,16 +12,16 @@
   },
   "vehicle_types": {},
   "weapons": {
-    "objects/weapons/rifle/battle_rifle/battle_rifle": ["assault_rifle"],
+    "objects/weapons/rifle/battle_rifle/battle_rifle": ["battle_rifle", "assault_rifle"],
     "objects/weapons/rifle/smg/smg": ["smg", "assault_rifle"],
     "objects/weapons/rifle/smg_silenced/smg_silenced": ["smg", "assault_rifle"],
     "objects/weapons/pistol/magnum/magnum": ["magnum"],
     "objects/weapons/pistol/needler/needler": ["needler"],
     "objects/weapons/pistol/plasma_pistol/plasma_pistol": ["plasma_pistol"],
     "objects/weapons/rifle/plasma_rifle/plasma_rifle": ["plasma_rifle"],
-    "objects/weapons/rifle/brute_plasma_rifle/brute_plasma_rifle": ["plasma_rifle"],
-    "objects/weapons/rifle/covenant_carbine/covenant_carbine": ["plasma_rifle"],
-    "objects/characters/sentinel_aggressor/weapons/beam/sentinel_aggressor_beam": ["plasma_rifle"],
+    "objects/weapons/rifle/brute_plasma_rifle/brute_plasma_rifle": ["plasma_rifle_red", "plasma_rifle"],
+    "objects/weapons/rifle/covenant_carbine/covenant_carbine": ["needle_rifle", "plasma_rifle"],
+    "objects/characters/sentinel_aggressor/weapons/beam/sentinel_aggressor_beam": ["sentinel_gun", "plasma_rifle"],
     "objects/weapons/rifle/shotgun/shotgun": ["shotgun", "assault_rifle"],
     "objects/weapons/rifle/sniper_rifle/sniper_rifle": ["sniper_rifle"],
     "objects/weapons/rifle/beam_rifle/beam_rifle": ["beam_rifle", "sniper_rifle"],
@@ -38,13 +38,13 @@
     "objects/weapons/grenade/plasma_grenade/plasma_grenade": ["plasma_grenade"],
     "objects/powerups/active_camouflage/active_camouflage": ["active_camouflage"],
     "objects/powerups/over_shield/over_shield": ["overshield"],
-    "objects/powerups/battle_rifle_ammo/br_ammo": ["assault_rifle_ammo"],
-    "objects/powerups/smg_ammo/smg_ammo": ["assault_rifle_ammo"],
+    "objects/powerups/battle_rifle_ammo/br_ammo": ["battle_rifle_ammo"],
+    "objects/powerups/smg_ammo/smg_ammo": ["ammo_box"],
     "objects/powerups/pistol_ammo/pistol_ammo": ["pistol_ammo"],
     "objects/powerups/sniper_rifle_ammo/sniper_rifle_ammo": ["sniper_rifle_ammo"],
     "objects/powerups/rocket_launcher_ammo/rocket_launcher_ammo": ["rocket_launcher_ammo"],
-    "objects/powerups/needler_ammo/needler_ammo": [],
-    "objects/powerups/shotgun_ammo/shotgun_ammo": []
+    "objects/powerups/needler_ammo/needler_ammo": ["needler_ammo"],
+    "objects/powerups/shotgun_ammo/shotgun_ammo": ["shotgun_ammo"]
   },
   "markers": {
     "CtfFlag": "ctf_flag",

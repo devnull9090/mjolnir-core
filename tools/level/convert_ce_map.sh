@@ -139,6 +139,11 @@ else
       [ -n "${HALO2UE_RESOURCES:-}" ] && exporter_args+=(--resources "$HALO2UE_RESOURCES")
       [ -n "${HALO2UE_REFERENCE_MAPS:-}" ] && exporter_args+=(--reference-maps "$HALO2UE_REFERENCE_MAPS")
       "$exporter" --map "$src" --out "$staging" "${exporter_args[@]}"
+      # halo2ue does not stage the scenario's starting equipment: read it from
+      # the map (what players spawn holding in each game type; a protected map
+      # this cannot read converts without one, and spawns the variant's kit).
+      python "$here/ce_starting_equipment.py" "$src" "$staging" ||
+        echo "  no starting equipment read from $src: players spawn with the variant's own kit" >&2
       ;;
   esac
 fi
