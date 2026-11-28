@@ -56,8 +56,8 @@ export default async function MultiplayerPage() {
       : CLASSIC_MAPS.map((m) => ({
           name: m.name,
           slug: m.slug,
-          code: null,
-          coverUrl: null,
+          code: m.code,
+          coverUrl: m.image,
           modes: ["Slayer", "Capture the Flag"],
           group: "halo1" as const,
         }));

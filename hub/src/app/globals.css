@@ -292,8 +292,19 @@ body > * {
 }
 
 .marketing-hero-shade {
-  background: linear-gradient(90deg, #06080ff7 0%, #06080fd6 40%, #06080f55 100%),
-              linear-gradient(0deg, #06080f 0%, #06080f30 38%, #06080f88 100%);
+  background:
+    linear-gradient(90deg, #06080ff5 0%, #06080fcc 36%, #06080f52 68%, #06080f18 100%),
+    linear-gradient(0deg, #06080f 0%, #06080f45 26%, transparent 56%, #06080f75 100%);
+}
+
+@keyframes mj-scene-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.mj-scene-progress {
+  transform-origin: left center;
+  animation: mj-scene-progress var(--scene-ms, 7500ms) linear forwards;
 }
 
 .marketing-community {
@@ -501,7 +512,8 @@ body > * {
   .mj-live-ring,
   .mj-reveal,
   .mj-spotlight,
-  .mj-sheen::after {
+  .mj-sheen::after,
+  .mj-scene-progress {
     transition: none !important;
     animation: none !important;
     transform: none !important;

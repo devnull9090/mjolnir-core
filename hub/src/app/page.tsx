@@ -10,26 +10,23 @@ import {
   Newspaper,
   Package,
   Radio,
-  Signal,
   Swords,
   Trophy,
-  Users,
 } from "lucide-react";
 
 import { Navbar } from "./components/Navbar";
 import { Footer } from "./components/Footer";
 import { DiscordIcon } from "./components/icons";
 import { CommunityCallout, MultiplayerFaq, PlaySteps } from "./components/MultiplayerMarketing";
-import { CountUp, HeroParallax, Reveal, SpotlightCard } from "./components/Motion";
+import { CountUp, Reveal, SpotlightCard } from "./components/Motion";
+import { HeroRotator } from "./components/HeroRotator";
 import { MapShowcase, type FeaturedMapItem } from "./components/MapShowcase";
 import { ModesShowcase } from "./components/ModesShowcase";
 import { LobbyCard } from "./components/LobbyCard";
-import { JoinButton } from "./components/JoinButton";
 import { ModCard } from "./components/HubKit";
 import { MatchCard } from "./matches/_components/MatchCard";
-import { duration, kd, winnerText } from "./matches/_components/format";
-import { LocalTime } from "./matches/_components/LocalTime";
-import { MapCover, Pill, PlayerAvatar, TEAM_BG, TEAM_TEXT } from "./components/ui";
+import { kd } from "./matches/_components/format";
+import { PlayerAvatar } from "./components/ui";
 import { recordDisplay } from "./players/_components/font";
 import { MiniRing } from "./players/_components/MiniRing";
 import { formatPostDate } from "@/lib/blog";
@@ -37,6 +34,7 @@ import { getLandingData } from "@/lib/landing-data";
 import {
   CLASSIC_MAPS,
   DISCORD_URL,
+  HERO_SCENES,
   MARKETING_DESCRIPTION,
   MULTIPLAYER_IMAGES,
   MULTIPLAYER_PATH,
@@ -155,14 +153,19 @@ const PLACE_COLOR = { 1: "text-gold", 2: "text-silver", 3: "text-bronze" } as co
 export default async function HomePage() {
   const data = await getLandingData();
   const showcaseMaps = buildShowcaseMaps(data.maps);
-  const heroLobby = data.lobbies[0] ?? null;
-  const heroMatch = data.recentMatches[0] ?? null;
   const mapTotal = Math.max(data.totals.maps, CLASSIC_MAPS.length);
   const hasHubPulse =
     data.lobbies.length > 0 ||
     data.recentMatches.length > 0 ||
     data.latestMods.length > 0 ||
     data.topPlayers.length > 0;
+
+  // Prefer live cover URLs from D1 when available, falling back to published media captures.
+  const coversBySlug = new Map(data.maps.map((m) => [m.slug, m.cover_url]));
+  const heroScenes = HERO_SCENES.map((scene) => ({
+    ...scene,
+    image: coversBySlug.get(scene.slug) ?? scene.image,
+  }));
 
   const tagEditor = TOOLS.find((t) => t.slug === "tag-editor");
   const cliTool = TOOLS.find((t) => t.slug === "cli");
@@ -173,248 +176,71 @@ export default async function HomePage() {
     <div className={recordDisplay.variable}>
       <Navbar />
       <main id="main" className="marketing">
-        {/* ── 00 / Cinematic Hero with Live Telemetry ────────────────── */}
-        <HeroParallax className="marketing-hero relative isolate overflow-hidden">
-          {/* Published gameplay capture, slow ambient drift */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={MULTIPLAYER_IMAGES.bloodGulch}
-            alt="The classic Blood Gulch canyon and bases rebuilt inside Halo Campaign Evolved"
-            fetchPriority="high"
-            className="marketing-hero-image mj-hero-drift absolute inset-0 -z-20 size-full object-cover"
-          />
-          <div className="marketing-hero-shade absolute inset-0 -z-10" />
-          <div
-            aria-hidden="true"
-            className="mj-grid-bg pointer-events-none absolute inset-0 -z-10 opacity-45 [mask-image:radial-gradient(ellipse_75%_65%_at_55%_40%,black,transparent_85%)]"
-          />
-
-          <div className="mx-auto max-w-6xl px-6 pb-12 pt-40 md:pb-16 md:pt-48">
-            <div className="grid items-end gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:gap-12">
-              {/* Primary editorial headline column */}
-              <div>
-                <div className="mj-rise">
-                  {data.lobbies.length > 0 ? (
-                    <Link
-                      href="/games"
-                      className="inline-flex items-center gap-2.5 rounded-full border border-accent-green/35 bg-accent-green/10 px-3.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-accent-green backdrop-blur-md transition-colors hover:bg-accent-green/18"
-                    >
-                      <span className="relative flex size-2 items-center justify-center" aria-hidden="true">
-                        <span className="mj-live-ring absolute inline-flex size-full rounded-full bg-accent-green" />
-                        <span className="relative inline-flex size-2 rounded-full bg-accent-green" />
-                      </span>
-                      Live now · {data.lobbies.length} game{data.lobbies.length === 1 ? "" : "s"} ·{" "}
-                      {data.livePlayers} Spartan{data.livePlayers === 1 ? "" : "s"} online
-                    </Link>
-                  ) : (
-                    <Link
-                      href={data.totals.matches > 0 ? "/matches" : MULTIPLAYER_PATH}
-                      className="inline-flex items-center gap-2.5 rounded-full border border-gold/30 bg-background/60 px-3.5 py-1.5 font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-gold backdrop-blur-md transition-colors hover:border-gold/60"
-                    >
-                      <span className="relative flex size-2 items-center justify-center" aria-hidden="true">
-                        <span className="mj-live-ring absolute inline-flex size-full rounded-full bg-gold/70" />
-                        <span className="relative inline-flex size-1.5 rounded-full bg-gold" />
-                      </span>
-                      Multiplayer alpha is live
-                      {data.totals.matches > 0 && (
-                        <span className="text-slate-300">
-                          · {data.totals.matches.toLocaleString("en-US")} matches logged
-                        </span>
-                      )}
-                    </Link>
-                  )}
-                </div>
-
-                <h1 className="mj-rise mj-rise-d1 mt-6 max-w-3xl text-[40px] font-black leading-[1.01] tracking-[-0.05em] sm:text-6xl lg:text-[68px]">
-                  The multiplayer
-                  <br />
-                  modding framework
-                  <br />
-                  <span className="bg-gradient-to-r from-[#f0ca69] via-gold to-[#c49230] bg-clip-text text-transparent">
-                    for Campaign Evolved.
+        {/* ── 00 / Cinematic Hero with Rotating Map Vistas ───────────── */}
+        <HeroRotator scenes={heroScenes} multiplayerHref={MULTIPLAYER_PATH}>
+          <div className="max-w-4xl">
+            <div className="mj-rise">
+              {data.lobbies.length > 0 ? (
+                <Link
+                  href="/games"
+                  className="inline-flex items-center gap-2.5 rounded-full border border-accent-green/35 bg-background/70 px-3.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-accent-green backdrop-blur-md transition-colors hover:border-accent-green/65"
+                >
+                  <span className="relative flex size-2 items-center justify-center" aria-hidden="true">
+                    <span className="mj-live-ring absolute inline-flex size-full rounded-full bg-accent-green" />
+                    <span className="relative inline-flex size-2 rounded-full bg-accent-green" />
                   </span>
-                </h1>
-
-                <p className="mj-rise mj-rise-d2 mt-6 max-w-lg text-base leading-7 text-slate-300 md:text-lg md:leading-8">
-                  Classic Halo multiplayer, back in your hands. Play Slayer, CTF, and Forge on the
-                  original Halo: CE &amp; Halo 2 maps. Build custom worlds. Bring your fireteam.
-                </p>
-
-                <div className="mj-rise mj-rise-d3 mt-8 flex flex-col gap-3 sm:flex-row">
-                  <Link href="/download" className="marketing-button-primary">
-                    <Download aria-hidden="true" className="size-4" /> Get MJOLNIR{" "}
-                    <ArrowRight aria-hidden="true" className="size-4" />
-                  </Link>
-                  <Link href={DISCORD_URL} className="marketing-button-secondary">
-                    <DiscordIcon className="size-5" /> Join the community
-                  </Link>
-                </div>
-
-                <p className="mj-rise mj-rise-d4 mt-5 text-xs leading-6 text-slate-300">
-                  Free &amp; open source · Windows PC · Steam &amp; Game Pass crossplay
-                </p>
-              </div>
-
-              {/* Right floating tactical hub pulse card */}
-              <div className="mj-rise mj-rise-d4 hidden lg:block">
-                {heroLobby ? (
-                  <div className="mj-hud-corners rounded-xl border border-gold/30 bg-background/78 p-4 backdrop-blur-xl shadow-[0_24px_60px_-24px_rgba(0,0,0,0.9)]">
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-accent-green">
-                        <span className="relative flex size-2 items-center justify-center" aria-hidden="true">
-                          <span className="mj-live-ring absolute inline-flex size-full rounded-full bg-accent-green" />
-                          <span className="relative inline-flex size-1.5 rounded-full bg-accent-green" />
-                        </span>
-                        Active lobby on the hub
-                      </span>
-                      <Link href="/games" className="font-mono text-[10px] uppercase tracking-wider text-gold hover:underline">
-                        All {data.lobbies.length} live →
-                      </Link>
-                    </div>
-                    <div className="relative overflow-hidden rounded-lg border border-border">
-                      <MapCover src={data.coversByCode.get(heroLobby.map_code) ?? null} code={heroLobby.map_code} priority />
-                      <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-background via-background/35 to-transparent" />
-                      <div className="absolute left-2.5 top-2.5 flex items-center gap-1.5">
-                        <Pill tone="solid">{GAME_TYPE_NAMES[heroLobby.game_type] ?? heroLobby.game_type}</Pill>
-                        {heroLobby.state === "in_game" ? (
-                          <Pill tone="gold">In game</Pill>
-                        ) : (
-                          <Pill tone="green">Open lobby</Pill>
-                        )}
-                      </div>
-                      <div className="absolute inset-x-3 bottom-2.5">
-                        <p className="truncate text-base font-bold text-white">{heroLobby.name}</p>
-                        <p className="truncate text-xs text-slate-300">
-                          {heroLobby.map_title ?? heroLobby.map_code} · Hosted by {heroLobby.host}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-3 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 text-xs text-text-muted tabular-nums">
-                        <span className="inline-flex items-center gap-1 font-semibold text-foreground">
-                          <Users aria-hidden="true" className="size-3.5 text-gold" />
-                          {heroLobby.players}/{heroLobby.max_players}
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Signal aria-hidden="true" className="size-3.5" />
-                          {heroLobby.ping_ms === null ? "Public" : `~${heroLobby.ping_ms} ms`}
-                        </span>
-                      </div>
-                      <JoinButton
-                        lobbyId={heroLobby.id}
-                        full={heroLobby.state === "full" || heroLobby.players >= heroLobby.max_players}
-                      />
-                    </div>
-                  </div>
-                ) : heroMatch ? (
-                  <div className="mj-hud-corners rounded-xl border border-gold/25 bg-background/78 p-4 backdrop-blur-xl shadow-[0_24px_60px_-24px_rgba(0,0,0,0.9)]">
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-gold">
-                        <Swords aria-hidden="true" className="size-3" />
-                        Latest match report
-                      </span>
-                      <Link href="/matches" className="font-mono text-[10px] uppercase tracking-wider text-text-muted hover:text-gold">
-                        Match history →
-                      </Link>
-                    </div>
-                    <Link href={`/matches/${heroMatch.id}`} className="group block">
-                      <div className="relative overflow-hidden rounded-lg border border-border">
-                        <MapCover src={heroMatch.map_cover_url} code={heroMatch.map_code} priority />
-                        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-background via-background/35 to-transparent" />
-                        <div className="absolute left-2.5 top-2.5 flex items-center gap-1.5">
-                          <Pill tone="solid">{GAME_TYPE_NAMES[heroMatch.game_type] ?? heroMatch.game_type}</Pill>
-                          <Pill tone="solid">{duration(heroMatch.duration_ms)}</Pill>
-                        </div>
-                        <div className="absolute inset-x-3 bottom-2.5">
-                          <p className="truncate text-base font-bold text-white group-hover:text-gold transition-colors">
-                            {heroMatch.map_title ?? heroMatch.map_code}
-                          </p>
-                          <p className="text-[11px] text-slate-300">
-                            <LocalTime sql={heroMatch.ended_at} /> · {heroMatch.player_count} players
-                          </p>
-                        </div>
-                      </div>
-                      {heroMatch.team_game && heroMatch.red_score !== null && heroMatch.blue_score !== null ? (
-                        <div className="mt-3 rounded-lg border border-border bg-surface/80 p-3">
-                          <div className="flex items-center justify-between text-xs font-bold tabular-nums">
-                            <span className={TEAM_TEXT.red}>RED {heroMatch.red_score}</span>
-                            <span className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
-                              {winnerText(heroMatch)}
-                            </span>
-                            <span className={TEAM_TEXT.blue}>BLUE {heroMatch.blue_score}</span>
-                          </div>
-                          <div aria-hidden="true" className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-surface-hover">
-                            <span
-                              className={TEAM_BG.red}
-                              style={{
-                                width: `${
-                                  heroMatch.red_score + heroMatch.blue_score === 0
-                                    ? 50
-                                    : Math.round((heroMatch.red_score / (heroMatch.red_score + heroMatch.blue_score)) * 100)
-                                }%`,
-                              }}
-                            />
-                            <span className={`${TEAM_BG.blue} flex-1`} />
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="mt-3 flex items-center justify-between rounded-lg border border-border bg-surface/80 px-3 py-2.5 text-xs">
-                          <span className="truncate font-semibold text-foreground">{winnerText(heroMatch)}</span>
-                          <span className="inline-flex shrink-0 items-center gap-1 font-semibold text-gold">
-                            3D replay <ArrowRight aria-hidden="true" className="size-3.5" />
-                          </span>
-                        </div>
-                      )}
-                    </Link>
-                  </div>
-                ) : (
-                  <div className="mj-hud-corners rounded-xl border border-gold/25 bg-background/78 p-5 backdrop-blur-xl shadow-[0_24px_60px_-24px_rgba(0,0,0,0.9)]">
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-gold">
-                      Combat deployment brief
-                    </p>
-                    <p className="mt-2 text-lg font-bold text-white">Drop straight into the classics.</p>
-                    <ul className="mt-4 space-y-2.5 text-xs leading-5 text-slate-300">
-                      <li className="flex items-center gap-2.5">
-                        <span className="size-1.5 rounded-full bg-gold shrink-0" />
-                        19 Halo: CE classics + Halo 2 &amp; community maps
-                      </li>
-                      <li className="flex items-center gap-2.5">
-                        <span className="size-1.5 rounded-full bg-gold shrink-0" />
-                        In-game public lobby browser &amp; live map downloads
-                      </li>
-                      <li className="flex items-center gap-2.5">
-                        <span className="size-1.5 rounded-full bg-gold shrink-0" />
-                        Post-match scoreboards, 3D kill maps &amp; leaderboards
-                      </li>
-                      <li className="flex items-center gap-2.5">
-                        <span className="size-1.5 rounded-full bg-gold shrink-0" />
-                        Steam &amp; Game Pass play together, up to 16 players
-                      </li>
-                    </ul>
-                    <div className="mt-4 flex items-center gap-4 border-t border-white/10 pt-3.5 text-xs font-semibold">
-                      <Link href="/games" className="inline-flex items-center gap-1.5 text-gold hover:underline">
-                        Live games <ArrowRight aria-hidden="true" className="size-3.5" />
-                      </Link>
-                      <Link href="/matches" className="inline-flex items-center gap-1.5 text-slate-300 hover:text-white">
-                        Match history <ArrowRight aria-hidden="true" className="size-3.5" />
-                      </Link>
-                    </div>
-                  </div>
-                )}
-              </div>
+                  Live now · {data.lobbies.length} game{data.lobbies.length === 1 ? "" : "s"} ·{" "}
+                  {data.livePlayers} Spartan{data.livePlayers === 1 ? "" : "s"} online
+                </Link>
+              ) : (
+                <Link
+                  href={data.totals.matches > 0 ? "/matches" : MULTIPLAYER_PATH}
+                  className="inline-flex items-center gap-2.5 rounded-full border border-gold/30 bg-background/65 px-3.5 py-1.5 font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-gold backdrop-blur-md transition-colors hover:border-gold/60"
+                >
+                  <span className="relative flex size-2 items-center justify-center" aria-hidden="true">
+                    <span className="mj-live-ring absolute inline-flex size-full rounded-full bg-gold/70" />
+                    <span className="relative inline-flex size-1.5 rounded-full bg-gold" />
+                  </span>
+                  Multiplayer alpha is live
+                  {data.totals.matches > 0 && (
+                    <span className="text-slate-300">
+                      · {data.totals.matches.toLocaleString("en-US")} matches logged
+                    </span>
+                  )}
+                </Link>
+              )}
             </div>
 
-            <div className="mj-rise mj-rise-d5 mt-14 flex flex-wrap items-end justify-between gap-5 border-t border-white/15 pt-6">
-              <Link href={MULTIPLAYER_PATH} className="group inline-flex items-center gap-2.5 text-sm font-semibold text-white transition-colors hover:text-gold">
-                Does Campaign Evolved have multiplayer?{" "}
-                <ArrowRight aria-hidden="true" className="size-4 transition-transform group-hover:translate-x-1" />
-              </Link>
-              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-300">
-                In-game capture / Blood Gulch · 3D replays &amp; live hub telemetry
+            <h1 className="mj-rise mj-rise-d1 mt-6 text-[42px] font-black leading-[1.01] tracking-[-0.05em] sm:text-6xl lg:text-[74px]">
+              The multiplayer
+              <br />
+              modding framework
+              <br />
+              <span className="bg-gradient-to-r from-[#f0ca69] via-gold to-[#c49230] bg-clip-text text-transparent">
+                for Campaign Evolved.
               </span>
+            </h1>
+
+            <p className="mj-rise mj-rise-d2 mt-6 max-w-xl text-base leading-7 text-slate-200 md:text-lg md:leading-8">
+              Classic Halo multiplayer, back in your hands. Play Slayer, CTF, and Forge on the
+              original Halo: CE &amp; Halo 2 maps. Build custom worlds. Bring your fireteam.
+            </p>
+
+            <div className="mj-rise mj-rise-d3 mt-8 flex flex-col gap-3 sm:flex-row">
+              <Link href="/download" className="marketing-button-primary">
+                <Download aria-hidden="true" className="size-4" /> Get MJOLNIR{" "}
+                <ArrowRight aria-hidden="true" className="size-4" />
+              </Link>
+              <Link href={DISCORD_URL} className="marketing-button-secondary">
+                <DiscordIcon className="size-5" /> Join the community
+              </Link>
             </div>
+
+            <p className="mj-rise mj-rise-d4 mt-5 text-xs leading-6 text-slate-300">
+              Free &amp; open source · Windows PC · Steam &amp; Game Pass crossplay
+            </p>
           </div>
-        </HeroParallax>
+        </HeroRotator>
 
         {/* ── Kinetic Live Telemetry Strip ───────────────────────────── */}
         <div className="border-y border-border bg-surface">
