@@ -133,7 +133,8 @@ def main():
     if check:
         return
     for kind in change:
-        name = f"pakchunk990-MJOLNIRWRESPAWN-{kind}_P"
+        # Dashes, as the runtime's other containers and `mjolnir dev install` name theirs.
+        name = f"pakchunk990-MJOLNIRWRESPAWN-{kind.replace('_', '-')}_P"
         cmd = [CLI, "pack", "--group", "weapon", "--tag", selector(weapons[kind]), "--out-dir", out, "--name", name]
         for field in FIELDS:
             cmd += ["--set", f"{BLOCK}[0].{field}={wanted[field]}"]
