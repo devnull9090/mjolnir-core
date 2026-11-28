@@ -39,6 +39,35 @@
   ],
   "releases": [
     {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
+      "version": "0.25.0",
+      "tag": "launcher-v0.25.0",
+      "title": "A new Home screen",
+      "date": "2026-11-27",
+      "summary": "The launcher opens on a new Home screen with one-click Play, live public games, recent matches and the newest mods. The rest of the launcher has a refreshed look.",
+      "body": "### Added\n\n- **Home.** The launcher now opens on a Home screen. It shows whether your\n  install is ready, a Play button, the public games running right now,\n  recent match reports and the newest community mods from the hub. You can\n  join a game or open a mod from there.\n- **Live counts in the sidebar.** The sidebar shows how many public games\n  are live and how many updates are waiting.\n\n### Changed\n\n- **Refreshed look.** The sidebar, header, map tiles, Multiplayer, Browse\n  and Tools screens are redrawn, and every dropdown now uses the same\n  MJOLNIR-styled menu instead of the system one.\n- Hub information is fetched in one place and refreshed every 30 seconds.\n  If you are offline the launcher works as before: your mods and Launch are\n  unaffected.",
+      "sections": [
+        {
+          "heading": "Added",
+          "items": [
+            "Home. The launcher now opens on a Home screen. It shows whether your install is ready, a Play button, the public games running right now, recent match reports and the newest community mods from the hub. You can join a game or open a mod from there.",
+            "Live counts in the sidebar. The sidebar shows how many public games are live and how many updates are waiting."
+          ]
+        },
+        {
+          "heading": "Changed",
+          "items": [
+            "Refreshed look. The sidebar, header, map tiles, Multiplayer, Browse and Tools screens are redrawn, and every dropdown now uses the same MJOLNIR-styled menu instead of the system one.",
+            "Hub information is fetched in one place and refreshed every 30 seconds. If you are offline the launcher works as before: your mods and Launch are unaffected."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.25.0",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.25.0.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.25.0"
+    },
+    {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
       "version": "0.59.3",
