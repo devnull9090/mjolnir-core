@@ -335,7 +335,8 @@ function M.new(deps)
     local tracks = {}          -- key -> animation track
     local adopted = {}         -- widget address -> true (fonts applied once)
     local voteState = nil      -- { screen, left, leftAt, total, held, barWidth, lastTick }
-    local frameHook = { fn = nil, last = -1, errors = 0, nextTry = 0 }
+    local pump = { scheduled = false, errors = 0 }
+    local loggedInit = false
 
     local function ksl()
         if not valid(kslCache) then
@@ -507,6 +508,8 @@ function M.new(deps)
     --- Entrance choreography for a newly pushed screen.
     function self.animateEnter(screen, kind)
         if not valid(screen) then return end
+        -- Never drop widgets to opacity 0 unless the frame pump is confirmed armed.
+        if not self.ensureFrameHook() then return end
         local t = now()
         local okH, header = pcall(function() return screen.Header end)
         if okH and valid(header) then
@@ -617,8 +620,14 @@ function M.new(deps)
             adopted[key] = true
             self.applyFonts(screen, kind)
         end
-        self.sound("Open")
+        local played = self.sound("Open")
         self.animateEnter(screen, kind)
+        if not loggedInit then
+            loggedInit = true
+            log(string.format("UI polish: kind=%s oxanium=%s normative=%s sfx=%s",
+                tostring(kind), tostring(fontCache.Oxanium and true or false),
+                tostring(fontCache.NormativePro and true or false), tostring(played)))
+        end
     end
 
     --- Handle audio & micro-motion for any MJ_Event. Returns true if the event
@@ -714,31 +723,48 @@ function M.new(deps)
         return next(tracks) ~= nil or voteState ~= nil
     end
 
-    --- Arm per-frame ReceiveTick animation hook (matches MJOLNIRHud's safe pattern).
-    function self.ensureFrameHook()
-        if deps.noFrameHook then return false end
-        if valid(frameHook.fn) then return true end
-        local t = now()
-        if t < frameHook.nextTry then return false end
-        frameHook.nextTry = t + 3
-        local path = "/Game/Blueprints/BP_MeteoritePlayerController.BP_MeteoritePlayerController_C:ReceiveTick"
-        local ok, fn = pcall(StaticFindObject, path)
-        if not (ok and valid(fn)) then return false end
-        local hooked = pcall(RegisterHook, path, function()
-            local ft = now()
-            if ft - frameHook.last < 0.004 or frameHook.errors >= 10 then return end
-            frameHook.last = ft
-            if not self.busy() then return end
-            local okF, err = pcall(self.frame, ft)
-            if not okF then
-                frameHook.errors = frameHook.errors + 1
-                if frameHook.errors == 10 then
-                    log("UI motion paused after repeated errors: " .. tostring(err))
-                end
+    local function settleAllTracks()
+        for k, tr in pairs(tracks) do
+            pcall(applyPose, tr, 1)
+            tracks[k] = nil
+        end
+        voteState = nil
+    end
+
+    local function stepPump()
+        pump.scheduled = false
+        if not self.busy() then return end
+        local okF, err = pcall(self.frame, now())
+        if not okF then
+            pump.errors = pump.errors + 1
+            if pump.errors >= 10 then
+                log("UI motion paused after repeated errors: " .. tostring(err))
+                settleAllTracks()
+                return
             end
-        end)
-        if hooked then frameHook.fn = fn end
-        return hooked
+        else
+            pump.errors = 0
+        end
+        if self.busy() then
+            self.ensureFrameHook()
+        end
+    end
+
+    --- Arm the self-pausing game-thread animation pump (~60fps while tracks or
+    --- vote countdown are active, 0.00ms when idle). Works identically on the
+    --- Frontend (where BP_MeteoritePlayerController_C does not exist) and in-game.
+    function self.ensureFrameHook()
+        if deps.noFrameHook then return true end
+        if pump.scheduled then return true end
+        local sched = deps.schedule or ExecuteInGameThreadWithDelay
+        if type(sched) ~= "function" then return false end
+        pump.scheduled = true
+        local ok = pcall(sched, 16, stepPump)
+        if not ok then
+            pump.scheduled = false
+            return false
+        end
+        return true
     end
 
     return self

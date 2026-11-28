@@ -157,4 +157,46 @@ t = t + 0.05
 p.frame(t)
 check(post.VoteBarSpark.vis == 1, "held vote collapses spark")
 
+-- Guard: without a scheduler (no ExecuteInGameThreadWithDelay), animateEnter must
+-- never drop widgets to opacity 0.
+local noSched = Polish.new({
+    valid = function(o) return type(o) == "table" and o.IsValid and o:IsValid() end,
+    clock = function() return t end,
+    loadAsset = function() return nil end,
+    playSound = function() return false end,
+})
+local safeScreen = fakeWidget()
+safeScreen.Header = fakeWidget()
+safeScreen.MenuSize = fakeWidget()
+noSched.animateEnter(safeScreen, "lobby")
+check(safeScreen.Header.alpha == 1, "no scheduler leaves Header visible")
+check(safeScreen.MenuSize.alpha == 1, "no scheduler leaves MenuSize visible")
+
+-- Self-pausing game-thread pump runs on Frontend & in-game and stops when idle
+local scheduled = {}
+local pumpTime = 50.0
+local pumped = Polish.new({
+    valid = function(o) return type(o) == "table" and o.IsValid and o:IsValid() end,
+    clock = function() return pumpTime end,
+    loadAsset = function() return nil end,
+    playSound = function() return false end,
+    schedule = function(ms, fn) scheduled[#scheduled + 1] = { ms = ms, fn = fn } end,
+})
+local pumpedLobby = fakeWidget()
+pumpedLobby.Header = fakeWidget()
+pumpedLobby.MenuSize = fakeWidget()
+pumped.animateEnter(pumpedLobby, "lobby")
+check(#scheduled == 1 and scheduled[1].ms == 16, "animateEnter arms 16ms pump")
+check(pumpedLobby.Header.alpha == 0, "armed pump starts entrance at alpha 0")
+local steps = 0
+while #scheduled > 0 and steps < 40 do
+    local job = table.remove(scheduled, 1)
+    pumpTime = pumpTime + 0.016
+    steps = steps + 1
+    job.fn()
+end
+check(pumpedLobby.Header.alpha == 1, "pump settles Header to alpha 1")
+check(pumpedLobby.MenuSize.alpha == 1, "pump settles MenuSize to alpha 1")
+check(not pumped.busy() and #scheduled == 0, "pump stops rescheduling when idle")
+
 print(string.format("UI polish: %d checks passed", checks))
