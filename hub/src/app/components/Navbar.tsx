@@ -39,42 +39,52 @@ export function Navbar() {
   return (
     <NavbarShell>
       <AlphaBanner />
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-        <Link href="/" aria-label="MJOLNIR Core home" className="group flex items-center gap-3 shrink-0">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+        {/* Brand */}
+        <Link href="/" aria-label="MJOLNIR Core home" className="group flex items-center gap-2.5 shrink-0">
           <Logo className="w-8 h-8 transition-transform duration-200 group-hover:scale-105 motion-reduce:transition-none" />
           <span className="text-lg font-bold tracking-wide text-gold">MJOLNIR</span>
           <span className="text-xs text-text-muted font-medium">CORE</span>
         </Link>
 
-        {/* Changelog stays in the mobile menu and footer to leave room for
-            the multiplayer landing page at desktop widths. */}
-        <div className="hidden lg:flex items-center gap-3 xl:gap-4">
+        {/* Primary desktop navigation (5 clean slots) */}
+        <div className="hidden lg:flex items-center">
           <NavLinks />
-          <Link
-            href="https://discord.gg/9gxYZsByW9"
-            target="_blank"
-            title="Discord"
-            aria-label="Discord"
-            className="p-1 text-text-muted hover:text-foreground transition-colors"
-          >
-            <DiscordIcon className="w-5 h-5" />
-          </Link>
-          <Link
-            href="https://github.com/devnull9090/mjolnir-core"
-            target="_blank"
-            title="GitHub"
-            aria-label="GitHub"
-            className="p-1 -ml-2 text-text-muted hover:text-foreground transition-colors"
-          >
-            <GitHubIcon className="w-5 h-5" />
-          </Link>
+        </div>
+
+        {/* Actions: socials, primary Download CTA, and Account chip/menu */}
+        <div className="hidden lg:flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-0.5">
+            <Link
+              href="https://discord.gg/9gxYZsByW9"
+              target="_blank"
+              title="Discord"
+              aria-label="Discord"
+              className="rounded-lg p-2 text-text-muted transition-colors hover:bg-surface-raised/70 hover:text-foreground"
+            >
+              <DiscordIcon className="w-[18px] h-[18px]" />
+            </Link>
+            <Link
+              href="https://github.com/devnull9090/mjolnir-core"
+              target="_blank"
+              title="GitHub"
+              aria-label="GitHub"
+              className="rounded-lg p-2 text-text-muted transition-colors hover:bg-surface-raised/70 hover:text-foreground"
+            >
+              <GitHubIcon className="w-[18px] h-[18px]" />
+            </Link>
+          </div>
+
+          <span aria-hidden="true" className="h-5 w-px bg-border" />
+
           <Link
             href="/download"
-            className="mj-sheen px-3.5 xl:px-4 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-gold to-[#c49635] text-background hover:brightness-110 active:scale-[0.98] transition-all shadow-md shadow-gold/15 flex items-center gap-2 whitespace-nowrap"
+            className="mj-sheen px-3.5 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-gold to-[#c49635] text-background hover:brightness-110 active:scale-[0.98] transition-all shadow-md shadow-gold/15 flex items-center gap-2 whitespace-nowrap"
           >
             <Download className="w-4 h-4" />
             Download
           </Link>
+
           <AuthButton />
         </div>
 
