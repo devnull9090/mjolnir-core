@@ -41,6 +41,27 @@
     {
       "product": "launcher",
       "productName": "MJOLNIR Launcher",
+      "version": "0.25.1",
+      "tag": "launcher-v0.25.1",
+      "title": "Account menu shows over Home again",
+      "date": "2026-11-27",
+      "summary": "The account menu at the top right opens over the new Home screen again instead of behind it.",
+      "body": "### Fixed\n\n- **The account menu was hidden on Home.** In 0.25.0, clicking your name at\n  the top right opened the account menu behind the Home screen's banner, so\n  only its top edge showed and Refresh from Discord, Manage keys and Sign out\n  could not be reached. The menu now opens on top of every screen.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "The account menu was hidden on Home. In 0.25.0, clicking your name at the top right opened the account menu behind the Home screen's banner, so only its top edge showed and Refresh from Discord, Manage keys and Sign out could not be reached. The menu now opens on top of every screen."
+          ]
+        }
+      ],
+      "path": "/changelog/launcher/0.25.1",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/launcher/0.25.1.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/launcher-v0.25.1"
+    },
+    {
+      "product": "launcher",
+      "productName": "MJOLNIR Launcher",
       "version": "0.25.0",
       "tag": "launcher-v0.25.0",
       "title": "A new Home screen",
