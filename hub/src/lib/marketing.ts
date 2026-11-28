@@ -9,7 +9,7 @@ export const MULTIPLAYER_RELEASE_PATH = "/blog/classic-multiplayer-alpha";
 // Absolute URLs let local previews use the published media, too.
 export const MULTIPLAYER_IMAGES = {
   bloodGulch: SITE_URL + "/api/v1/media/a5f46d72-16af-4e0e-866d-226645d19df1",
-  dangerCanyon: SITE_URL + "/api/v1/media/4a528587-20d4-4503-acc8-73567f30b464",
+  dangerCanyon: SITE_URL + "/api/v1/media/71b2d054-a629-4081-b6f4-094ddf7ac39e",
   chillOut: SITE_URL + "/api/v1/media/0408e37f-635c-42f0-a978-3b74da4965fb",
   sidewinder: SITE_URL + "/api/v1/media/bb355829-2256-4ca3-9d62-54d2d28e4dc9",
   deathIsland: SITE_URL + "/api/v1/media/f6094fab-cd72-45dd-9678-917ae93a2fdd",
@@ -82,11 +82,11 @@ export const HERO_SCENES: HeroScene[] = [
     position: "center 45%",
   },
   {
-    name: "Battle Creek",
-    code: "BCK",
-    slug: "ce-battle-creek",
-    image: MULTIPLAYER_IMAGES.battleCreek,
-    alt: "Stream canyon and opposing bases of Battle Creek in Halo Campaign Evolved",
+    name: "Danger Canyon",
+    code: "DCN",
+    slug: "ce-danger-canyon",
+    image: MULTIPLAYER_IMAGES.dangerCanyon,
+    alt: "Remastered canyon cliffs, bridge, and pine valley of Danger Canyon in Halo Campaign Evolved",
     position: "center 48%",
   },
 ];
