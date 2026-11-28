@@ -77,6 +77,27 @@ eq(#Settings.changes("slayer"), 0, "reset")
 Settings.load(saved)
 eq(Settings.variantLine(), line, "save and load")
 
+-- STARTING EQUIPMENT: CUSTOM (the map's kit) writes nothing, so a line from
+-- before the option still means it; GENERIC writes `kit=1`, which the loader
+-- takes out of the variant's fields and a client reads back.
+do
+    Settings.reset()
+    local opt = Settings.option("start_equipment")
+    eq(Settings.text(opt), "CUSTOM", "the map's kit by default")
+    assert(not Settings.variantLine():find("kit=", 1, true), "CUSTOM writes no key")
+    Settings.step(opt, 1)
+    eq(Settings.text(opt), "GENERIC", "stepped to GENERIC")
+    local generic = Settings.variantLine()
+    assert((";" .. generic .. ";"):find(";kit=1;", 1, true), "GENERIC writes kit=1: " .. generic)
+    eq(table.concat(Settings.changes("slayer"), "|"), "STARTING EQUIPMENT: GENERIC", "the lobby card names it")
+    local kept = Settings.save()
+    Settings.reset()
+    eq(table.concat(Settings.describe(generic, "slayer"), "|"), "STARTING EQUIPMENT: GENERIC", "a client reads it back")
+    Settings.load(kept)
+    eq(Settings.variantLine(), generic, "GENERIC saves and loads")
+    Settings.reset()
+end
+
 -- Vehicle sets: a team's counts show, count and travel only while its set
 -- is CUSTOM, and a client reads them back.
 Settings.reset()

@@ -164,6 +164,18 @@ do
     local hosted = assert(VariantSettings.apply(patched, { ["trait.grenades"] = 2 }))
     eq(VariantSettings.get(hosted, "trait.grenades"), 2, "the host's grenades")
     eq(VariantSettings.get(hosted, "trait.primary_weapon"), 254, "the kit's weapon under a host setting")
+    -- GENERIC starting equipment: the level's one generic kit, read the same
+    -- way, and the host's `kit` key is not a field of the variant.
+    local generic, which = VariantSettings.kitTraits({ weapons = { "assault_rifle", "magnum" }, frag_grenades = 2,
+        plasma_grenades = 0, traits = { primary_weapon = 0, secondary_weapon = 3, grenades = 4 } })
+    eq(which.weapons[2], "magnum", "the generic kit comes back with its traits")
+    local pro = assert(VariantSettings.apply(patched, generic))
+    eq(VariantSettings.get(pro, "trait.primary_weapon"), 0, "generic assault rifle over the map's kit")
+    eq(VariantSettings.get(pro, "trait.secondary_weapon"), 3, "generic pistol")
+    eq(VariantSettings.get(pro, "trait.grenades"), 4, "generic grenades")
+    eq(VariantSettings.kitTraits(nil), nil, "a level without a generic kit")
+    eq(VariantSettings.forMode({ kit = 1, time_limit = 5 }, "slayer").kit, nil, "kit is not a variant field")
+    eq(VariantSettings.forMode({ kit = 1, time_limit = 5 }, "slayer").time_limit, 5, "the other settings stay")
     -- No kit for the family, or no kits at all: nothing to write.
     eq(VariantSettings.kitSettings(kits, "juggernaut"), nil, "no kit for juggernaut")
     eq(VariantSettings.kitSettings(nil, "slayer"), nil, "a map without kits")

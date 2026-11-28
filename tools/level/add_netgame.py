@@ -19,7 +19,7 @@ netgame lanes are taken; everything a later tool gave the published pack
   abandonment times, and only when the rows are the same kinds one for one;
 - `spawn_sets` is replaced, and must still begin with the shipped sets, whose
   labels the shipped spawn points carry;
-- `starting_equipment` is added.
+- `starting_equipment` and `generic_equipment` are added.
 
 The script stops if anything else would change, or if the shipped level
 already equals the result. The rebake and the pack go through
@@ -40,7 +40,7 @@ from add_bots import BOTS, CLI, EXTRACT, REPO
 SPAWN = "multiplayer data.spawn time"
 ABANDON = "multiplayer data.abandonment time"
 # What this script may write at the top of a level file and in `blam`.
-LEVEL_KEYS = {"spawn_sets", "starting_equipment"}
+LEVEL_KEYS = {"spawn_sets", "starting_equipment", "generic_equipment"}
 BLAM_KEYS = {"weapons", "equipment", "vehicles"}
 
 
@@ -76,8 +76,9 @@ def splice(shipped, fresh):
         return None, f"the shipped spawn sets {old_sets} are not the first of the fresh ones {new_sets}"
     if new_sets:
         level["spawn_sets"] = copy.deepcopy(new_sets)
-    if fresh.get("starting_equipment"):
-        level["starting_equipment"] = copy.deepcopy(fresh["starting_equipment"])
+    for key in ("starting_equipment", "generic_equipment"):
+        if fresh.get(key):
+            level[key] = copy.deepcopy(fresh[key])
     return level, None
 
 

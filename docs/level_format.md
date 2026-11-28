@@ -487,6 +487,8 @@ and the loader's comments beside each are the reference.
   traits for that kit, which the loader writes into the staged variant;
   [ce_map_conversion.md](ce_map_conversion.md), "Starting equipment"; the bake checks it, unlike the
   other keys here),
+  `generic_equipment` (a CE map's "generic" starting kit, the same shape less `families` and
+  `profile`, which the loader writes instead when the host chooses GENERIC starting equipment),
   `spawn_sets` (the hidden spawn points' and pickups' labels, `spawn_set_<k>`, each
   with the families it serves: `[{"label": "spawn_set_0", "families": ["king", "oddball",
   "slayer"]}]`; the loader adds a filter for each set the game type's family is in, see

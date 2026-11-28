@@ -350,6 +350,39 @@ def grenade_trait(frag, plasma):
     return 10 + max(frag, plasma)
 
 
+def explicit_traits(kit, trait_weapons):
+    """The base player traits that name `kit`'s weapons by their place in
+    the game's multiplayer weapon list and its grenades by the trait's own
+    count."""
+    missing = [w for w in kit["weapons"] if w not in trait_weapons]
+    if missing:
+        raise SystemExit(f"starting equipment: {', '.join(missing)} not in the game's multiplayer weapon list "
+                         "(defs/level/palette-map.json trait_weapons)")
+    slots = [trait_weapons.index(w) for w in kit["weapons"]] + [TRAIT_WEAPON_NONE, TRAIT_WEAPON_NONE]
+    return {"primary_weapon": slots[0], "secondary_weapon": slots[1],
+            "grenades": grenade_trait(kit["frag_grenades"], kit["plasma_grenades"])}
+
+
+def generic_kit(weapons, resolve, trait_weapons, grenades):
+    """The level's `generic_equipment`: CE's "generic" starting equipment,
+    which its Pro game types use on every map. A generic variant skips the
+    scenario's entries and the player keeps what the multiplayer biped's tag
+    carries (`weapons`, staged by ce_starting_equipment.py) with the globals'
+    grenades. A host chooses it in GAME SETTINGS; the loader then writes
+    `traits` in place of the map kit's. None when the staging names no such
+    weapons (Halo 2 has no generic kit)."""
+    carried = []
+    for w in weapons or ():
+        kind = resolve("weapons", norm(w["asset"]))
+        if kind and kind not in carried:
+            carried.append(kind)
+    if not carried:
+        return None
+    kit = {"weapons": carried[:2], "frag_grenades": grenades[0], "plasma_grenades": grenades[1]}
+    kit["traits"] = explicit_traits(kit, trait_weapons)
+    return kit
+
+
 def starting_kits(entries, halo2, resolve, trait_weapons, grenades=STARTING_GRENADES, fallback=None):
     """The level's `starting_equipment` from the staged scenario entries: what
     a player spawns holding in each family of game types (docs/
@@ -410,13 +443,7 @@ def starting_kits(entries, halo2, resolve, trait_weapons, grenades=STARTING_GREN
             kit["traits"] = {"primary_weapon": TRAIT_WEAPON_MAP_DEFAULT, "secondary_weapon": TRAIT_WEAPON_MAP_DEFAULT,
                              "grenades": TRAIT_GRENADES_MAP_DEFAULT}
             continue
-        missing = [w for w in kit["weapons"] if w not in trait_weapons]
-        if missing:
-            raise SystemExit(f"starting equipment: {', '.join(missing)} not in the game's multiplayer weapon list "
-                             "(defs/level/palette-map.json trait_weapons)")
-        slots = [trait_weapons.index(w) for w in kit["weapons"]] + [TRAIT_WEAPON_NONE, TRAIT_WEAPON_NONE]
-        kit["traits"] = {"primary_weapon": slots[0], "secondary_weapon": slots[1],
-                         "grenades": grenade_trait(kit["frag_grenades"], kit["plasma_grenades"])}
+        kit["traits"] = explicit_traits(kit, trait_weapons)
     return kits
 
 
@@ -1803,14 +1830,16 @@ def main():
     # staging keeps it beside the placements, written from the map by
     # ce_starting_equipment.py.
     staged_kits = placement.get("starting_equipment")
-    kit_grenades, kit_fallback = STARTING_GRENADES, None
+    kit_grenades, kit_fallback, kit_generic = STARTING_GRENADES, None, None
     sidecar = a.starting_equipment or os.path.join(a.staging, "starting_equipment.json")
     if staged_kits is None and os.path.exists(sidecar):
         staged = json.load(open(sidecar, encoding="utf-8"))
         staged_kits = staged["starting_equipment"]
         kit_grenades = tuple(staged.get("grenades", STARTING_GRENADES))
         kit_fallback = staged.get("fallback_weapons")
+        kit_generic = staged.get("generic_weapons")
     kits = starting_kits(staged_kits, halo2, resolve, palette.get("trait_weapons", []), kit_grenades, kit_fallback)
+    generic = generic_kit(kit_generic, resolve, palette.get("trait_weapons", []), kit_grenades)
 
     # The vehicle set labels: by type and team, the vehicles default in the
     # most game types first, then CE's order; the k-th of each team share
@@ -2110,6 +2139,8 @@ def main():
         level["spawn_sets"] = spawn_sets
     if kits:
         level["starting_equipment"] = kits
+    if generic:
+        level["generic_equipment"] = generic
     foliage = json.load(open(a.foliage, encoding="utf-8")) if a.foliage else {}
     if foliage.get("groups"):
         # The game's grass, tufts and shore stones (scatter_foliage.py), with
@@ -2140,6 +2171,9 @@ def main():
         print(f"  starting equipment for {', '.join(kit['families'])}: {' + '.join(kit['weapons']) or 'no weapon'}, "
               f"{kit['frag_grenades']} frag, {kit['plasma_grenades']} plasma"
               f"{' (the scenario profile)' if kit['profile'] else ''}")
+    if generic:
+        print(f"  generic starting equipment: {' + '.join(generic['weapons'])}, {generic['frag_grenades']} frag, "
+              f"{generic['plasma_grenades']} plasma")
     for what, n in sorted(dropped.items()):
         print(f"  dropped {n:3} x {what}")
 

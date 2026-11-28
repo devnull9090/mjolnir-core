@@ -154,7 +154,7 @@ Megalo script or user options; **data** = new tag data in the runtime pack;
 | Weapon sets (snipers only etc.) | data: remap tables in the object type list we ship, selected by the variant's weapon set | needs RE of where the sim applies the remap |
 | Vehicle set, per team (CE's default, none, one type, custom 0-4) | data + patch: Megalo labels on the map's vehicles and object filters appended at match start (ce_map_conversion.md, "Vehicle sets") | built 2026-10-08 |
 | Vehicle respawn time | respawn is baked at conversion (30-40 s) | |
-| Starting equipment | data + patch: the map's kit is baked into the scenario's starting profile and the loader sets the weapon and grenade traits at match start (ce_map_conversion.md, "Starting equipment") | "custom" (the map's) built and verified 2026-11-28; the host cannot choose "generic" yet |
+| Starting equipment | data + patch: the map's kit is baked into the scenario's starting profile and the loader sets the weapon and grenade traits at match start (ce_map_conversion.md, "Starting equipment") | built and verified 2026-11-28: STARTING EQUIPMENT, CUSTOM (the map's, the default) or GENERIC (CE's assault rifle, pistol and grenades on a CE map) |
 | FF shields-only / explosives-only, Race | none without major work | |
 
 ## Design

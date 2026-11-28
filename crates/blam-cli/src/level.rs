@@ -296,6 +296,12 @@ pub struct LevelFile {
     /// the match's game type into the variant it stages.
     #[serde(default)]
     pub starting_equipment: Vec<StartingEquipment>,
+    /// CE's "generic" starting kit (tools/level/gen_ce_level.py
+    /// `generic_kit`): what a host who chooses GENERIC starting equipment
+    /// gets instead of the map's kits. The loader's alone; opaque to the
+    /// bake.
+    #[serde(default)]
+    pub generic_equipment: Option<serde_json::Value>,
     /// Halo 2's machines that move in parts (tools/level/gen_ce_level.py
     /// `add_doors`): each placement's machines and part meshes, which the
     /// loader's doors.lua attaches together; opaque to the bake (the
@@ -5763,6 +5769,10 @@ mod tests {
         assert_eq!(level.starting_equipment[0].weapons, ["battle_rifle", "smg"]);
         assert_eq!(level.starting_equipment[0].traits["primary_weapon"], 254);
         validate_level(&level).unwrap();
+        // CE's generic kit is the loader's: any shape passes the bake.
+        let mut with_generic = document(serde_json::json!([]));
+        with_generic["generic_equipment"] = serde_json::json!({"weapons": ["assault_rifle", "magnum"]});
+        assert!(serde_json::from_value::<LevelFile>(with_generic).unwrap().generic_equipment.is_some());
         // A level without kits has none, and bakes as before.
         let none: LevelFile = serde_json::from_value(document(serde_json::json!([]))).unwrap();
         assert!(none.starting_equipment.is_empty());

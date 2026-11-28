@@ -7330,8 +7330,17 @@ local function loadMegaloSwitch()
             -- variant. A map without a kit keeps the variant's own traits.
             if bytes then
                 local kitMode = (Teams.descriptors[name] or {}).vehicleMode or name
-                local kit, entry = VariantSettings.kitSettings(level.starting_equipment,
-                    VehicleSets.spawnFamily(kitMode, level.game))
+                -- GENERIC starting equipment (the host's `kit=1`): CE's one
+                -- kit for every map, where the level carries one. A map
+                -- without it (Halo 2 has no such kit) keeps its own.
+                local kit, entry
+                local generic = parsed.kit == 1
+                if generic then kit, entry = VariantSettings.kitTraits(level.generic_equipment) end
+                if not kit then
+                    generic = false
+                    kit, entry = VariantSettings.kitSettings(level.starting_equipment,
+                        VehicleSets.spawnFamily(kitMode, level.game))
+                end
                 if kit then
                     local patched, why = VariantSettings.apply(bytes, kit)
                     if patched then
@@ -7339,7 +7348,8 @@ local function loadMegaloSwitch()
                         Log(string.format("multiplayer switch: starting kit %s, %d frag, %d plasma%s",
                             #(entry.weapons or {}) > 0 and table.concat(entry.weapons, " + ") or "no weapon",
                             entry.frag_grenades or 0, entry.plasma_grenades or 0,
-                            entry.profile and " (the map's starting profile)" or ""))
+                            generic and " (generic, the host's choice)"
+                                or entry.profile and " (the map's starting profile)" or ""))
                     else
                         Log("multiplayer switch: starting kit not applied (" .. tostring(why)
                             .. "); the variant's own weapons stand")

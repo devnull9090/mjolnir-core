@@ -20,6 +20,12 @@ What the engine does with it (MCC's halo1.dll, 0xaa6084 and 0xaa5ef8):
   item +0x24).
 - With no entry for the game, the weapons are the first and fifth of the
   globals' weapon list (matg +0x14C, 16 bytes each).
+- A variant with "generic" starting equipment (flag 0x20: CE's Pro game
+  types) skips all of that, and the player keeps what the multiplayer biped's
+  own tag carries: the unit's weapons block (bipd +0x2D8, 36 bytes each) of
+  the unit the globals' multiplayer information names (matg +0x164, unit
+  +0x10). In the stock maps that is the assault rifle and the pistol:
+  `generic_weapons` here.
 - The grenades come from the globals' grenade list (matg +0x128, 0x44 each:
   maximum count, then the multiplayer spawn count): each kind's spawn count,
   and the fragmentation maximum instead when plasma's spawn count is 0, as
@@ -33,8 +39,9 @@ is what a game of five to eight players gets (GRENADE_CAP): two
 fragmentation grenades from the stock globals, which is also their own
 multiplayer spawn count. `grenade_kinds` keeps what the tag says.
 
-Only what a game variant with "custom" starting equipment does is read here;
-CE's "generic" variants ignore the scenario's entries.
+CE's own menu says of the two: custom, "You will start the game with the
+weapon set that the map designers custom tailored for it"; generic, "Use the
+generic starting weapons across all maps."
 """
 import json
 import os
@@ -129,6 +136,12 @@ def read(path):
         count, at = m.block(g + 0x14C)
         fallback = [w for i in (0, 4) if i < count and (w := m.reference(at + i * 16))]
         out["fallback_weapons"] = [{"asset": w[1], "tag_class": w[0]} for w in fallback]
+        count, at = m.block(g + 0x164)
+        unit = m.reference(at + 0x10) if count else None
+        if unit:
+            count, at = m.block(m.off(unit[2]) + 0x2D8)
+            carried = [w for i in range(count if 0 < count <= 4 else 0) if (w := m.reference(at + i * 36))]
+            out["generic_weapons"] = [{"asset": w[1], "tag_class": w[0]} for w in carried]
     return out
 
 

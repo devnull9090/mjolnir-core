@@ -992,10 +992,21 @@ spot had a new one there 42 seconds later, its spawn time, while the first
 was still in hand. A battle rifle taken from its spot had none after 90
 seconds in hand; once it was dropped and destroyed, a new one was there
 within 45 seconds. Halo 2 starts the timer of most of its battle rifles on
-pickup, so a map here has fewer battle rifles in play than Halo 2's while
-players hold them. That is a property of the game's tag, the same on every
-map; changing it means shipping the weapon tag with the other weapons'
-multiplayer object settings in the runtime pack, which is not done.
+pickup.
+
+So the CE runtime pack ships that weapon tag with the other weapons'
+settings. `tools/level/build_weapon_respawn.py` (run by
+`build_ce_runtime.sh`) reads the multiplayer object of every weapon in the
+game's multiplayer weapon list, takes the first that is set up as a weapon as
+its reference, and packs an override of any that is not with the reference's
+type, timer start and default times: `pakchunk990-MJOLNIRWRESPAWN-<type>_P`.
+Today that is the battle rifle alone; nothing names it, so a weapon a later
+update ships half set up is caught the same way. With it installed
+(Lockout, 2026-11-28) a battle rifle taken at 01:46:07 had a new one on its
+spot between 25 and 50 seconds later, its spawn time being 45, while the
+first was still in hand. It is an override of a shipped tag, so a game update
+that changes the battle rifle needs the runtime rebuilt, as for the object
+type list.
 
 A collection of several permutations is drawn from by weight at every spawn
 (Coagulation's two `group_all_powerups`: overshield 90, camouflage 70). One
@@ -1027,14 +1038,25 @@ halo2.dll 0x68ab10 and 0x6aa460):
   globals' weapon list, the assault rifle and the pistol (Rat Race has no
   entries at all). Halo 2 has no such rule, and each of its 25 maps has one
   entry for every game.
-- A game variant can replace either weapon. Only the map's own kit is
-  converted: CE's "custom" starting equipment, Halo 2's "map default". That
-  is what the stock game types play. CE skips the scenario's kit only when
-  the variant's flag 0x20 is set (halo1.dll 0xaa6084), and of the 38 variants
-  MCC ships for Halo 1 (`halo1/game_variants`, flags at +0x38) only six set
-  it: Classic Slayer Pro, CTF Pro and King Pro, Classic Rockets and Snipers,
-  and Team Oddball. Slayer, CTF, King, Oddball, Juggernaut, Race and Assault,
-  and their Classic forms, all take the map's.
+- A game variant can replace either weapon. The map's own kit is the
+  default here, as it is in both games: CE's "custom" starting equipment,
+  Halo 2's "map default".
+- CE's other choice is "generic". Its own menu describes the two: custom,
+  "You will start the game with the weapon set that the map designers custom
+  tailored for it"; generic, "Use the generic starting weapons across all
+  maps." A generic variant (flag 0x20; halo1.dll 0xaa6084) skips the
+  scenario's entries, and the player keeps what the multiplayer biped's own
+  tag carries: the unit's weapons block of `characters\cyborg_mp\cyborg_mp`,
+  an assault rifle and a pistol, with the globals' grenades.
+- Which game types use which: of the 38 variants MCC ships for Halo 1
+  (`halo1/game_variants`, flags at +0x38) six are generic: Classic Slayer Pro,
+  CTF Pro and King Pro, whose menu descriptions end "Start with Pistol, AR
+  and Grenades", Classic Rockets and Snipers, and Team Oddball. Slayer, CTF,
+  King, Oddball, Juggernaut, Race and Assault, and their Classic forms, take
+  the map's kit and say nothing of weapons. So Slayer on Blood Gulch did
+  start with a plasma pistol and no grenades, and CTF there with an assault
+  rifle and a pistol; "Slayer Pro" is where the assault rifle and pistol on
+  every map came from.
 
 Halo 2's kits: the SMG on 22 maps; the plasma rifle on Midship (plasma
 grenades) and Waterworks; the battle rifle and SMG on Tombstone; no grenades
@@ -1070,14 +1092,23 @@ How it reaches the game:
    with its own tag's rounds, and the grenade counts. Every scenario baked
    before this still carries the canvas mission's profile there (an assault
    rifle, a plasma rifle and four fragmentation grenades).
-4. **The variant.** The shipped variants still name the assault rifle, so a
+4. **The host's choice.** GAME SETTINGS has CE's STARTING EQUIPMENT option
+   (MJOLNIRLobby 0.35.0): CUSTOM, the default, is the map's kit; GENERIC is
+   CE's generic kit, which `gen_ce_level.py` (`generic_kit`) writes into a CE
+   map's level as `generic_equipment` from the biped's weapons that
+   `ce_starting_equipment.py` staged. GENERIC travels as `kit=1` on the
+   settings line, and only then: a line without the key means CUSTOM, so an
+   older loader still reads it. A Halo 2 map has no generic kit and keeps
+   its own.
+5. **The variant.** The shipped variants still name the assault rifle, so a
    map without a kit plays as before. When a match starts,
    MJOLNIRLevelLoader writes the traits of the kit for the game's family into
    the variant it stages (`VariantSettings.kitSettings`), before the host's
    own settings: "the map's" (-2) for the profile's kit, and for any other
    kit its weapons by their place in the game's multiplayer weapon list
    (`trait_weapons` in `defs/level/palette-map.json`) and the grenade
-   trait's own count. Each machine works this out from the same level file.
+   trait's own count. With GENERIC it writes the generic kit's instead. Each
+   machine works this out from the same level file and settings line.
 
 Measured 2026-11-28 on PC 1, on packs `add_netgame.py` made from the
 installed releases:
@@ -1111,10 +1142,11 @@ takes the weapons, equipment, vehicle times, sets and kits of a freshly
 generated level, keeps everything else the pack ships, and rebakes the
 scenario alone.
 
-Not done: a host cannot yet choose CE's "generic" kit or Halo 2's other
-starting weapons in GAME SETTINGS; FORGE, which runs the sandbox engine's
-own variant, spawns its usual kit; and bots keep the weapons their squads
-were baked with.
+Not done: Halo 2's own starting weapon choices (a named primary and
+secondary weapon) are not in GAME SETTINGS, and neither are CE's weapon sets,
+which also change a generic kit (Classic Rockets starts everyone with a
+rocket launcher); FORGE, which runs the sandbox engine's own variant, spawns
+its usual kit; and bots keep the weapons their squads were baked with.
 
 ### Health packs
 

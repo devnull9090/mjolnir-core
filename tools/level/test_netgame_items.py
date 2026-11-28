@@ -5,6 +5,7 @@ Run from tools/level: python -m unittest test_netgame_items."""
 import unittest
 
 import add_netgame
+import build_weapon_respawn
 import gen_ce_level as g
 
 WEAPONS = ["assault_rifle", "battle_rifle", "smg", "magnum", "sniper_rifle", "shotgun", "rocket_launcher",
@@ -135,6 +136,43 @@ class Kits(unittest.TestCase):
                             False, resolve, ["assault_rifle", "plasma_pistol"])
 
 
+class Generic(unittest.TestCase):
+    def test_generic_kit_names_its_weapons_and_grenades(self):
+        carried = [{"asset": "w/ar", "tag_class": "weap"}, {"asset": "w/pistol", "tag_class": "weap"}]
+        kit = g.generic_kit(carried, resolve, WEAPONS, (2, 0))
+        self.assertEqual(kit, {"weapons": ["assault_rifle", "magnum"], "frag_grenades": 2, "plasma_grenades": 0,
+                               "traits": {"primary_weapon": 0, "secondary_weapon": 3, "grenades": 4}})
+
+    def test_no_generic_kit_without_weapons(self):
+        # Halo 2's staging names none; a weapon the game has nothing for is none either.
+        self.assertIsNone(g.generic_kit(None, resolve, WEAPONS, (2, 0)))
+        self.assertIsNone(g.generic_kit([{"asset": "w/c4", "tag_class": "weap"}], resolve, WEAPONS, (2, 0)))
+
+
+class WeaponRespawn(unittest.TestCase):
+    AS_WEAPON = {"type": "weapon", "spawn timer type": "starts on disturbance", "default spawn time": "30",
+                 "default abandonment time": "60"}
+    ORDINARY = {"type": "ordinary", "spawn timer type": "starts on death", "default spawn time": "",
+                "default abandonment time": ""}
+
+    def test_a_weapon_not_set_up_as_one_takes_the_reference(self):
+        tags = {"t/ar": self.AS_WEAPON, "t/br": self.ORDINARY, "t/smg": self.AS_WEAPON, "t/none": None}
+        reference, values, change = build_weapon_respawn.plan(
+            {"assault_rifle": "t/ar", "battle_rifle": "t/br", "smg": "t/smg", "beam": "t/none"}, tags.get)
+        self.assertEqual(reference, "assault_rifle")
+        self.assertEqual(list(change), ["battle_rifle"])
+        self.assertEqual(values[reference], self.AS_WEAPON)
+
+    def test_nothing_changes_when_every_weapon_is_one(self):
+        _, _, change = build_weapon_respawn.plan({"a": "t/a", "b": "t/b"}, lambda path: self.AS_WEAPON)
+        self.assertEqual(change, {})
+
+    def test_enum_text_loses_its_number(self):
+        self.assertEqual(build_weapon_respawn.plain("weapon (1)"), "weapon")
+        self.assertEqual(build_weapon_respawn.plain("starts on disturbance (1)"), "starts on disturbance")
+        self.assertEqual(build_weapon_respawn.plain("30"), "30")
+
+
 class Splice(unittest.TestCase):
     def level(self, **blam):
         return {"name": "x", "decor": [1], "blam": {"objects": [{"tag": "spawn"}], "weapons": [], "equipment": [],
@@ -150,9 +188,11 @@ class Splice(unittest.TestCase):
                                       "set": {add_netgame.SPAWN: "50", add_netgame.ABANDON: "90", "label": "fresh"}}])
         fresh["decor"] = ["fresh"]
         fresh["starting_equipment"] = [{"families": ["slayer"], "weapons": ["smg"]}]
+        fresh["generic_equipment"] = {"weapons": ["assault_rifle", "magnum"]}
         fresh["spawn_sets"] = [{"label": "spawn_set_0", "families": ["ctf"]}]
         level, why = add_netgame.splice(shipped, fresh)
         self.assertIsNone(why)
+        self.assertEqual(level["generic_equipment"], fresh["generic_equipment"])
         self.assertEqual(level["blam"]["weapons"], fresh["blam"]["weapons"])
         self.assertEqual(level["blam"]["vehicles"][0]["set"],
                          {add_netgame.SPAWN: "50", add_netgame.ABANDON: "90", "label": "kept"})
