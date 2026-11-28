@@ -9,7 +9,7 @@ export function PlaySteps() {
     <ol className="grid gap-6 md:grid-cols-3 md:gap-8">
       {PLAY_STEPS.map((step, index) => (
         <li key={step.title} className="relative h-full">
-          <Reveal delay={index * 90} className="h-full">
+          <Reveal delay={index * 45} className="h-full">
             <div className="group flex h-full flex-col rounded-xl border border-border bg-background/55 p-6 transition-all duration-200 hover:-translate-y-0.5 hover:border-gold/40">
               <div className="flex items-center gap-3">
                 <span className="inline-flex size-10 items-center justify-center rounded-lg border border-gold/40 bg-surface font-mono text-sm font-bold text-gold shadow-[0_0_20px_-6px_rgba(212,168,67,0.5)] transition-colors group-hover:bg-gold group-hover:text-background">

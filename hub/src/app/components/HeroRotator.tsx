@@ -16,10 +16,12 @@ const ROTATE_MS = 7500;
 export function HeroRotator({
   scenes,
   multiplayerHref,
+  bottomLeft,
   children,
 }: {
   scenes: HeroScene[];
-  multiplayerHref: string;
+  multiplayerHref?: string;
+  bottomLeft?: ReactNode;
   children: ReactNode;
 }) {
   const [index, setIndex] = useState(0);
@@ -48,7 +50,7 @@ export function HeroRotator({
           return (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              key={scene.slug}
+              key={`${scene.slug}-${i}`}
               src={scene.image}
               alt={isCurrent ? scene.alt : ""}
               fetchPriority={i === 0 ? "high" : undefined}
@@ -70,13 +72,17 @@ export function HeroRotator({
 
         {/* Bottom editorial rail + interactive map capture switcher */}
         <div className="mj-rise mj-rise-d5 mt-16 flex flex-wrap items-center justify-between gap-x-6 gap-y-4 border-t border-white/15 pt-5">
-          <Link
-            href={multiplayerHref}
-            className="group inline-flex items-center gap-2.5 text-sm font-semibold text-white transition-colors hover:text-gold"
-          >
-            Does Campaign Evolved have multiplayer?{" "}
-            <ArrowRight aria-hidden="true" className="size-4 transition-transform group-hover:translate-x-1" />
-          </Link>
+          {bottomLeft ?? (
+            multiplayerHref ? (
+              <Link
+                href={multiplayerHref}
+                className="group inline-flex items-center gap-2.5 text-sm font-semibold text-white transition-colors hover:text-gold"
+              >
+                Does Campaign Evolved have multiplayer?{" "}
+                <ArrowRight aria-hidden="true" className="size-4 transition-transform group-hover:translate-x-1" />
+              </Link>
+            ) : <span />
+          )}
 
           {active && (
             <div
@@ -85,13 +91,16 @@ export function HeroRotator({
               onMouseLeave={() => setPaused(false)}
             >
               <Link
-                href={`/mods/${active.slug}`}
+                href={active.href ?? `/mods/${active.slug}`}
                 className="group inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.16em] text-slate-300 transition-colors hover:text-gold"
                 title={`View ${active.name} on the hub`}
               >
                 <span className="text-slate-400">In-game capture</span>
                 <span aria-hidden="true" className="text-white/30">/</span>
-                <span className="font-semibold text-white group-hover:text-gold">{active.name}</span>
+                <span className="font-semibold text-white group-hover:text-gold">
+                  {active.name}
+                  {active.tag ? ` · ${active.tag}` : ""}
+                </span>
                 <ArrowUpRight aria-hidden="true" className="size-3.5 text-gold/80 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
               </Link>
 
@@ -99,14 +108,15 @@ export function HeroRotator({
                 <div className="flex items-center gap-1.5" role="tablist" aria-label="Hero map captures">
                   {scenes.map((scene, i) => {
                     const isCurrent = i === index;
+                    const label = scene.tag ? `${scene.name} (${scene.tag})` : scene.name;
                     return (
                       <button
-                        key={scene.slug}
+                        key={`${scene.slug}-${i}`}
                         type="button"
                         role="tab"
                         aria-selected={isCurrent}
-                        aria-label={`Show ${scene.name}`}
-                        title={scene.name}
+                        aria-label={`Show ${label}`}
+                        title={label}
                         onClick={() => setIndex(i)}
                         className="group py-2 cursor-pointer"
                       >
@@ -119,7 +129,7 @@ export function HeroRotator({
                         >
                           {isCurrent && (
                             <span
-                              key={`${scene.slug}-${paused ? "p" : "r"}`}
+                              key={`${scene.slug}-${i}-${paused ? "p" : "r"}`}
                               style={{ "--scene-ms": `${ROTATE_MS}ms` } as CSSProperties}
                               className={`absolute inset-0 rounded-full bg-gold ${
                                 paused ? "" : "mj-scene-progress"
