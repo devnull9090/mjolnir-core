@@ -667,7 +667,10 @@ impl Dumper<'_> {
         }
     }
 
-    /// A TRAITS block: the fields that change something (0 = unchanged).
+    /// A TRAITS block: the fields that change something. 0 is unchanged,
+    /// but for a field whose own names put "unchanged" elsewhere (the
+    /// weapons and the ability, at -3): there 0 is the first entry of the
+    /// game's list, and is printed.
     fn traits(&self, v: &Value) -> String {
         let defs = match self.g.type_def("TRAITS") {
             Some(TypeDef::Struct(d)) => d.as_slice(),
@@ -677,16 +680,16 @@ impl Dumper<'_> {
             .fields()
             .iter()
             .filter(|n| {
-                let unchanged = find_def(defs, &n.name)
-                    .and_then(|d| d.names.as_ref())
+                let names = find_def(defs, &n.name).and_then(|d| d.names.as_ref());
+                let unchanged = names
                     .zip(n.value.as_i64())
                     .and_then(|(names, v)| names.get(&v))
                     .is_some_and(|name| name == "unchanged");
+                let zero_is_a_value =
+                    names.is_some_and(|names| names.iter().any(|(&v, name)| v != 0 && name == "unchanged"));
                 !unchanged
-                    && !matches!(
-                        n.value,
-                        Value::Int { value: 0, .. } | Value::Opt { value: None, .. }
-                    )
+                    && !matches!(n.value, Value::Opt { value: None, .. })
+                    && (zero_is_a_value || !matches!(n.value, Value::Int { value: 0, .. }))
             })
             .map(|n| {
                 format!(

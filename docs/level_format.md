@@ -481,7 +481,13 @@ and the loader's comments beside each are the reference.
 - Accepted by `level bake` and passed over: `variant` (the Megalo game type the map starts
   with), `modes` (the game types the multiplayer menu offers, listed in the `maps.json` an
   install writes), `vehicle_sets` (CE's vehicle sets, from which the loader picks the labels a
-  game type requires), `spawn_sets` (the hidden spawn points' labels, `spawn_set_<k>`, each
+  game type requires), `starting_equipment` (what a player spawns holding, by family of game types: `families`,
+  up to two `weapons`, `frag_grenades`, `plasma_grenades`, `profile` on the one kit the bake writes
+  into the scenario's first player starting profile, and `traits`, the variant's weapon and grenade
+  traits for that kit, which the loader writes into the staged variant;
+  [ce_map_conversion.md](ce_map_conversion.md), "Starting equipment"; the bake checks it, unlike the
+  other keys here),
+  `spawn_sets` (the hidden spawn points' and pickups' labels, `spawn_set_<k>`, each
   with the families it serves: `[{"label": "spawn_set_0", "families": ["king", "oddball",
   "slayer"]}]`; the loader adds a filter for each set the game type's family is in, see
   [ce_map_conversion.md](ce_map_conversion.md), "Spawn sets"), `ctf` (Capture the Flag's look: the flag mesh, its materials, the
