@@ -41,6 +41,27 @@
     {
       "product": "mods",
       "productName": "MJOLNIR Code Mods",
+      "version": "0.59.3",
+      "tag": "mods-v0.59.3",
+      "title": "Death Island no longer washed out",
+      "date": "2026-11-27",
+      "summary": "At the Low and Medium video settings, Death Island's sand, grass and rocks drew almost white after mods 0.59.1. They are lit normally again.",
+      "body": "### Fixed\n\nIn MJOLNIRLevelLoader 0.21.14.\n\n- **Washed-out maps at Low and Medium settings.** Mods 0.59.1 made the sky\n  light capture the sky again once a map is ready, so weapons are lit on\n  cards without ray tracing. On maps whose Halo sky has a very bright\n  horizon, that capture took in the sky dome itself and lit the ground far\n  too strongly: Death Island's beach drew white. The Halo sky dome now\n  stays out of that capture on every map. Weapons stay lit.",
+      "sections": [
+        {
+          "heading": "Fixed",
+          "items": [
+            "Washed-out maps at Low and Medium settings. Mods 0.59.1 made the sky light capture the sky again once a map is ready, so weapons are lit on cards without ray tracing. On maps whose Halo sky has a very bright horizon, that capture took in the sky dome itself and lit the ground far too strongly: Death Island's beach drew white. The Halo sky dome now stays out of that capture on every map. Weapons stay lit."
+          ]
+        }
+      ],
+      "path": "/changelog/mods/0.59.3",
+      "sourcePath": "https://github.com/devnull9090/mjolnir-core/blob/main/changelog/mods/0.59.3.md",
+      "releaseUrl": "https://github.com/devnull9090/mjolnir-core/releases/tag/mods-v0.59.3"
+    },
+    {
+      "product": "mods",
+      "productName": "MJOLNIR Code Mods",
       "version": "0.59.2",
       "tag": "mods-v0.59.2",
       "title": "Flashlight no longer blinding",
