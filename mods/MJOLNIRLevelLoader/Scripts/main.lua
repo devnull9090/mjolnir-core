@@ -1615,6 +1615,19 @@ local function spawnDecorItem(world, origin, item)
         -- (Effects.flux). Neither Flux's phantom material nor a component
         -- visible in scene captures alone reached its capture.
         if item.capture_only then comp:SetCastShadow(false) end
+        -- The CE sky (the spec's sky sections: SkyFollow) stays out of the
+        -- sky light's captures. The sky light's intensity carries the
+        -- level's light scale, set for a capture without it; a dome with a
+        -- bright horizon, captured, washed every Unreal-lit surface white
+        -- (Death Island's sand, grass and rocks once every map recaptured,
+        -- 2026-11-27). Blood Gulch's dome added nothing to its capture.
+        for _, m in ipairs(type(item.materials) == "table" and item.materials or {}) do
+            if type(m) == "table" and type(m.scalars) == "table" and (tonumber(m.scalars.SkyFollow) or 0) > 0 then
+                comp.bVisibleInReflectionCaptures = false
+                comp.bVisibleInRealTimeSkyCaptures = false
+                break
+            end
+        end
     end)
     if not okSetup then
         pcall(function() actor:K2_DestroyActor() end)
