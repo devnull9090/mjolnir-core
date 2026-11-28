@@ -142,6 +142,10 @@ MSYS2_ARG_CONV_EXCL="/Game" "$examples/package_add" "$HCE_PAKS" "$(cygpath -m "$
 echo "== 5/5 the multiplayer scenery, the CTF tags, the Spartan's damage sections and the main menu's MULTIPLAYER button"
 MJOLNIR="$mjolnir" "$here/build_spawn_point.sh" "$out" > "$out/spawn_point.log"
 MJOLNIR="$mjolnir" "$here/build_ctf_flag.sh" "$out" > "$out/ctf_flag.log"
+# A weapon of the game's multiplayer list whose own tag does not respawn it
+# on pickup (the battle rifle ships as an "ordinary" object) takes the
+# settings every other weapon has: pakchunk990-MJOLNIRWRESPAWN-<type>_P.
+MJOLNIR="$mjolnir" python "$here/build_weapon_respawn.py" "$out" > "$out/weapon_respawn.log"
 # The shipped Spartan model puts both its materials, body and head, on damage
 # section 1 ("head", headshot-able), so a bullet anywhere on a Spartan was a
 # headshot: a sniper round to the leg killed a shielded Spartan. The Elite's
