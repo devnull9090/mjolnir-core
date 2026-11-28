@@ -70,7 +70,9 @@ CLIFF_FILL_DIR = [0.75, 0.0, 0.0, 0.0]
 # are detailed already; at the walls' 0.6 they folded, backfaces showing as
 # lavender patches, and even at 0.2 their triplanar rock smeared into
 # streaks down every overhang (Yoyorast, 2026-10-16; 0.06 still streaked).
-TESS = {"disp": 0.6, "cladding": True, "clad_disp": 0.0}
+# With clad_disp 0 their master, M_CE_CladTess, is built untessellated
+# (build_ce_materials.py): tessellating to displace nothing cost ~2 ms.
+TESS ={"disp": 0.6, "cladding": True, "clad_disp": 0.0}
 # Indoor maps (`indoor`: Rat Race's tunnels): no Landscape, no grass or
 # swapped scenery, the conversion's own map container and collision; only
 # the cliffs in the game's rock (and the level file's structures, lights,
